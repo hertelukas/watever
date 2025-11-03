@@ -3,9 +3,9 @@
 #include <llvm/Support/ErrorHandling.h>
 #include <llvm/Support/SourceMgr.h>
 #include <llvm/Support/raw_ostream.h>
-#include <wasmgen/opcode.h>
+#include <watever/opcode.h>
 
-using namespace wasmgen;
+using namespace watever;
 int main(int argc, char *argv[]) {
   llvm::SMDiagnostic Err;
   llvm::LLVMContext Ctx;

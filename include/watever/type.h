@@ -3,17 +3,17 @@
  * https://github.com/WebAssembly/wabt/blob/main/include/wabt/type.h
  */
 
-#ifndef WASMGEN_TYPE_H
-#define WASMGEN_TYPE_H
+#ifndef WATEVER_TYPE_H
+#define WATEVER_TYPE_H
 
-#include "wasmgen/base-types.h"
+#include "watever/base-types.h"
 
 #include <cassert>
 #include <format>
 #include <string>
 #include <vector>
 
-namespace wasmgen {
+namespace watever {
 
 class Type;
 
@@ -196,6 +196,6 @@ private:
   // It contains an index for references with type index.
   Index type_index_;
 };
-} // namespace wasmgen
+} // namespace watever
 
-#endif // WASMGEN_TYPE_H
+#endif // WATEVER_TYPE_H

@@ -3,34 +3,34 @@
  * https://github.com/WebAssembly/wabt/blob/main/include/wabt/opcode.h
  */
 
-#ifndef WASMGEN_OPCODE_H
-#define WASMGEN_OPCODE_H
+#ifndef WATEVER_OPCODE_H
+#define WATEVER_OPCODE_H
 
-#include "wasmgen/opcode-code-table.h"
-#include "wasmgen/type.h"
-#include "wasmgen/utils.h"
+#include "watever/opcode-code-table.h"
+#include "watever/type.h"
+#include "watever/utils.h"
 
-namespace wasmgen {
+namespace watever {
 struct Opcode {
   // Opcode enumerations.
   //
   // NOTE: this enum does not match the binary encoding.
   //
   enum Enum : uint32_t {
-#define WASMGEN_OPCODE(rtype, type1, type2, type3, mem_size, prefix, code,     \
+#define WATEVER_OPCODE(rtype, type1, type2, type3, mem_size, prefix, code,     \
                        Name, text, decomp)                                     \
   Name,
-#include "wasmgen/opcode.def"
-#undef WASMGEN_OPCODE
+#include "watever/opcode.def"
+#undef WATEVER_OPCODE
     Invalid,
   };
 
 // Static opcode objects.
-#define WASMGEN_OPCODE(rtype, type1, type2, type3, mem_size, prefix, code,     \
+#define WATEVER_OPCODE(rtype, type1, type2, type3, mem_size, prefix, code,     \
                        Name, text, decomp)                                     \
   static Opcode Name##_Opcode;
-#include "wasmgen/opcode.def"
-#undef WASMGEN_OPCODE
+#include "watever/opcode.def"
+#undef WATEVER_OPCODE
 
   Opcode() = default; // Provided so Opcode can be member of a union.
   Opcode(Enum E) : E(E) {}
@@ -138,8 +138,8 @@ inline Opcode Opcode::fromCode(uint8_t Prefix, uint32_t Code) {
   uint32_t PrefixCode = prefixCode(Prefix, Code);
 
   [[likely]]
-  if (PrefixCode < WASMGEN_ARRAY_SIZE(WasmgenOpcodeCodeTable)) {
-    uint32_t Value = WasmgenOpcodeCodeTable[PrefixCode];
+  if (PrefixCode < WATEVER_ARRAY_SIZE(WateverOpcodeCodeTable)) {
+    uint32_t Value = WateverOpcodeCodeTable[PrefixCode];
     // The default value in the table is 0. That's a valid value, but only if
     // the code is 0 (for nop).
     [[likely]]
@@ -151,6 +151,6 @@ inline Opcode Opcode::fromCode(uint8_t Prefix, uint32_t Code) {
   return Opcode(encodeInvalidOpcode(PrefixCode));
 }
 
-} // namespace wasmgen
+} // namespace watever
 
-#endif // WASMGEN_OPCODE_H
+#endif // WATEVER_OPCODE_H

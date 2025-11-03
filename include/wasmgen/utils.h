@@ -1,6 +1,0 @@
-#ifndef WASMGEN_UTILS_H
-#define WASMGEN_UTILS_H
-
-#define WASMGEN_ARRAY_SIZE(a) (sizeof(a) / sizeof(a[0]))
-enum { WABT_USE_NATURAL_ALIGNMENT = 0xFFFFFFFFFFFFFFFF };
-#endif // WASMGEN_UTILS_H

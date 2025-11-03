@@ -3,8 +3,8 @@
  * https://github.com/WebAssembly/wabt/blob/main/include/wabt/opcode-code-table.h
  */
 
-#ifndef WASMGEN_OPCODE_CODE_TABLE_H
-#define WASMGEN_OPCODE_CODE_TABLE_H
+#ifndef WATEVER_OPCODE_CODE_TABLE_H
+#define WATEVER_OPCODE_CODE_TABLE_H
 
 #include <stdint.h>
 
@@ -12,7 +12,7 @@
 extern "C" {
 #endif
 
-#define WASMGEN_OPCODE_CODE_TABLE_SIZE 131072
+#define WATEVER_OPCODE_CODE_TABLE_SIZE 131072
 
 /*
  * Number of bits required to store an opcode
@@ -22,10 +22,10 @@ extern "C" {
 /* This structure is defined in C because C++ doesn't (yet) allow you to use
  * designated array initializers, i.e. [10] = {foo}.
  */
-extern uint32_t WasmgenOpcodeCodeTable[WASMGEN_OPCODE_CODE_TABLE_SIZE];
+extern uint32_t WateverOpcodeCodeTable[WATEVER_OPCODE_CODE_TABLE_SIZE];
 
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
 
-#endif // WASMGEN_OPCODE_CODE_TABLE_H
+#endif // WATEVER_OPCODE_CODE_TABLE_H

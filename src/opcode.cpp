@@ -3,18 +3,18 @@
  * https://github.com/WebAssembly/wabt/blob/main/src/opcode.cc
  */
 
-#include "wasmgen/opcode.h"
+#include "watever/opcode.h"
 
-namespace wasmgen {
+namespace watever {
 
 // static
 Opcode::Info Opcode::Infos[] = {
-#define WASMGEN_OPCODE(rtype, type1, type2, type3, mem_size, prefix, code,     \
+#define WATEVER_OPCODE(rtype, type1, type2, type3, mem_size, prefix, code,     \
                        Name, text, decomp)                                     \
   {text,     decomp, Type::rtype, {Type::type1, Type::type2, Type::type3},     \
    mem_size, prefix, code,        prefixCode(prefix, code)},
-#include "wasmgen/opcode.def"
-#undef WASMGEN_OPCODE
+#include "watever/opcode.def"
+#undef WATEVER_OPCODE
 
     {"<invalid>",
      "",
@@ -26,11 +26,11 @@ Opcode::Info Opcode::Infos[] = {
      0},
 };
 
-#define WASMGEN_OPCODE(rtype, type1, type2, type3, mem_size, prefix, code,     \
+#define WATEVER_OPCODE(rtype, type1, type2, type3, mem_size, prefix, code,     \
                        Name, text, decomp)                                     \
   /* static */ Opcode Opcode::Name##_Opcode(Opcode::Name);
-#include "wasmgen/opcode.def"
-#undef WASMGEN_OPCODE
+#include "watever/opcode.def"
+#undef WATEVER_OPCODE
 
 Opcode::Info Opcode::getInfo() const {
   if (E < Invalid) {
@@ -423,4 +423,4 @@ std::vector<uint8_t> Opcode::getBytes() const {
   return Result;
 }
 
-} // namespace wasmgen
+} // namespace watever
