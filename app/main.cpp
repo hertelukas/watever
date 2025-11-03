@@ -1,9 +1,11 @@
-#include "wasgen/utils.h"
-#include "llvm/Support/raw_ostream.h"
 #include <llvm/IR/Module.h>
 #include <llvm/IRReader/IRReader.h>
+#include <llvm/Support/ErrorHandling.h>
 #include <llvm/Support/SourceMgr.h>
+#include <llvm/Support/raw_ostream.h>
+#include <wasmgen/opcode.h>
 
+using namespace wasmgen;
 int main(int argc, char *argv[]) {
   llvm::SMDiagnostic Err;
   llvm::LLVMContext Ctx;
@@ -17,5 +19,14 @@ int main(int argc, char *argv[]) {
 
   llvm::outs() << "Instruction Count: " << Mod->getInstructionCount() << "\n";
   llvm::outs() << "File name: " << Mod->getSourceFileName() << "\n";
+  llvm::outs() << "Functions:\n";
+  for (auto const &F : Mod->getFunctionList()) {
+    llvm::outs() << "------------------------\n";
+    llvm::outs() << F;
+  }
+
+  Opcode Call = Opcode{Opcode::Enum::BrIf};
+  llvm::outs() << Call.getCode() << ": " << Call.getName() << "\n";
+
   return 0;
 }
