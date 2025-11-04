@@ -5,6 +5,8 @@
 #include <llvm/Support/raw_ostream.h>
 #include <watever/opcode.h>
 
+#define DEBUG_TYPE "main"
+
 using namespace watever;
 int main(int argc, char *argv[]) {
   llvm::SMDiagnostic Err;
@@ -27,6 +29,14 @@ int main(int argc, char *argv[]) {
 
   Opcode Call = Opcode{Opcode::Enum::BrIf};
   llvm::outs() << Call.getCode() << ": " << Call.getName() << "\n";
+
+  auto Encoded = llvm::SmallVector<std::byte>();
+  leb128(-1234123412341234, Encoded);
+
+  for (const auto &Byte : Encoded) {
+    llvm::outs() << llvm::format("%02x", (unsigned int)Byte);
+  }
+  llvm::outs() << "\n";
 
   return 0;
 }

@@ -45,11 +45,11 @@ Opcode::Info Opcode::getInfo() const {
 
 bool Opcode::isNaturallyAligned(Address Alignment) const {
   Address OpcodeAlign = getMemorySize();
-  return Alignment == WABT_USE_NATURAL_ALIGNMENT || Alignment == OpcodeAlign;
+  return Alignment == WATEVER_USE_NATURAL_ALIGNMENT || Alignment == OpcodeAlign;
 }
 
 Address Opcode::getAlignment(Address Alignment) const {
-  if (Alignment == WABT_USE_NATURAL_ALIGNMENT) {
+  if (Alignment == WATEVER_USE_NATURAL_ALIGNMENT) {
     return getMemorySize();
   }
   return Alignment;
