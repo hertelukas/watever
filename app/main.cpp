@@ -1,11 +1,11 @@
+#include "watever/binary.h"
+#include "watever/structure.h"
 #include <llvm/IR/Module.h>
 #include <llvm/IRReader/IRReader.h>
 #include <llvm/Support/ErrorHandling.h>
 #include <llvm/Support/SourceMgr.h>
 #include <llvm/Support/raw_ostream.h>
 #include <watever/opcode.h>
-
-#define DEBUG_TYPE "main"
 
 using namespace watever;
 int main(int argc, char *argv[]) {
@@ -38,5 +38,11 @@ int main(int argc, char *argv[]) {
   }
   llvm::outs() << "\n";
 
+  std::error_code EC;
+  llvm::raw_fd_ostream FileOS(argv[2], EC);
+
+  BinaryWriter Writer{FileOS};
+  Module Module{};
+  Writer.write(Module);
   return 0;
 }

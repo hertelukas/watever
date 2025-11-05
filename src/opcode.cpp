@@ -4,6 +4,7 @@
  */
 
 #include "watever/opcode.h"
+#include <utility>
 
 namespace watever {
 
@@ -402,7 +403,7 @@ uint32_t Opcode::getSimdLaneCount() const {
     return 2;
     break;
   default:
-    assert(false && "unreachable");
+    std::unreachable();
   }
 }
 

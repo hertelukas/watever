@@ -1,4 +1,5 @@
 set(APP_SOURCES
+  binary.cpp
   utils.cpp
   opcode.cpp
   opcode-code-table.c)
