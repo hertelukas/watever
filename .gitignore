@@ -4,3 +4,5 @@ build/
 tmp/
 .cache
 .DS_Store
+
+compile_commands.json
