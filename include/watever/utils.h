@@ -1,6 +1,30 @@
 #ifndef WATEVER_UTILS_H
 #define WATEVER_UTILS_H
 
+/* clang-format off */
+#ifdef WATEVER_LOGGING
+  #include <spdlog/spdlog.h>
+  #define WATEVER_LOG(level, ...)                                                 \
+    (spdlog::should_log(level) ? spdlog::log(level, __VA_ARGS__) : (void)0)
+  #ifndef NDEBUG
+    #define WATEVER_LOG_TRACE(...) WATEVER_LOG(spdlog::level::trace, __VA_ARGS__)
+    #define WATEVER_LOG_DBG(...) WATEVER_LOG(spdlog::level::debug, __VA_ARGS__)
+  #else
+    #define WATEVER_LOG_TRACE(...)
+    #define WATEVER_LOG_DBG(...)
+  #endif
+  #define WATEVER_LOG_INFO(...) WATEVER_LOG(spdlog::level::info, __VA_ARGS__)
+  #define WATEVER_LOG_WARN(...) WATEVER_LOG(spdlog::level::warn, __VA_ARGS__)
+  #define WATEVER_LOG_ERR(...) WATEVER_LOG(spdlog::level::err, __VA_ARGS__)
+#else
+  #define WATEVER_LOG_TRACE(...)
+  #define WATEVER_LOG_DBG(...)
+  #define WATEVER_LOG_INFO(...)
+  #define WATEVER_LOG_WARN(...)
+  #define WATEVER_LOG_ERR(...)
+#endif
+/* clang-format on */
+
 #include <concepts>
 #include <cstddef>
 #define WATEVER_ARRAY_SIZE(a) (sizeof(a) / sizeof(a[0]))

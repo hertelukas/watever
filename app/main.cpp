@@ -1,48 +1,72 @@
-#include "watever/binary.h"
-#include "watever/structure.h"
+#include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IRReader/IRReader.h>
-#include <llvm/Support/ErrorHandling.h>
 #include <llvm/Support/SourceMgr.h>
-#include <llvm/Support/raw_ostream.h>
-#include <watever/opcode.h>
+#define ARGS_NOEXCEPT
+#include "args/args.hxx"
 
-using namespace watever;
+#include <watever/utils.h>
+
 int main(int argc, char *argv[]) {
-  llvm::SMDiagnostic Err;
-  llvm::LLVMContext Ctx;
+  args::ArgumentParser Parser("Watever");
+  args::HelpFlag Help(Parser, "help", "Display help", {'h', "help"});
 
-  auto Mod = llvm::parseIRFile(argv[1], Err, Ctx);
+  args::ValueFlag<unsigned> LogLevel(
+      Parser, "log_level",
+      "Set the log level to 0=NONE, 1=ERR, 2=WARN(default), 3=INFO, 4=DEBUG, "
+      ">5=TRACE",
+      {'l', "log-level"}, 2);
 
-  if (!Mod) {
-    Err.print(argv[0], llvm::errs());
+  args::Positional<std::string> IRPath(Parser, "IRPath",
+                                       "Path to the input IR file", "-");
+
+  Parser.ParseCLI(argc, argv);
+  if (Parser.GetError() == args::Error::Help) {
+    std::cout << Parser;
+    return 0;
+  }
+  if (Parser.GetError() != args::Error::None) {
+    std::cerr << "Error parsing arguments: " << Parser.GetErrorMsg() << '\n';
     return 1;
   }
 
-  llvm::outs() << "Instruction Count: " << Mod->getInstructionCount() << "\n";
-  llvm::outs() << "File name: " << Mod->getSourceFileName() << "\n";
-  llvm::outs() << "Functions:\n";
-  for (auto const &F : Mod->getFunctionList()) {
-    llvm::outs() << "------------------------\n";
-    llvm::outs() << F;
+#ifdef WATEVER_LOGGING
+  {
+    spdlog::level::level_enum Level = spdlog::level::off;
+    switch (LogLevel.Get()) {
+    case 0:
+      Level = spdlog::level::off;
+      break;
+    case 1:
+      Level = spdlog::level::err;
+      break;
+    case 2:
+      Level = spdlog::level::warn;
+      break;
+    case 3:
+      Level = spdlog::level::info;
+      break;
+    case 4:
+      Level = spdlog::level::debug;
+      break;
+    default:
+      assert(Level >= 5);
+      Level = spdlog::level::trace;
+      break;
+    }
+
+    spdlog::set_level(Level);
+  }
+#endif
+
+  auto Context = std::make_unique<llvm::LLVMContext>();
+  llvm::SMDiagnostic Diag{};
+  auto Mod = llvm::parseIRFile(IRPath.Get(), Diag, *Context);
+  if (!Mod) {
+    Diag.print(argv[0], llvm::errs());
   }
 
-  Opcode Call = Opcode{Opcode::Enum::BrIf};
-  llvm::outs() << Call.getCode() << ": " << Call.getName() << "\n";
+  WATEVER_LOG_DBG("File name: {}", Mod->getSourceFileName());
 
-  auto Encoded = llvm::SmallVector<std::byte>();
-  leb128(-1234123412341234, Encoded);
-
-  for (const auto &Byte : Encoded) {
-    llvm::outs() << llvm::format("%02x", (unsigned int)Byte);
-  }
-  llvm::outs() << "\n";
-
-  std::error_code EC;
-  llvm::raw_fd_ostream FileOS(argv[2], EC);
-
-  BinaryWriter Writer{FileOS};
-  Module Module{};
-  Writer.write(Module);
   return 0;
 }
