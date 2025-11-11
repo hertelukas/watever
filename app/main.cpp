@@ -67,6 +67,11 @@ int main(int argc, char *argv[]) {
   }
 
   WATEVER_LOG_DBG("File name: {}", Mod->getSourceFileName());
+  WATEVER_LOG_DBG("Bit width: {}", Mod->getDataLayout().getPointerSizeInBits());
+
+  for (auto &F : Mod->getFunctionList()) {
+    WATEVER_LOG_DBG("Handling function: {}", F.getName().str());
+  }
 
   return 0;
 }

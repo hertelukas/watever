@@ -1,7 +1,10 @@
 #ifndef WATEVER_UTILS_H
 #define WATEVER_UTILS_H
 
+#include <llvm/IR/Type.h>
+
 /* clang-format off */
+#include <llvm/Support/raw_ostream.h>
 #ifdef WATEVER_LOGGING
   #include <spdlog/spdlog.h>
   #define WATEVER_LOG(level, ...)                                                 \
@@ -24,6 +27,16 @@
   #define WATEVER_LOG_ERR(...)
 #endif
 /* clang-format on */
+
+#define WATEVER_PANIC_IMPL(prefix, ...)                                        \
+  do {                                                                         \
+    WATEVER_LOG_ERR(prefix __VA_ARGS__);                                       \
+    std::abort();                                                              \
+  } while (0)
+
+#define WATEVER_TODO(...) WATEVER_PANIC_IMPL("PANIC [TODO]: ", __VA_ARGS__)
+#define WATEVER_UNIMPLEMENTED(...)                                             \
+  WATEVER_PANIC_IMPL("PANIC [UNIMPLEMENTED]: ", __VA_ARGS__)
 
 #include <concepts>
 #include <cstddef>
@@ -64,6 +77,13 @@ void leb128(T Value, Container &OutBuffer) {
       OutBuffer.push_back(Byte);
     }
   }
+}
+
+template <typename T> std::string llvmToString(const T &V) {
+  std::string S;
+  llvm::raw_string_ostream OS(S);
+  V.print(OS);
+  return OS.str();
 }
 
 #endif // WATEVER_UTILS_H
