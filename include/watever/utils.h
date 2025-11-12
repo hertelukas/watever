@@ -38,6 +38,9 @@
 #define WATEVER_UNIMPLEMENTED(...)                                             \
   WATEVER_PANIC_IMPL("PANIC [UNIMPLEMENTED]: ", __VA_ARGS__)
 
+#define WATEVER_UNREACHABLE(...)                                               \
+  WATEVER_PANIC_IMPL("PANIC [UNREACHABLE]: ", __VA_ARGS__)
+
 #include <concepts>
 #include <cstddef>
 #define WATEVER_ARRAY_SIZE(a) (sizeof(a) / sizeof(a[0]))

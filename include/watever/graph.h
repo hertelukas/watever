@@ -1,8 +1,10 @@
 #ifndef GRAPH_H
 #define GRAPH_H
 
+#include <format>
 #include <llvm/ADT/ilist.h>
 #include <vector>
+
 namespace watever {
 
 enum class ValueType { I32, I64, F32, F64, Other, Glue };
@@ -69,6 +71,9 @@ public:
                   std::vector<ValueType>{ValueType::Other, ValueType::Glue},
                   nullptr, 0) {}
 
+  Value getNode(Opcode Op, ValueType RT, Value Arg1);
+  Value getNode(Opcode Op, ValueType RT, Value Arg1, Value Arg2);
+  Value getNode(Opcode Op, ValueType RT, Value Arg1, Value Arg2, Value Arg3);
   Value getNode(Opcode Op, std::vector<ValueType> RTs, Value Arg1);
   Value getNode(Opcode Op, std::vector<ValueType> RTs, Value Arg1, Value Arg2);
   Value getNode(Opcode Op, std::vector<ValueType> RTs, Value Arg1, Value Arg2,
@@ -76,5 +81,55 @@ public:
 };
 
 } // namespace watever
+
+template <>
+struct std::formatter<watever::Opcode> : std::formatter<std::string_view> {
+  auto format(watever::Opcode Op, auto &Ctx) const {
+    std::string_view Name = "Unknown";
+    switch (Op) {
+    case watever::Opcode::EntryToken:
+      Name = "EntryToken";
+      break;
+    case watever::Opcode::ADD:
+      Name = "ADD";
+      break;
+    case watever::Opcode::SUB:
+      Name = "SUB";
+      break;
+    case watever::Opcode::ADC:
+      Name = "ADC";
+      break;
+    }
+    return std::formatter<std::string_view>::format(Name, Ctx);
+  }
+};
+
+template <>
+struct std::formatter<watever::ValueType> : std::formatter<std::string_view> {
+  auto format(watever::ValueType VT, auto &Ctx) const {
+    std::string_view Name = "Unknown";
+    switch (VT) {
+    case watever::ValueType::I32:
+      Name = "i32";
+      break;
+    case watever::ValueType::I64:
+      Name = "i64";
+      break;
+    case watever::ValueType::F32:
+      Name = "f32";
+      break;
+    case watever::ValueType::F64:
+      Name = "f64";
+      break;
+    case watever::ValueType::Other:
+      Name = "Other";
+      break;
+    case watever::ValueType::Glue:
+      Name = "Glue";
+      break;
+    }
+    return std::formatter<std::string_view>::format(Name, Ctx);
+  }
+};
 
 #endif /* GRAPH_H */
