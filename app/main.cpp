@@ -1,4 +1,3 @@
-#include "watever/graph.h"
 #include "llvm/IR/CFG.h"
 #include <llvm/ADT/PostOrderIterator.h>
 #include <llvm/IR/BasicBlock.h>
@@ -11,6 +10,7 @@
 #define ARGS_NOEXCEPT
 #include "args/args.hxx"
 
+#include <watever/graph-builder.h>
 #include <watever/utils.h>
 
 int main(int argc, char *argv[]) {
