@@ -1,7 +1,13 @@
+#include "watever/graph.h"
+#include "llvm/IR/CFG.h"
+#include <llvm/ADT/PostOrderIterator.h>
+#include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IRReader/IRReader.h>
+#include <llvm/Support/ReverseIteration.h>
 #include <llvm/Support/SourceMgr.h>
+#include <memory>
 #define ARGS_NOEXCEPT
 #include "args/args.hxx"
 
@@ -69,8 +75,23 @@ int main(int argc, char *argv[]) {
   WATEVER_LOG_DBG("File name: {}", Mod->getSourceFileName());
   WATEVER_LOG_DBG("Bit width: {}", Mod->getDataLayout().getPointerSizeInBits());
 
-  for (auto &F : Mod->getFunctionList()) {
+  auto GB = std::make_unique<watever::GraphBuilder>();
+
+  for (const auto &F : Mod->getFunctionList()) {
     WATEVER_LOG_DBG("Handling function: {}", F.getName().str());
+    llvm::ReversePostOrderTraversal<const llvm::Function *> PROT(&F);
+    for (const llvm::BasicBlock *LLVMBB : PROT) {
+      llvm::BasicBlock::const_iterator const Begin = LLVMBB->getFirstNonPHIIt();
+      llvm::BasicBlock::const_iterator const End = LLVMBB->end();
+
+      // TODO care about tail calls. This is inspired by
+      // SelectionDAGIsel.cpp:856
+      for (llvm::BasicBlock::const_iterator I = Begin; I != End; ++I) {
+        GB->visit(*I);
+      }
+      GB->clear();
+    }
+    // TODO SelectionDAGIsel.cpp:856
   }
 
   return 0;
