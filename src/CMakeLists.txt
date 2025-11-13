@@ -1,7 +1,5 @@
 set(APP_SOURCES
   binary.cpp
-  graph.cpp
-  graph-builder.cpp
   utils.cpp
   opcode.cpp
   opcode-code-table.c)
