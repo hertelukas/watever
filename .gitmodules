@@ -1,6 +1,6 @@
 [submodule "deps/args"]
 	path = deps/args
-	url = git@github.com:Taywee/args.git
+	url = https://github.com/Taywee/args.git
 [submodule "deps/spdlog"]
 	path = deps/spdlog
-	url = git@github.com:gabime/spdlog.git
+	url = https://github.com/gabime/spdlog.git
