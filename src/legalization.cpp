@@ -45,8 +45,41 @@ void LegalizationPass::visitBinaryOperator(llvm::BinaryOperator &BO) {
     break;
   }
   case llvm::Instruction::FMul:
-  case llvm::Instruction::UDiv:
-  case llvm::Instruction::SDiv:
+  case llvm::Instruction::UDiv: {
+    Handled = legalizeIntegerBinaryOp(BO, [](auto &B, auto *LHS, auto *RHS) {
+      return B.CreateUDiv(LHS, RHS);
+    });
+    break;
+  }
+  case llvm::Instruction::SDiv: {
+    auto *InstType = BO.getType();
+
+    if (!InstType->isIntegerTy()) {
+      WATEVER_TODO("expanding vector {} not supported", BO.getOpcodeName());
+      break;
+    }
+
+    unsigned Width = InstType->getIntegerBitWidth();
+
+    if (Width == 32 || Width == 64) {
+      Handled = true;
+      break;
+    }
+
+    if (Width >= 64) {
+      WATEVER_TODO("expanding {} not supported", BO.getOpcodeName());
+      break;
+    }
+
+    auto *TargetTy = Width < 32 ? Int32Ty : Int64Ty;
+    llvm::IRBuilder<> Builder(&BO);
+    llvm::Value *ExtA = Builder.CreateSExt(BO.getOperand(0), TargetTy);
+    llvm::Value *ExtB = Builder.CreateSExt(BO.getOperand(1), TargetTy);
+    llvm::Value *LegalAdd = Builder.CreateSDiv(ExtA, ExtB);
+    llvm::Value *TruncResult = Builder.CreateTrunc(LegalAdd, BO.getType());
+    BO.replaceAllUsesWith(TruncResult);
+    BO.eraseFromParent();
+  }
   case llvm::Instruction::FDiv:
   case llvm::Instruction::URem:
   case llvm::Instruction::SRem:
