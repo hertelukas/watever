@@ -34,12 +34,12 @@
     std::abort();                                                              \
   } while (0)
 
-#define WATEVER_TODO(...) WATEVER_PANIC_IMPL("PANIC [TODO]: ", __VA_ARGS__)
+#define WATEVER_TODO(fmt, ...) WATEVER_LOG_WARN("[TODO] " fmt, ##__VA_ARGS__)
 #define WATEVER_UNIMPLEMENTED(...)                                             \
-  WATEVER_PANIC_IMPL("PANIC [UNIMPLEMENTED]: ", __VA_ARGS__)
+  WATEVER_PANIC_IMPL("PANIC [UNIMPLEMENTED] ", __VA_ARGS__)
 
 #define WATEVER_UNREACHABLE(...)                                               \
-  WATEVER_PANIC_IMPL("PANIC [UNREACHABLE]: ", __VA_ARGS__)
+  WATEVER_PANIC_IMPL("PANIC [UNREACHABLE] ", __VA_ARGS__)
 
 #include <concepts>
 #include <cstddef>
