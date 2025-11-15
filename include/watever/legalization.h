@@ -46,8 +46,8 @@ class LegalizationPass : public llvm::PassInfoMixin<LegalizationPass>,
     llvm::IRBuilder<> Builder(&BO);
     llvm::Value *ExtA = Builder.CreateZExt(BO.getOperand(0), TargetTy);
     llvm::Value *ExtB = Builder.CreateZExt(BO.getOperand(1), TargetTy);
-    llvm::Value *LegalAdd = CreateLegalOp(Builder, ExtA, ExtB);
-    llvm::Value *TruncResult = Builder.CreateTrunc(LegalAdd, BO.getType());
+    llvm::Value *LegalOp = CreateLegalOp(Builder, ExtA, ExtB, Width);
+    llvm::Value *TruncResult = Builder.CreateTrunc(LegalOp, BO.getType());
     BO.replaceAllUsesWith(TruncResult);
     BO.eraseFromParent();
 

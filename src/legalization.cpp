@@ -21,34 +21,47 @@ void LegalizationPass::visitBinaryOperator(llvm::BinaryOperator &BO) {
   bool Handled = false;
   switch (BO.getOpcode()) {
   case llvm::Instruction::Add: {
-    Handled = legalizeIntegerBinaryOp(BO, [](auto &B, auto *LHS, auto *RHS) {
-      return B.CreateAdd(LHS, RHS);
-    });
+    Handled =
+        legalizeIntegerBinaryOp(BO, [](auto &B, auto *LHS, auto *RHS, auto _) {
+          return B.CreateAdd(LHS, RHS);
+        });
     break;
   }
   case llvm::Instruction::FAdd: {
     break;
   }
   case llvm::Instruction::Sub: {
-    Handled = legalizeIntegerBinaryOp(BO, [](auto &B, auto *LHS, auto *RHS) {
-      return B.CreateSub(LHS, RHS);
-    });
+    Handled =
+        legalizeIntegerBinaryOp(BO, [](auto &B, auto *LHS, auto *RHS, auto _) {
+          return B.CreateSub(LHS, RHS);
+        });
     break;
   }
   case llvm::Instruction::FSub: {
     break;
   }
   case llvm::Instruction::Mul: {
-    Handled = legalizeIntegerBinaryOp(BO, [](auto &B, auto *LHS, auto *RHS) {
-      return B.CreateMul(LHS, RHS);
-    });
+    Handled =
+        legalizeIntegerBinaryOp(BO, [](auto &B, auto *LHS, auto *RHS, auto _) {
+          return B.CreateMul(LHS, RHS);
+        });
     break;
   }
   case llvm::Instruction::FMul:
   case llvm::Instruction::UDiv: {
-    Handled = legalizeIntegerBinaryOp(BO, [](auto &B, auto *LHS, auto *RHS) {
-      return B.CreateUDiv(LHS, RHS);
-    });
+    Handled = legalizeIntegerBinaryOp(
+        BO, [](auto &B, auto *LHS, auto *RHS, auto Width) {
+          // We might have trash in the upper bits of the value (as we will
+          // don't really "zext"). This doesn't matter for values where higher
+          // bits are ignored anyway (add, mul, sub, ...), or if we explicitly
+          // Sext
+          unsigned TargetBitWidth = LHS->getType()->getIntegerBitWidth();
+          llvm::APInt Mask = llvm::APInt::getLowBitsSet(TargetBitWidth, Width);
+          llvm::Value *MaskVal = llvm::ConstantInt::get(LHS->getType(), Mask);
+          LHS = B.CreateAnd(LHS, MaskVal);
+          RHS = B.CreateAnd(RHS, MaskVal);
+          return B.CreateUDiv(LHS, RHS);
+        });
     break;
   }
   case llvm::Instruction::SDiv: {
@@ -73,6 +86,9 @@ void LegalizationPass::visitBinaryOperator(llvm::BinaryOperator &BO) {
 
     auto *TargetTy = Width < 32 ? Int32Ty : Int64Ty;
     llvm::IRBuilder<> Builder(&BO);
+    // We have to do actual sign extension when lowering, cannot optimized away
+    // but just "ignoring" upper bits
+    // TODO LLVM seems to be doing that already
     llvm::Value *ExtA = Builder.CreateSExt(BO.getOperand(0), TargetTy);
     llvm::Value *ExtB = Builder.CreateSExt(BO.getOperand(1), TargetTy);
     llvm::Value *LegalAdd = Builder.CreateSDiv(ExtA, ExtB);
@@ -84,25 +100,41 @@ void LegalizationPass::visitBinaryOperator(llvm::BinaryOperator &BO) {
   case llvm::Instruction::URem:
   case llvm::Instruction::SRem:
   case llvm::Instruction::FRem:
-  case llvm::Instruction::Shl:
+    break;
+  case llvm::Instruction::Shl: {
+    Handled = legalizeIntegerBinaryOp(
+        BO, [](auto &B, auto *LHS, auto *RHS, auto Width) {
+          // TODO LLVM seems to be always doing some "legalization" already
+          unsigned TargetBitWidth = LHS->getType()->getIntegerBitWidth();
+          llvm::APInt Mask = llvm::APInt::getLowBitsSet(TargetBitWidth, Width);
+          llvm::Value *MaskVal = llvm::ConstantInt::get(LHS->getType(), Mask);
+          llvm::Value *LegalRHS = B.CreateAnd(RHS);
+          return B.CreateShl(LHS, LegalRHS);
+        });
+    break;
+  }
   case llvm::Instruction::LShr:
   case llvm::Instruction::AShr:
     break;
   case llvm::Instruction::And: {
-    Handled = legalizeIntegerBinaryOp(BO, [](auto &B, auto *LHS, auto *RHS) {
-      return B.CreateAnd(LHS, RHS);
-    });
+    Handled =
+        legalizeIntegerBinaryOp(BO, [](auto &B, auto *LHS, auto *RHS, auto _) {
+          return B.CreateAnd(LHS, RHS);
+        });
     break;
   }
   case llvm::Instruction::Or: {
-    Handled = legalizeIntegerBinaryOp(
-        BO, [](auto &B, auto *LHS, auto *RHS) { return B.CreateOr(LHS, RHS); });
+    Handled =
+        legalizeIntegerBinaryOp(BO, [](auto &B, auto *LHS, auto *RHS, auto _) {
+          return B.CreateOr(LHS, RHS);
+        });
     break;
   }
   case llvm::Instruction::Xor: {
-    Handled = legalizeIntegerBinaryOp(BO, [](auto &B, auto *LHS, auto *RHS) {
-      return B.CreateXor(LHS, RHS);
-    });
+    Handled =
+        legalizeIntegerBinaryOp(BO, [](auto &B, auto *LHS, auto *RHS, auto _) {
+          return B.CreateXor(LHS, RHS);
+        });
     break;
   }
   default:
