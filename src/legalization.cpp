@@ -238,8 +238,33 @@ void LegalizationPass::visitBinaryOperator(llvm::BinaryOperator &BO) {
     WATEVER_LOG_WARN("Opcode {} has not been handled", BO.getOpcodeName());
 }
 
+void LegalizationPass::visitGetElementPtrInst(llvm::GetElementPtrInst &GI) {
+  const llvm::DataLayout &DL = GI.getModule()->getDataLayout();
+
+  llvm::APInt Offset(DL.getPointerSizeInBits(GI.getPointerAddressSpace()), 0);
+  if (GI.accumulateConstantOffset(DL, Offset)) {
+    WATEVER_LOG_TRACE("GEP with constant offset of {}", Offset.getSExtValue());
+    if (Offset.isZero()) {
+      // Just send the ptr itself
+      GI.replaceAllUsesWith(GI.getOperand(0));
+    } else {
+      llvm::Value *OffsetVal = llvm::ConstantInt::get(IntPtrTy, Offset);
+      llvm::IRBuilder<> Builder(&GI);
+      llvm::Value *PtrAsInt =
+          Builder.CreatePtrToInt(GI.getOperand(0), IntPtrTy);
+      llvm::Value *PtrWithOffsetAsInt = Builder.CreateAdd(PtrAsInt, OffsetVal);
+      llvm::Value *PtrWithOffset =
+          Builder.CreateIntToPtr(PtrWithOffsetAsInt, PtrTy);
+      GI.replaceAllUsesWith(PtrWithOffset);
+    }
+    GI.eraseFromParent();
+    return;
+  }
+  WATEVER_TODO("handle GEP with non-constant offset");
+}
+
 void LegalizationPass::visitRet(llvm::ReturnInst &RI) {
-  WATEVER_TODO("Handle return instruction");
+  WATEVER_TODO("handle return instruction");
 }
 
 void LegalizationPass::visitSExtInst(llvm::SExtInst &SI) {

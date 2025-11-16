@@ -20,6 +20,8 @@ class LegalizationPass : public llvm::PassInfoMixin<LegalizationPass>,
 
   llvm::Type *Int32Ty;
   llvm::Type *Int64Ty;
+  llvm::Type *PtrTy;
+  llvm::Type *IntPtrTy;
 
   template <typename LegalOpFn>
   bool legalizeIntegerBinaryOp(llvm::BinaryOperator &BO,
@@ -55,9 +57,14 @@ class LegalizationPass : public llvm::PassInfoMixin<LegalizationPass>,
   }
 
 public:
-  LegalizationPass(llvm::LLVMContext &Ctx) {
-    Int32Ty = llvm::Type::getInt32Ty(Ctx);
-    Int64Ty = llvm::Type::getInt64Ty(Ctx);
+  LegalizationPass(const llvm::Module &M) {
+    Int32Ty = llvm::Type::getInt32Ty(M.getContext());
+    Int64Ty = llvm::Type::getInt64Ty(M.getContext());
+
+    // TODO support multiple address spaces
+    PtrTy = llvm::PointerType::get(M.getContext(), 0);
+    IntPtrTy =
+        M.getDataLayout().getPointerSizeInBits() == 32 ? Int32Ty : Int64Ty;
   }
 
   llvm::PreservedAnalyses run(llvm::Function &F,
@@ -65,6 +72,7 @@ public:
 
   void visitAllocaInst(llvm::AllocaInst &AI);
   void visitBinaryOperator(llvm::BinaryOperator &BO);
+  void visitGetElementPtrInst(llvm::GetElementPtrInst &GI);
   void visitRet(llvm::ReturnInst &RI);
   void visitSExtInst(llvm::SExtInst &SI);
   void visitTruncInst(llvm::TruncInst &TI);
