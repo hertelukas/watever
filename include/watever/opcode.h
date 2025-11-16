@@ -6,6 +6,7 @@
 #ifndef WATEVER_OPCODE_H
 #define WATEVER_OPCODE_H
 
+#include "watever/feature.h"
 #include "watever/opcode-code-table.h"
 #include "watever/type.h"
 #include "watever/utils.h"
@@ -71,8 +72,7 @@ struct Opcode {
     return Byte == KMathPrefix || Byte == KThreadsPrefix || Byte == KSimdPrefix;
   }
 
-  // TODO
-  // bool IsEnabled(const Features &features) const;
+  bool isEnabled(const Features &Fs) const;
   bool isInvalid() const { return E >= Invalid; }
 
 private:
