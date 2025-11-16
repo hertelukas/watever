@@ -47,7 +47,7 @@ class LegalizationPass : public llvm::PassInfoMixin<LegalizationPass>,
     llvm::Value *ExtA = Builder.CreateZExt(BO.getOperand(0), TargetTy);
     llvm::Value *ExtB = Builder.CreateZExt(BO.getOperand(1), TargetTy);
     llvm::Value *LegalOp = CreateLegalOp(Builder, ExtA, ExtB, Width);
-    llvm::Value *TruncResult = Builder.CreateTrunc(LegalOp, BO.getType());
+    llvm::Value *TruncResult = Builder.CreateTrunc(LegalOp, InstType);
     BO.replaceAllUsesWith(TruncResult);
     BO.eraseFromParent();
 
@@ -66,6 +66,9 @@ public:
   void visitAllocaInst(llvm::AllocaInst &AI);
   void visitBinaryOperator(llvm::BinaryOperator &BO);
   void visitRet(llvm::ReturnInst &RI);
+  void visitSExtInst(llvm::SExtInst &SI);
+  void visitTruncInst(llvm::TruncInst &TI);
+  void visitZExtInst(llvm::ZExtInst &ZI);
 
   // Fail by default
   void visitInstruction(llvm::Instruction &I) {

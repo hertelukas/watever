@@ -13,7 +13,7 @@ LegalizationPass::run(llvm::Function &F, llvm::FunctionAnalysisManager &AM) {
 }
 
 void LegalizationPass::visitAllocaInst(llvm::AllocaInst &AI) {
-  WATEVER_LOG_DBG("Handling alloca instruction: {}", llvmToString(AI));
+  // alloca doesn't need any legalization
 }
 
 void LegalizationPass::visitBinaryOperator(llvm::BinaryOperator &BO) {
@@ -240,4 +240,70 @@ void LegalizationPass::visitBinaryOperator(llvm::BinaryOperator &BO) {
 
 void LegalizationPass::visitRet(llvm::ReturnInst &RI) {
   WATEVER_TODO("Handle return instruction");
+}
+
+void LegalizationPass::visitSExtInst(llvm::SExtInst &SI) {
+  auto *InstType = SI.getType();
+
+  if (!InstType->isIntegerTy()) {
+    WATEVER_TODO("expanding vector {} not supported", SI.getOpcodeName());
+    return;
+  }
+
+  unsigned ToWidth = InstType->getIntegerBitWidth();
+
+  // TODO we probably also cannot legalize non i8, i16, i32, i64 from widths
+  if (ToWidth == 32 || ToWidth == 64) {
+    return;
+  }
+
+  unsigned FromWidth = SI.getOperand(0)->getType()->getIntegerBitWidth();
+
+  if (ToWidth >= 64) {
+    WATEVER_TODO("expanding {} not supported", SI.getOpcodeName());
+    return;
+  }
+
+  // If the target width is not i32 or i64, we can simulate an aribtrary signed
+  // extension with a shift left, followed by an arithmetic shift.
+
+  auto *TargetTy = ToWidth < 32 ? Int32Ty : Int64Ty;
+  unsigned TargetWidth = ToWidth < 32 ? 32 : 64;
+
+  llvm::IRBuilder<> Builder(&SI);
+  llvm::Value *WideOperand = Builder.CreateZExt(SI.getOperand(0), TargetTy);
+  llvm::Value *MaskVal =
+      llvm::ConstantInt::get(TargetTy, TargetWidth - FromWidth);
+  llvm::Value *Shl = Builder.CreateShl(WideOperand, MaskVal);
+  llvm::Value *Shr = Builder.CreateAShr(Shl, MaskVal);
+  llvm::Value *TruncResult = Builder.CreateTrunc(Shr, InstType);
+  SI.replaceAllUsesWith(TruncResult);
+  SI.eraseFromParent();
+}
+
+// I think we can pollute upper bits always, so we should just be able to ignore
+// truncation. A solution to this would be to handle in a first pass only
+// Truncs, and in a second ignore them
+void LegalizationPass::visitTruncInst(llvm::TruncInst &TI) {
+  WATEVER_TODO("decide wether truncating should AND the result");
+}
+
+void LegalizationPass::visitZExtInst(llvm::ZExtInst &ZI) {
+  auto *InstType = ZI.getType();
+
+  if (!InstType->isIntegerTy()) {
+    WATEVER_TODO("expanding vector {} not supported", ZI.getOpcodeName());
+    return;
+  }
+
+  unsigned Width = InstType->getIntegerBitWidth();
+
+  if (Width == 32 || Width == 64) {
+    return;
+  }
+
+  // TODO decide wether truncating should AND the result. In theory it should
+  // but this leads to quite some inefficencies where we zext to legalize,
+  // don't care about upper bits. (e.g., add)
+  WATEVER_TODO("zext is not really legal yet");
 }
