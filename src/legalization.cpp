@@ -91,14 +91,59 @@ void LegalizationPass::visitBinaryOperator(llvm::BinaryOperator &BO) {
     // TODO LLVM seems to be doing that already
     llvm::Value *ExtA = Builder.CreateSExt(BO.getOperand(0), TargetTy);
     llvm::Value *ExtB = Builder.CreateSExt(BO.getOperand(1), TargetTy);
-    llvm::Value *LegalAdd = Builder.CreateSDiv(ExtA, ExtB);
-    llvm::Value *TruncResult = Builder.CreateTrunc(LegalAdd, BO.getType());
+    llvm::Value *LegalDiv = Builder.CreateSDiv(ExtA, ExtB);
+    llvm::Value *TruncResult = Builder.CreateTrunc(LegalDiv, BO.getType());
     BO.replaceAllUsesWith(TruncResult);
     BO.eraseFromParent();
+    Handled = true;
+    break;
   }
   case llvm::Instruction::FDiv:
-  case llvm::Instruction::URem:
-  case llvm::Instruction::SRem:
+    break;
+  case llvm::Instruction::URem: {
+    Handled = legalizeIntegerBinaryOp(
+        BO, [](auto &B, auto *LHS, auto *RHS, auto Width) {
+          unsigned TargetBitWidth = LHS->getType()->getIntegerBitWidth();
+          llvm::APInt Mask = llvm::APInt::getLowBitsSet(TargetBitWidth, Width);
+          llvm::Value *MaskVal = llvm::ConstantInt::get(LHS->getType(), Mask);
+          LHS = B.CreateAnd(LHS, MaskVal);
+          RHS = B.CreateAnd(RHS, MaskVal);
+          return B.CreateURem(LHS, RHS);
+        });
+    break;
+  }
+  case llvm::Instruction::SRem: {
+    auto *InstType = BO.getType();
+
+    if (!InstType->isIntegerTy()) {
+      WATEVER_TODO("expanding vector {} not supported", BO.getOpcodeName());
+      break;
+    }
+
+    unsigned Width = InstType->getIntegerBitWidth();
+
+    if (Width == 32 || Width == 64) {
+      Handled = true;
+      break;
+    }
+
+    if (Width >= 64) {
+      WATEVER_TODO("expanding {} not supported", BO.getOpcodeName());
+      break;
+    }
+
+    auto *TargetTy = Width < 32 ? Int32Ty : Int64Ty;
+    llvm::IRBuilder<> Builder(&BO);
+    // TODO LLVM seems to be doing that already
+    llvm::Value *ExtA = Builder.CreateSExt(BO.getOperand(0), TargetTy);
+    llvm::Value *ExtB = Builder.CreateSExt(BO.getOperand(1), TargetTy);
+    llvm::Value *LegalRem = Builder.CreateSRem(ExtA, ExtB);
+    llvm::Value *TruncResult = Builder.CreateTrunc(LegalRem, BO.getType());
+    BO.replaceAllUsesWith(TruncResult);
+    BO.eraseFromParent();
+    Handled = true;
+    break;
+  }
   case llvm::Instruction::FRem:
     break;
   case llvm::Instruction::Shl: {
@@ -113,9 +158,56 @@ void LegalizationPass::visitBinaryOperator(llvm::BinaryOperator &BO) {
         });
     break;
   }
-  case llvm::Instruction::LShr:
-  case llvm::Instruction::AShr:
+  case llvm::Instruction::LShr: {
+    Handled = legalizeIntegerBinaryOp(
+        BO, [](auto &B, auto *LHS, auto *RHS, auto Width) {
+          unsigned TargetBitWidth = LHS->getType()->getIntegerBitWidth();
+          llvm::APInt Mask = llvm::APInt::getLowBitsSet(TargetBitWidth, Width);
+          llvm::Value *MaskVal = llvm::ConstantInt::get(LHS->getType(), Mask);
+          LHS = B.CreateAnd(LHS, MaskVal);
+          RHS = B.CreateAnd(RHS, MaskVal);
+          return B.CreateLShr(LHS, RHS);
+        });
     break;
+  }
+  case llvm::Instruction::AShr: {
+    auto *InstType = BO.getType();
+
+    if (!InstType->isIntegerTy()) {
+      WATEVER_TODO("expanding vector {} not supported", BO.getOpcodeName());
+      break;
+    }
+
+    unsigned Width = InstType->getIntegerBitWidth();
+
+    if (Width == 32 || Width == 64) {
+      Handled = true;
+      break;
+    }
+
+    if (Width >= 64) {
+      WATEVER_TODO("expanding {} not supported", BO.getOpcodeName());
+      break;
+    }
+    // We have to clear the upper bits of the second argument, so we don't shift
+    // too much, and sign extend the argument, so we shift in ones if negative
+    auto *TargetTy = Width < 32 ? Int32Ty : Int64Ty;
+    llvm::IRBuilder<> Builder(&BO);
+    llvm::Value *ExtA = Builder.CreateSExt(BO.getOperand(0), TargetTy);
+
+    llvm::Value *ExtB = Builder.CreateZExt(BO.getOperand(1), TargetTy);
+    llvm::APInt Mask =
+        llvm::APInt::getLowBitsSet(TargetTy->getIntegerBitWidth(), Width);
+    llvm::Value *MaskVal = llvm::ConstantInt::get(ExtB->getType(), Mask);
+    ExtB = Builder.CreateAnd(ExtB, MaskVal);
+
+    llvm::Value *LegalAShr = Builder.CreateAShr(ExtA, ExtB);
+    llvm::Value *TruncResult = Builder.CreateTrunc(LegalAShr, BO.getType());
+    BO.replaceAllUsesWith(TruncResult);
+    BO.eraseFromParent();
+    Handled = true;
+    break;
+  }
   case llvm::Instruction::And: {
     Handled =
         legalizeIntegerBinaryOp(BO, [](auto &B, auto *LHS, auto *RHS, auto _) {
