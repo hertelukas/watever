@@ -63,8 +63,7 @@ public:
 
     // TODO support multiple address spaces
     PtrTy = llvm::PointerType::get(M.getContext(), 0);
-    IntPtrTy =
-        M.getDataLayout().getPointerSizeInBits() == 32 ? Int32Ty : Int64Ty;
+    IntPtrTy = M.getDataLayout().getIntPtrType(M.getContext());
   }
 
   llvm::PreservedAnalyses run(llvm::Function &F,

@@ -238,6 +238,7 @@ void LegalizationPass::visitBinaryOperator(llvm::BinaryOperator &BO) {
     WATEVER_LOG_WARN("Opcode {} has not been handled", BO.getOpcodeName());
 }
 
+// TODO handle vectorized GEP
 void LegalizationPass::visitGetElementPtrInst(llvm::GetElementPtrInst &GI) {
   const llvm::DataLayout &DL = GI.getModule()->getDataLayout();
 
@@ -260,7 +261,63 @@ void LegalizationPass::visitGetElementPtrInst(llvm::GetElementPtrInst &GI) {
     GI.eraseFromParent();
     return;
   }
-  WATEVER_TODO("handle GEP with non-constant offset");
+
+  llvm::IRBuilder<> Builder(&GI);
+  llvm::Type *CurrentTy = GI.getSourceElementType();
+  llvm::Value *TotalOffset = llvm::ConstantInt::get(IntPtrTy, 0);
+
+  auto *IdxIt = GI.idx_begin();
+
+  llvm::Value *FirstIndex = IdxIt->get();
+  uint64_t FirstTypeSize = DL.getTypeAllocSize(CurrentTy);
+  llvm::Value *SextIdx = Builder.CreateSExtOrTrunc(FirstIndex, IntPtrTy);
+
+  WATEVER_LOG_TRACE("Accessing type at index {}, with a type size of {}",
+                    llvmToString(*SextIdx), FirstTypeSize);
+
+  if (FirstTypeSize != 0) {
+    TotalOffset = Builder.CreateMul(
+        SextIdx, llvm::ConstantInt::get(IntPtrTy, FirstTypeSize));
+  }
+
+  ++IdxIt;
+
+  for (; IdxIt != GI.idx_end(); ++IdxIt) {
+    llvm::Value *Index = IdxIt->get();
+    SextIdx = Builder.CreateSExtOrTrunc(Index, IntPtrTy);
+
+    if (llvm::StructType *STy = llvm::dyn_cast<llvm::StructType>(CurrentTy)) {
+      // TODO can we index into a struct with a variable?
+      unsigned FieldIdx = cast<llvm::ConstantInt>(Index)->getZExtValue();
+      uint64_t FieldOffset =
+          DL.getStructLayout(STy)->getElementOffset(FieldIdx);
+
+      WATEVER_LOG_TRACE("Accessing struct at index {}, with offset of {}",
+                        FieldIdx, FieldOffset);
+
+      TotalOffset = Builder.CreateAdd(
+          TotalOffset, llvm::ConstantInt::get(IntPtrTy, FieldOffset));
+      CurrentTy = STy->getElementType(FieldIdx);
+    } else {
+      CurrentTy = CurrentTy->getContainedType(0);
+      uint64_t ElementSize = DL.getTypeAllocSize(CurrentTy);
+
+      WATEVER_LOG_TRACE("Accessing array at index {}, with element sizes of {}",
+                        llvmToString(*SextIdx), ElementSize);
+
+      llvm::Value *ScaledOffset = Builder.CreateMul(
+          SextIdx, llvm::ConstantInt::get(IntPtrTy, ElementSize));
+      TotalOffset = Builder.CreateAdd(TotalOffset, ScaledOffset);
+    }
+  }
+
+  llvm::Value *BasePtr = GI.getPointerOperand();
+  llvm::Value *BasePtrInt = Builder.CreatePtrToInt(BasePtr, IntPtrTy);
+  llvm::Value *NewPtrInt = Builder.CreateAdd(BasePtrInt, TotalOffset);
+  llvm::Value *NewPtr = Builder.CreateIntToPtr(NewPtrInt, PtrTy);
+
+  GI.replaceAllUsesWith(NewPtr);
+  GI.eraseFromParent();
 }
 
 void LegalizationPass::visitRet(llvm::ReturnInst &RI) {
