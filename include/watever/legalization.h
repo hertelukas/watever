@@ -18,6 +18,8 @@ namespace watever {
 class LegalizationPass : public llvm::PassInfoMixin<LegalizationPass>,
                          public llvm::InstVisitor<LegalizationPass> {
 
+  llvm::Type *Int8Ty;
+  llvm::Type *Int16Ty;
   llvm::Type *Int32Ty;
   llvm::Type *Int64Ty;
   llvm::Type *PtrTy;
@@ -58,6 +60,8 @@ class LegalizationPass : public llvm::PassInfoMixin<LegalizationPass>,
 
 public:
   LegalizationPass(const llvm::Module &M) {
+    Int8Ty = llvm::Type::getInt8Ty(M.getContext());
+    Int16Ty = llvm::Type::getInt16Ty(M.getContext());
     Int32Ty = llvm::Type::getInt32Ty(M.getContext());
     Int64Ty = llvm::Type::getInt64Ty(M.getContext());
 
@@ -72,6 +76,7 @@ public:
   void visitAllocaInst(llvm::AllocaInst &AI);
   void visitBinaryOperator(llvm::BinaryOperator &BO);
   void visitGetElementPtrInst(llvm::GetElementPtrInst &GI);
+  void visitLoadInst(llvm::LoadInst &LI);
   void visitRet(llvm::ReturnInst &RI);
   void visitSExtInst(llvm::SExtInst &SI);
   void visitTruncInst(llvm::TruncInst &TI);

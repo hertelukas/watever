@@ -320,6 +320,101 @@ void LegalizationPass::visitGetElementPtrInst(llvm::GetElementPtrInst &GI) {
   GI.eraseFromParent();
 }
 
+void LegalizationPass::visitLoadInst(llvm::LoadInst &LI) {
+  auto *InstType = LI.getType();
+
+  if (InstType->isIntegerTy()) {
+    unsigned Width = InstType->getIntegerBitWidth();
+
+    if (Width == 32 || Width == 64) {
+      return;
+    }
+
+    if (Width >= 64) {
+      WATEVER_TODO("expanding load not supported");
+      return;
+    }
+
+    llvm::IRBuilder<> Builder(&LI);
+
+    // Best we can do is use normal, ceiled loads
+    if ((16 < Width && Width < 32)) {
+      llvm::Value *Result = Builder.CreateLoad(Int32Ty, LI.getPointerOperand());
+      Result = Builder.CreateTrunc(Result, InstType);
+      LI.replaceAllUsesWith(Result);
+      LI.eraseFromParent();
+      return;
+    }
+
+    // Best we can do is use normal, ceiled loads
+    if (32 + 16 + 8 < Width && Width < 64) {
+      llvm::Value *Result = Builder.CreateLoad(Int64Ty, LI.getPointerOperand());
+      Result = Builder.CreateTrunc(Result, InstType);
+      LI.replaceAllUsesWith(Result);
+      LI.eraseFromParent();
+      return;
+    }
+
+    // Use multiple loads as near around the requested width (E.g., a load i56
+    // is a load 32, load 16, load 8)
+    llvm::Value *Result;
+    // We want to build an i64 with the result
+    if (Width > 32) {
+      // TODO make sure to lower this to i64.load32_u
+      Result = Builder.CreateLoad(Int32Ty, LI.getPointerOperand());
+      Result = Builder.CreateZExt(Result, Int64Ty);
+      llvm::Value *PtrAsInt =
+          Builder.CreatePtrToInt(LI.getPointerOperand(), IntPtrTy);
+      llvm::Value *NextOffset = llvm::ConstantInt::get(IntPtrTy, 4);
+      llvm::Value *NewPtrAsInt = Builder.CreateAdd(PtrAsInt, NextOffset);
+      Width -= 32;
+      unsigned NextShift = 32;
+      if (Width > 8) {
+        llvm::Value *NewPtr = Builder.CreateIntToPtr(NewPtrAsInt, PtrTy);
+        llvm::Value *NextTwoBytes = Builder.CreateLoad(Int16Ty, NewPtr);
+        NextTwoBytes = Builder.CreateZExt(NextTwoBytes, Int64Ty);
+        llvm::Value *ShiftAmount = llvm::ConstantInt::get(Int64Ty, NextShift);
+        NextTwoBytes = Builder.CreateShl(NextTwoBytes, ShiftAmount);
+        Result = Builder.CreateOr(Result, NextTwoBytes);
+        NewPtrAsInt =
+            Builder.CreateAdd(NewPtrAsInt, llvm::ConstantInt::get(IntPtrTy, 2));
+        Width -= 16;
+        NextShift += 16;
+      }
+      if (Width > 0) {
+        llvm::Value *NewPtr = Builder.CreateIntToPtr(NewPtrAsInt, PtrTy);
+        llvm::Value *NextByte = Builder.CreateLoad(Int8Ty, NewPtr);
+        NextByte = Builder.CreateZExt(NextByte, Int64Ty);
+        llvm::Value *ShiftAmount = llvm::ConstantInt::get(Int64Ty, NextShift);
+        NextByte = Builder.CreateShl(NextByte, ShiftAmount);
+        Result = Builder.CreateOr(Result, NextByte);
+      }
+      Result = Builder.CreateTrunc(Result, InstType);
+      LI.replaceAllUsesWith(Result);
+      LI.eraseFromParent();
+    }
+    // Build an i32 otherwise
+    else {
+      // TODO basically do the same as with i64
+      WATEVER_TODO(
+          "loading integers with width between 0 and 31 not supported");
+    }
+
+    return;
+  }
+
+  if (InstType->isFloatingPointTy()) {
+    if (InstType->isDoubleTy() || InstType->isFloatTy()) {
+      return;
+    }
+    WATEVER_TODO("handle load of unsupported floating point type",
+                 llvmToString(*InstType));
+    return;
+  }
+
+  WATEVER_TODO("handle load of {}", llvmToString(*InstType));
+}
+
 void LegalizationPass::visitRet(llvm::ReturnInst &RI) {
   WATEVER_TODO("handle return instruction");
 }
