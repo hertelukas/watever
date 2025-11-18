@@ -338,7 +338,7 @@ void LegalizationPass::visitLoadInst(llvm::LoadInst &LI) {
     llvm::IRBuilder<> Builder(&LI);
 
     // Best we can do is use normal, ceiled loads
-    if ((16 < Width && Width < 32)) {
+    if (16 + 8 < Width && Width < 32) {
       llvm::Value *Result = Builder.CreateLoad(Int32Ty, LI.getPointerOperand());
       Result = Builder.CreateTrunc(Result, InstType);
       LI.replaceAllUsesWith(Result);
@@ -355,6 +355,8 @@ void LegalizationPass::visitLoadInst(llvm::LoadInst &LI) {
       return;
     }
 
+    // TODO llvm is doing this, but I'm not sure if wew would ever violate
+    // anything,if we would just load a full i64/i32
     // Use multiple loads as near around the requested width (E.g., a load i56
     // is a load 32, load 16, load 8)
     llvm::Value *Result;
@@ -378,7 +380,7 @@ void LegalizationPass::visitLoadInst(llvm::LoadInst &LI) {
         Result = Builder.CreateOr(Result, NextTwoBytes);
         NewPtrAsInt =
             Builder.CreateAdd(NewPtrAsInt, llvm::ConstantInt::get(IntPtrTy, 2));
-        Width -= 16;
+        Width = (Width > 16) ? Width - 16 : 0;
         NextShift += 16;
       }
       if (Width > 0) {
@@ -389,17 +391,37 @@ void LegalizationPass::visitLoadInst(llvm::LoadInst &LI) {
         NextByte = Builder.CreateShl(NextByte, ShiftAmount);
         Result = Builder.CreateOr(Result, NextByte);
       }
-      Result = Builder.CreateTrunc(Result, InstType);
-      LI.replaceAllUsesWith(Result);
-      LI.eraseFromParent();
     }
     // Build an i32 otherwise
     else {
-      // TODO basically do the same as with i64
-      WATEVER_TODO(
-          "loading integers with width between 0 and 31 not supported");
+      llvm::Value *Ptr = LI.getPointerOperand();
+      unsigned Shift = 0;
+      if (Width > 8) {
+        Result = Builder.CreateLoad(Int16Ty, LI.getPointerOperand());
+        Result = Builder.CreateZExt(Result, Int32Ty);
+        llvm::Value *NextOffset = llvm::ConstantInt::get(IntPtrTy, 2);
+        llvm::Value *PtrAsInt =
+            Builder.CreatePtrToInt(LI.getPointerOperand(), IntPtrTy);
+        llvm::Value *NewPtrAsInt = Builder.CreateAdd(PtrAsInt, NextOffset);
+        Ptr = Builder.CreateIntToPtr(NewPtrAsInt, PtrTy);
+        Width = (Width > 16) ? Width - 16 : 0;
+        Shift += 16;
+      }
+      if (Width > 0) {
+        llvm::Value *NextByte = Builder.CreateLoad(Int8Ty, Ptr);
+        NextByte = Builder.CreateZExt(NextByte, Int32Ty);
+        if (Shift > 0) {
+          NextByte = Builder.CreateShl(NextByte, Shift);
+          Result = Builder.CreateOr(Result, NextByte);
+        } else {
+          Result = NextByte;
+        }
+      }
     }
 
+    Result = Builder.CreateTrunc(Result, InstType);
+    LI.replaceAllUsesWith(Result);
+    LI.eraseFromParent();
     return;
   }
 
