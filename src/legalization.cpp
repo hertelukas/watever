@@ -487,6 +487,21 @@ void LegalizationPass::visitTruncInst(llvm::TruncInst &TI) {
   WATEVER_TODO("decide wether truncating should AND the result");
 }
 
+void LegalizationPass::visitUnaryOperator(llvm::UnaryOperator &UO) {
+  switch (UO.getOpcode()) {
+  case llvm::Instruction::FNeg:
+    if (UO.getType()->isDoubleTy() || UO.getType()->isFloatTy()) {
+      return;
+    }
+    WATEVER_TODO("handle fnet of floating point type",
+                 llvmToString(*UO.getType()));
+    break;
+  default:
+    WATEVER_UNREACHABLE("Illegal opcode encountered: {}", UO.getOpcodeName());
+    break;
+  }
+}
+
 void LegalizationPass::visitZExtInst(llvm::ZExtInst &ZI) {
   auto *InstType = ZI.getType();
 

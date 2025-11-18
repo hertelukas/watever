@@ -80,6 +80,7 @@ public:
   void visitRet(llvm::ReturnInst &RI);
   void visitSExtInst(llvm::SExtInst &SI);
   void visitTruncInst(llvm::TruncInst &TI);
+  void visitUnaryOperator(llvm::UnaryOperator &UO);
   void visitZExtInst(llvm::ZExtInst &ZI);
 
   // Fail by default
