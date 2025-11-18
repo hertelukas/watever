@@ -337,7 +337,7 @@ void LegalizationPass::visitLoadInst(llvm::LoadInst &LI) {
 
     llvm::IRBuilder<> Builder(&LI);
 
-    // Best we can do is use normal, ceiled loads
+    // Best we can do is use normal, ceiled-width loads
     if (16 + 8 < Width && Width < 32) {
       llvm::Value *Result = Builder.CreateLoad(Int32Ty, LI.getPointerOperand());
       Result = Builder.CreateTrunc(Result, InstType);
@@ -346,7 +346,7 @@ void LegalizationPass::visitLoadInst(llvm::LoadInst &LI) {
       return;
     }
 
-    // Best we can do is use normal, ceiled loads
+    // Best we can do is use normal, ceiled-width loads
     if (32 + 16 + 8 < Width && Width < 64) {
       llvm::Value *Result = Builder.CreateLoad(Int64Ty, LI.getPointerOperand());
       Result = Builder.CreateTrunc(Result, InstType);
@@ -355,7 +355,7 @@ void LegalizationPass::visitLoadInst(llvm::LoadInst &LI) {
       return;
     }
 
-    // TODO llvm is doing this, but I'm not sure if wew would ever violate
+    // TODO llvm is doing this, but I'm not sure if we would ever violate
     // anything,if we would just load a full i64/i32
     // Use multiple loads as near around the requested width (E.g., a load i56
     // is a load 32, load 16, load 8)
@@ -480,6 +480,115 @@ void LegalizationPass::visitSExtInst(llvm::SExtInst &SI) {
   SI.eraseFromParent();
 }
 
+void LegalizationPass::visitStoreInst(llvm::StoreInst &SI) {
+  auto *InstType = SI.getValueOperand()->getType();
+
+  if (InstType->isIntegerTy()) {
+    unsigned Width = InstType->getIntegerBitWidth();
+
+    if (Width == 32 || Width == 64) {
+      return;
+    }
+
+    if (Width >= 64) {
+      WATEVER_TODO("expanding store not supported");
+      return;
+    }
+
+    llvm::IRBuilder<> Builder(&SI);
+
+    // Best we can do is use normal i32 stores
+    if (16 + 8 < Width && Width < 32) {
+      llvm::Value *ValExt = Builder.CreateZExt(SI.getValueOperand(), Int32Ty);
+      Builder.CreateStore(ValExt, SI.getPointerOperand());
+      SI.eraseFromParent();
+      return;
+    }
+
+    // Best we can do is use normal i64 stores
+    if (32 + 16 + 8 < Width && Width < 64) {
+      llvm::Value *ValExt = Builder.CreateZExt(SI.getValueOperand(), Int64Ty);
+      Builder.CreateStore(ValExt, SI.getPointerOperand());
+      SI.eraseFromParent();
+      return;
+    }
+
+    if (Width > 32) {
+      llvm::Value *ToStore = Builder.CreateZExt(SI.getValueOperand(), Int64Ty);
+      llvm::APInt Mask = llvm::APInt::getLowBitsSet(64, Width);
+      llvm::Value *MaskVal = llvm::ConstantInt::get(Int64Ty, Mask);
+      ToStore = Builder.CreateAnd(ToStore, MaskVal);
+
+      // Store lowest 32 bits with i64.store32
+      llvm::Value *LowestBytes = Builder.CreateTrunc(ToStore, Int32Ty);
+      Builder.CreateStore(LowestBytes, SI.getPointerOperand());
+
+      llvm::Value *PtrAsInt =
+          Builder.CreatePtrToInt(SI.getPointerOperand(), IntPtrTy);
+      llvm::Value *NextOffset = llvm::ConstantInt::get(IntPtrTy, 4);
+      llvm::Value *NewPtrAsInt = Builder.CreateAdd(PtrAsInt, NextOffset);
+
+      unsigned NextShift = 32;
+      // The number is wide enough to require a 16-bit store
+      if (Width > 32 + 8) {
+        llvm::Value *NewPtr = Builder.CreateIntToPtr(NewPtrAsInt, PtrTy);
+        llvm::Value *NextBytes = Builder.CreateLShr(ToStore, NextShift);
+        NextBytes = Builder.CreateTrunc(NextBytes, Int16Ty);
+        Builder.CreateStore(NextBytes, NewPtr);
+
+        llvm::Value *NextOffset = llvm::ConstantInt::get(IntPtrTy, 2);
+        NewPtrAsInt = Builder.CreateAdd(NewPtrAsInt, NextOffset);
+        NextShift += 16;
+      }
+      // If it wasn't wide enough (e.g., [33, 40]), we only need a 8-bit store
+      // Or if it is still not fully stored (e.g., [49, 56])
+      if (Width <= 32 + 8 || Width > 32 + 16) {
+        llvm::Value *NewPtr = Builder.CreateIntToPtr(NewPtrAsInt, PtrTy);
+        llvm::Value *NextByte = Builder.CreateLShr(ToStore, NextShift);
+        NextByte = Builder.CreateTrunc(NextByte, Int8Ty);
+        Builder.CreateStore(NextByte, NewPtr);
+      }
+    } else {
+      llvm::Value *ToStore = Builder.CreateZExt(SI.getValueOperand(), Int32Ty);
+      llvm::APInt Mask = llvm::APInt::getLowBitsSet(32, Width);
+      llvm::Value *MaskVal = llvm::ConstantInt::get(Int32Ty, Mask);
+      ToStore = Builder.CreateAnd(ToStore, MaskVal);
+
+      // We need to store at least a 16-bit
+      if (Width > 8) {
+        llvm::Value *LowestBytes = Builder.CreateTrunc(ToStore, Int16Ty);
+        Builder.CreateStore(LowestBytes, SI.getPointerOperand());
+      }
+      if (Width <= 8 || Width > 16) {
+        llvm::Value *Ptr = SI.getPointerOperand();
+        // We are storing higher bytes
+        if (Width > 16) {
+          ToStore = Builder.CreateLShr(ToStore, 16);
+          llvm::Value *IntPtr = Builder.CreatePtrToInt(Ptr, IntPtrTy);
+          IntPtr =
+              Builder.CreateAdd(IntPtr, llvm::ConstantInt::get(IntPtrTy, 2));
+          Ptr = Builder.CreatePtrToInt(IntPtr, PtrTy);
+        }
+        llvm::Value *LowestByte = Builder.CreateTrunc(ToStore, Int8Ty);
+        Builder.CreateStore(LowestByte, Ptr);
+      }
+    }
+    SI.eraseFromParent();
+    return;
+  }
+
+  if (InstType->isFloatingPointTy()) {
+    if (InstType->isDoubleTy() || InstType->isFloatTy()) {
+      return;
+    }
+    WATEVER_TODO("handle store of unsupported floating point type",
+                 llvmToString(*InstType));
+    return;
+  }
+
+  WATEVER_TODO("handle store of {}", llvmToString(*InstType));
+}
+
 // I think we can pollute upper bits always, so we should just be able to ignore
 // truncation. A solution to this would be to handle in a first pass only
 // Truncs, and in a second ignore them
@@ -493,8 +602,7 @@ void LegalizationPass::visitUnaryOperator(llvm::UnaryOperator &UO) {
     if (UO.getType()->isDoubleTy() || UO.getType()->isFloatTy()) {
       return;
     }
-    WATEVER_TODO("handle fnet of floating point type",
-                 llvmToString(*UO.getType()));
+    WATEVER_TODO("handle fneg of type", llvmToString(*UO.getType()));
     break;
   default:
     WATEVER_UNREACHABLE("Illegal opcode encountered: {}", UO.getOpcodeName());

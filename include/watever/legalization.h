@@ -79,6 +79,7 @@ public:
   void visitLoadInst(llvm::LoadInst &LI);
   void visitRet(llvm::ReturnInst &RI);
   void visitSExtInst(llvm::SExtInst &SI);
+  void visitStoreInst(llvm::StoreInst &SI);
   void visitTruncInst(llvm::TruncInst &TI);
   void visitUnaryOperator(llvm::UnaryOperator &UO);
   void visitZExtInst(llvm::ZExtInst &ZI);
