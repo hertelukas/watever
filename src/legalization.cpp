@@ -434,6 +434,15 @@ void LegalizationPass::visitLoadInst(llvm::LoadInst &LI) {
     return;
   }
 
+  if (InstType->isPointerTy()) {
+    llvm::IRBuilder<> Builder(&LI);
+    llvm::Value *Result = Builder.CreateLoad(IntPtrTy, LI.getPointerOperand());
+    Result = Builder.CreateIntToPtr(Result, PtrTy);
+    LI.replaceAllUsesWith(Result);
+    LI.eraseFromParent();
+    return;
+  }
+
   WATEVER_TODO("handle load of {}", llvmToString(*InstType));
 }
 
@@ -583,6 +592,15 @@ void LegalizationPass::visitStoreInst(llvm::StoreInst &SI) {
     }
     WATEVER_TODO("handle store of unsupported floating point type",
                  llvmToString(*InstType));
+    return;
+  }
+
+  if (InstType->isPointerTy()) {
+    llvm::IRBuilder<> Builder(&SI);
+    llvm::Value *PtrAsInt =
+        Builder.CreatePtrToInt(SI.getValueOperand(), IntPtrTy);
+    Builder.CreateStore(PtrAsInt, SI.getPointerOperand());
+    SI.eraseFromParent();
     return;
   }
 
