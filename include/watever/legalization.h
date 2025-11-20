@@ -68,7 +68,7 @@ class LegalizationPass : public llvm::PassInfoMixin<LegalizationPass>,
   bool expandWithRuntimeLib(llvm::IRBuilder<> &B, llvm::BinaryOperator &BO,
                             llvm::StringRef FuncName);
 
-  bool expandWithCarry(llvm::IRBuilder<> &B, llvm::BinaryOperator &BO);
+  static bool expandWithCarry(llvm::IRBuilder<> &B, llvm::BinaryOperator &BO);
 
   static bool expandFail(llvm::IRBuilder<> &, llvm::BinaryOperator &BO) {
     WATEVER_LOG_WARN("Expanding {} not supported", BO.getOpcodeName());

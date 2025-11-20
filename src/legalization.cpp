@@ -1,6 +1,54 @@
+#include <llvm/IR/Constants.h>
 #include <watever/legalization.h>
 
 using namespace watever;
+
+bool LegalizationPass::expandWithCarry(llvm::IRBuilder<> &B,
+                                       llvm::BinaryOperator &BO) {
+  // TODO check for wide arithmetic extension
+
+  llvm::Value *LHS = BO.getOperand(0);
+  llvm::Value *RHS = BO.getOperand(1);
+  llvm::Type *ResultTy = BO.getType();
+  llvm::Type *Int64Ty = B.getInt64Ty();
+  unsigned Width = ResultTy->getIntegerBitWidth();
+
+  // get the i-th pack: bits [i * 64, (i + 1) * 64)
+  auto GetPack = [&](llvm::Value *V, unsigned Pack) {
+    llvm::Value *Shifted = B.CreateLShr(V, Pack * 64);
+    return B.CreateTrunc(Shifted, Int64Ty);
+  };
+
+  llvm::Value *Res = llvm::ConstantInt::get(ResultTy, 0);
+  unsigned NumPacks = (Width + 63) / 64;
+  llvm::Value *Carry = llvm::ConstantInt::get(Int64Ty, 0);
+
+  for (unsigned I = 0; I < NumPacks; ++I) {
+    llvm::Value *L = GetPack(LHS, I);
+    llvm::Value *R = GetPack(RHS, I);
+
+    // First, add the two packs, then the carry. Each of them might cause an
+    // overflow. This also generates a lot of dead code, where the checks are
+    // not needed.
+    llvm::Value *Sum1 = B.CreateAdd(L, R);
+    llvm::Value *Carry1 = B.CreateICmpULT(Sum1, L);
+    llvm::Value *SumFinal = B.CreateAdd(Sum1, Carry);
+    llvm::Value *Carry2 = B.CreateICmpULT(SumFinal, Sum1);
+
+    // TODO could be skipped in last round
+    llvm::Value *CarryBit = B.CreateOr(Carry1, Carry2);
+    Carry = B.CreateZExt(CarryBit, Int64Ty);
+
+    SumFinal = B.CreateZExt(SumFinal, ResultTy);
+    SumFinal = B.CreateShl(SumFinal, I * 64);
+
+    Res = B.CreateOr(Res, SumFinal);
+  }
+
+  BO.replaceAllUsesWith(Res);
+  BO.eraseFromParent();
+  return true;
+}
 
 llvm::PreservedAnalyses
 LegalizationPass::run(llvm::Function &F, llvm::FunctionAnalysisManager &AM) {
@@ -21,10 +69,12 @@ void LegalizationPass::visitBinaryOperator(llvm::BinaryOperator &BO) {
   bool Handled = false;
   switch (BO.getOpcode()) {
   case llvm::Instruction::Add: {
-    Handled =
-        legalizeIntegerBinaryOp(BO, [](auto &B, auto *LHS, auto *RHS, auto _) {
+    Handled = legalizeIntegerBinaryOp(
+        BO,
+        [](auto &B, auto *LHS, auto *RHS, auto _) {
           return B.CreateAdd(LHS, RHS);
-        });
+        },
+        expandWithCarry);
     break;
   }
   case llvm::Instruction::FAdd: {
