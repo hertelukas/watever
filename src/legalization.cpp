@@ -125,6 +125,9 @@ void LegalizationPass::visitBinaryOperator(llvm::BinaryOperator &BO) {
     break;
   }
   case llvm::Instruction::FAdd: {
+    if (BO.getType()->isDoubleTy() || BO.getType()->isFloatTy()) {
+      Handled = true;
+    }
     break;
   }
   case llvm::Instruction::Sub: {
@@ -137,6 +140,9 @@ void LegalizationPass::visitBinaryOperator(llvm::BinaryOperator &BO) {
     break;
   }
   case llvm::Instruction::FSub: {
+    if (BO.getType()->isDoubleTy() || BO.getType()->isFloatTy()) {
+      Handled = true;
+    }
     break;
   }
   case llvm::Instruction::Mul: {
@@ -146,7 +152,12 @@ void LegalizationPass::visitBinaryOperator(llvm::BinaryOperator &BO) {
         });
     break;
   }
-  case llvm::Instruction::FMul:
+  case llvm::Instruction::FMul: {
+    if (BO.getType()->isDoubleTy() || BO.getType()->isFloatTy()) {
+      Handled = true;
+    }
+    break;
+  }
   case llvm::Instruction::UDiv: {
     Handled = legalizeIntegerBinaryOp(
         BO, [](auto &B, auto *LHS, auto *RHS, auto Width) {
@@ -197,8 +208,12 @@ void LegalizationPass::visitBinaryOperator(llvm::BinaryOperator &BO) {
     Handled = true;
     break;
   }
-  case llvm::Instruction::FDiv:
+  case llvm::Instruction::FDiv: {
+    if (BO.getType()->isDoubleTy() || BO.getType()->isFloatTy()) {
+      Handled = true;
+    }
     break;
+  }
   case llvm::Instruction::URem: {
     Handled = legalizeIntegerBinaryOp(
         BO, [](auto &B, auto *LHS, auto *RHS, auto Width) {
