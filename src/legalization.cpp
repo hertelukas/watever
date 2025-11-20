@@ -3,8 +3,8 @@
 
 using namespace watever;
 
-bool LegalizationPass::expandWithCarry(llvm::IRBuilder<> &B,
-                                       llvm::BinaryOperator &BO) {
+bool LegalizationPass::expandAddWithCarry(llvm::IRBuilder<> &B,
+                                          llvm::BinaryOperator &BO) {
   // TODO check for wide arithmetic extension
 
   llvm::Value *LHS = BO.getOperand(0);
@@ -50,6 +50,53 @@ bool LegalizationPass::expandWithCarry(llvm::IRBuilder<> &B,
   return true;
 }
 
+bool LegalizationPass::expandSubWithBorrow(llvm::IRBuilder<> &B,
+                                           llvm::BinaryOperator &BO) {
+  // TODO check for wide arithmetic extension
+
+  llvm::Value *LHS = BO.getOperand(0);
+  llvm::Value *RHS = BO.getOperand(1);
+  llvm::Type *ResultTy = BO.getType();
+  llvm::Type *Int64Ty = B.getInt64Ty();
+  unsigned Width = ResultTy->getIntegerBitWidth();
+
+  // get the i-th pack: bits [i * 64, (i + 1) * 64)
+  auto GetPack = [&](llvm::Value *V, unsigned Pack) {
+    llvm::Value *Shifted = B.CreateLShr(V, Pack * 64);
+    return B.CreateTrunc(Shifted, Int64Ty);
+  };
+
+  llvm::Value *Res = llvm::ConstantInt::get(ResultTy, 0);
+  unsigned NumPacks = (Width + 63) / 64;
+  llvm::Value *Borrow = llvm::ConstantInt::get(Int64Ty, 0);
+
+  for (unsigned I = 0; I < NumPacks; ++I) {
+    llvm::Value *L = GetPack(LHS, I);
+    llvm::Value *R = GetPack(RHS, I);
+
+    // First, sub the two packs, then the borrow. Each of them might cause an
+    // underflow. This also generates a lot of dead code, where the checks are
+    // not needed.
+    llvm::Value *Diff1 = B.CreateSub(L, R);
+    llvm::Value *Borrow1 = B.CreateICmpULT(L, R);
+    llvm::Value *DiffFinal = B.CreateSub(Diff1, Borrow);
+    llvm::Value *Borrow2 = B.CreateICmpULT(Diff1, Borrow);
+
+    // TODO could be skipped in last round
+    llvm::Value *BorrowBit = B.CreateOr(Borrow1, Borrow2);
+    Borrow = B.CreateZExt(BorrowBit, Int64Ty);
+
+    DiffFinal = B.CreateZExt(DiffFinal, ResultTy);
+    DiffFinal = B.CreateShl(DiffFinal, I * 64);
+
+    Res = B.CreateOr(Res, DiffFinal);
+  }
+
+  BO.replaceAllUsesWith(Res);
+  BO.eraseFromParent();
+  return true;
+}
+
 llvm::PreservedAnalyses
 LegalizationPass::run(llvm::Function &F, llvm::FunctionAnalysisManager &AM) {
   WATEVER_LOG_DBG("Legalizing {}", F.getName().str());
@@ -74,17 +121,19 @@ void LegalizationPass::visitBinaryOperator(llvm::BinaryOperator &BO) {
         [](auto &B, auto *LHS, auto *RHS, auto _) {
           return B.CreateAdd(LHS, RHS);
         },
-        expandWithCarry);
+        expandAddWithCarry);
     break;
   }
   case llvm::Instruction::FAdd: {
     break;
   }
   case llvm::Instruction::Sub: {
-    Handled =
-        legalizeIntegerBinaryOp(BO, [](auto &B, auto *LHS, auto *RHS, auto _) {
+    Handled = legalizeIntegerBinaryOp(
+        BO,
+        [](auto &B, auto *LHS, auto *RHS, auto _) {
           return B.CreateSub(LHS, RHS);
-        });
+        },
+        expandSubWithBorrow);
     break;
   }
   case llvm::Instruction::FSub: {
