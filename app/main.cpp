@@ -5,6 +5,7 @@
 #include <llvm/IR/PassManager.h>
 #include <llvm/IRReader/IRReader.h>
 #include <llvm/Passes/PassBuilder.h>
+#include <llvm/Support/FileSystem.h>
 #include <llvm/Support/SourceMgr.h>
 
 #define ARGS_NOEXCEPT
@@ -23,8 +24,11 @@ int main(int argc, char *argv[]) {
       ">5=TRACE",
       {'l', "log-level"}, 2);
 
-  args::Positional<std::string> IRPath(Parser, "IRPath",
-                                       "Path to the input IR file", "-");
+  args::Positional<std::string> IRPath(
+      Parser, "IRPath", "Path to the input IR file", args::Options::Required);
+
+  args::ValueFlag<std::string> OutputPath(
+      Parser, "output_path", "Path to the output file", {'o', "output"});
 
   Parser.ParseCLI(argc, argv);
   if (Parser.GetError() == args::Error::Help) {
@@ -97,6 +101,22 @@ int main(int argc, char *argv[]) {
   MPM.addPass(createModuleToFunctionPassAdaptor(std::move(FPM)));
 
   MPM.run(*Mod, MAM);
+
+  // Write to output file
+  if (!OutputPath) {
+    return 0;
+  }
+
+  std::string OutFile = args::get(OutputPath);
+  std::error_code EC;
+  llvm::raw_fd_ostream OS(OutFile, EC, llvm::sys::fs::OF_None);
+
+  if (EC) {
+    WATEVER_LOG_WARN("Error opening output file: {}", EC.message());
+    return 1;
+  }
+
+  Mod->print(OS, nullptr);
 
   return 0;
 }
