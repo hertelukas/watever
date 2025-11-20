@@ -1,6 +1,7 @@
 #ifndef LEGALIZATION_H
 #define LEGALIZATION_H
 
+#include <llvm/ADT/StringRef.h>
 #include <llvm/IR/Analysis.h>
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/Function.h>
@@ -25,9 +26,9 @@ class LegalizationPass : public llvm::PassInfoMixin<LegalizationPass>,
   llvm::Type *PtrTy;
   llvm::Type *IntPtrTy;
 
-  template <typename LegalOpFn>
+  template <typename LegalOpFn, typename ExpandFn>
   bool legalizeIntegerBinaryOp(llvm::BinaryOperator &BO,
-                               LegalOpFn CreateLegalOp) {
+                               LegalOpFn CreateLegalOp, ExpandFn HandleExpand) {
     auto *InstType = BO.getType();
 
     if (!InstType->isIntegerTy()) {
@@ -41,13 +42,13 @@ class LegalizationPass : public llvm::PassInfoMixin<LegalizationPass>,
       return true;
     }
 
-    if (Width >= 64) {
-      WATEVER_TODO("expanding {} not supported", BO.getOpcodeName());
-      return false;
+    llvm::IRBuilder<> Builder(&BO);
+
+    if (Width > 64) {
+      return HandleExpand(Builder, BO);
     }
 
     auto *TargetTy = Width < 32 ? Int32Ty : Int64Ty;
-    llvm::IRBuilder<> Builder(&BO);
     llvm::Value *ExtA = Builder.CreateZExt(BO.getOperand(0), TargetTy);
     llvm::Value *ExtB = Builder.CreateZExt(BO.getOperand(1), TargetTy);
     llvm::Value *LegalOp = CreateLegalOp(Builder, ExtA, ExtB, Width);
@@ -57,6 +58,22 @@ class LegalizationPass : public llvm::PassInfoMixin<LegalizationPass>,
 
     return true;
   }
+
+  template <typename LegalOpFn>
+  bool legalizeIntegerBinaryOp(llvm::BinaryOperator &BO,
+                               LegalOpFn CreateLegalOp) {
+    return legalizeIntegerBinaryOp(BO, CreateLegalOp, expandFail);
+  }
+
+  bool expandWithRuntimeLib(llvm::IRBuilder<> &B, llvm::BinaryOperator &BO,
+                            llvm::StringRef FuncName);
+
+  bool expandWithCarry(llvm::IRBuilder<> &B, llvm::BinaryOperator &BO);
+
+  static bool expandFail(llvm::IRBuilder<> &, llvm::BinaryOperator &BO) {
+    WATEVER_LOG_WARN("Expanding {} not supported", BO.getOpcodeName());
+    return false;
+  };
 
 public:
   LegalizationPass(const llvm::Module &M) {
