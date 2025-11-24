@@ -1,4 +1,3 @@
-#include <llvm/IR/Constants.h>
 #include <watever/legalization.h>
 
 using namespace watever;
@@ -97,6 +96,33 @@ bool LegalizationPass::expandSubWithBorrow(llvm::IRBuilder<> &B,
   return true;
 }
 
+bool LegalizationPass::expandWithRuntimeLib(llvm::IRBuilder<> &B,
+                                            llvm::BinaryOperator &BO,
+                                            llvm::StringRef FuncName) {
+  llvm::Type *RetTy = BO.getType();
+
+  if (const unsigned Width = RetTy->getIntegerBitWidth(); Width > 128) {
+    return false;
+  }
+
+  llvm::Type *Int128Ty = B.getInt128Ty();
+
+  llvm::Module *M = BO.getModule();
+  llvm::Type *OpTy = BO.getOperand(0)->getType();
+
+  auto *FTy = llvm::FunctionType::get(Int128Ty, {Int128Ty, Int128Ty}, false);
+  const auto Callee = M->getOrInsertFunction(FuncName, FTy);
+
+  auto *LHS = B.CreateZExt(BO.getOperand(0), Int128Ty);
+  auto *RHS = B.CreateZExt(BO.getOperand(1), Int128Ty);
+  auto *Call = B.CreateCall(Callee, {LHS, RHS});
+  auto *Res = B.CreateTrunc(Call, RetTy);
+
+  BO.replaceAllUsesWith(Res);
+  BO.eraseFromParent();
+  return true;
+}
+
 llvm::PreservedAnalyses
 LegalizationPass::run(llvm::Function &F, llvm::FunctionAnalysisManager &AM) {
   WATEVER_LOG_DBG("Legalizing {}", F.getName().str());
@@ -131,9 +157,8 @@ void LegalizationPass::visitBinaryOperator(llvm::BinaryOperator &BO) {
     break;
   }
   case llvm::Instruction::Sub: {
-    Handled = legalizeIntegerBinaryOp(
-        BO,
-        [](auto &B, auto *LHS, auto *RHS, auto _) {
+    Handled =
+        legalizeIntegerBinaryOp(BO, [](auto &B, auto *LHS, auto *RHS, auto _) {
           return B.CreateSub(LHS, RHS);
         },
         expandSubWithBorrow);
@@ -146,9 +171,13 @@ void LegalizationPass::visitBinaryOperator(llvm::BinaryOperator &BO) {
     break;
   }
   case llvm::Instruction::Mul: {
-    Handled =
-        legalizeIntegerBinaryOp(BO, [](auto &B, auto *LHS, auto *RHS, auto _) {
+    Handled = legalizeIntegerBinaryOp(
+        BO,
+        [](auto &B, auto *LHS, auto *RHS, auto _) {
           return B.CreateMul(LHS, RHS);
+        },
+        [](auto &B, auto &BO) {
+          return expandWithRuntimeLib(B, BO, "__multi3");
         });
     break;
   }
