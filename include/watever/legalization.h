@@ -73,6 +73,7 @@ class LegalizationPass : public llvm::PassInfoMixin<LegalizationPass>,
                                  llvm::BinaryOperator &BO);
   static bool expandSubWithBorrow(llvm::IRBuilder<> &B,
                                   llvm::BinaryOperator &BO);
+  static bool expandPackwise(llvm::IRBuilder<> &B, llvm::BinaryOperator &BO);
 
   static bool expandFail(llvm::IRBuilder<> &, llvm::BinaryOperator &BO) {
     WATEVER_LOG_WARN("Expanding {} not supported", BO.getOpcodeName());

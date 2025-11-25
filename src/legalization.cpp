@@ -123,6 +123,39 @@ bool LegalizationPass::expandWithRuntimeLib(llvm::IRBuilder<> &B,
   return true;
 }
 
+bool LegalizationPass::expandPackwise(llvm::IRBuilder<> &B,
+                                      llvm::BinaryOperator &BO) {
+
+  llvm::Value *LHS = BO.getOperand(0);
+  llvm::Value *RHS = BO.getOperand(1);
+  llvm::Type *ResultTy = BO.getType();
+  llvm::Type *Int64Ty = B.getInt64Ty();
+  unsigned Width = ResultTy->getIntegerBitWidth();
+
+  // get the i-th pack: bits [i * 64, (i + 1) * 64)
+  auto GetPack = [&](llvm::Value *V, unsigned Pack) {
+    llvm::Value *Shifted = B.CreateLShr(V, Pack * 64);
+    return B.CreateTrunc(Shifted, Int64Ty);
+  };
+
+  unsigned NumPacks = (Width + 63) / 64;
+  llvm::Value *Res = llvm::ConstantInt::get(ResultTy, 0);
+
+  for (unsigned I = 0; I < NumPacks; ++I) {
+    auto *L = GetPack(LHS, I);
+    auto *R = GetPack(RHS, I);
+
+    auto *Tmp = B.CreateBinOp(BO.getOpcode(), L, R);
+    Tmp = B.CreateZExt(Tmp, ResultTy);
+    Tmp = B.CreateShl(Tmp, I * 64);
+    Res = B.CreateOr(Res, Tmp);
+  }
+
+  BO.replaceAllUsesWith(Res);
+  BO.eraseFromParent();
+  return true;
+}
+
 llvm::PreservedAnalyses
 LegalizationPass::run(llvm::Function &F, llvm::FunctionAnalysisManager &AM) {
   WATEVER_LOG_DBG("Legalizing {}", F.getName().str());
@@ -157,8 +190,9 @@ void LegalizationPass::visitBinaryOperator(llvm::BinaryOperator &BO) {
     break;
   }
   case llvm::Instruction::Sub: {
-    Handled =
-        legalizeIntegerBinaryOp(BO, [](auto &B, auto *LHS, auto *RHS, auto _) {
+    Handled = legalizeIntegerBinaryOp(
+        BO,
+        [](auto &B, auto *LHS, auto *RHS, auto _) {
           return B.CreateSub(LHS, RHS);
         },
         expandSubWithBorrow);
@@ -352,24 +386,30 @@ void LegalizationPass::visitBinaryOperator(llvm::BinaryOperator &BO) {
     break;
   }
   case llvm::Instruction::And: {
-    Handled =
-        legalizeIntegerBinaryOp(BO, [](auto &B, auto *LHS, auto *RHS, auto _) {
+    Handled = legalizeIntegerBinaryOp(
+        BO,
+        [](auto &B, auto *LHS, auto *RHS, auto _) {
           return B.CreateAnd(LHS, RHS);
-        });
+        },
+        expandPackwise);
     break;
   }
   case llvm::Instruction::Or: {
-    Handled =
-        legalizeIntegerBinaryOp(BO, [](auto &B, auto *LHS, auto *RHS, auto _) {
+    Handled = legalizeIntegerBinaryOp(
+        BO,
+        [](auto &B, auto *LHS, auto *RHS, auto _) {
           return B.CreateOr(LHS, RHS);
-        });
+        },
+        expandPackwise);
     break;
   }
   case llvm::Instruction::Xor: {
-    Handled =
-        legalizeIntegerBinaryOp(BO, [](auto &B, auto *LHS, auto *RHS, auto _) {
+    Handled = legalizeIntegerBinaryOp(
+        BO,
+        [](auto &B, auto *LHS, auto *RHS, auto _) {
           return B.CreateXor(LHS, RHS);
-        });
+        },
+        expandPackwise);
     break;
   }
   default:
