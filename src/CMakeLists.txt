@@ -1,5 +1,6 @@
 set(APP_SOURCES
   binary.cpp
+  ir.cpp
   legalization.cpp
   utils.cpp
   opcode.cpp

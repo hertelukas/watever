@@ -1,3 +1,4 @@
+#include "watever/ir.h"
 #include <llvm/Analysis/CGSCCPassManager.h>
 #include <llvm/Analysis/LoopAnalysisManager.h>
 #include <llvm/IR/LLVMContext.h>
@@ -101,6 +102,9 @@ int main(int argc, char *argv[]) {
   MPM.addPass(createModuleToFunctionPassAdaptor(std::move(FPM)));
 
   MPM.run(*Mod, MAM);
+
+  watever::IRGenContext LoweringContext{};
+  auto LoweredModule = LoweringContext.convert(*Mod, FAM);
 
   // Write to output file
   if (!OutputPath) {
