@@ -103,7 +103,7 @@ int main(int argc, char *argv[]) {
 
   MPM.run(*Mod, MAM);
 
-  watever::IRGenContext LoweringContext{};
+  watever::ModuleLowering LoweringContext{};
   auto LoweredModule = LoweringContext.convert(*Mod, FAM);
 
   // Write to output file
