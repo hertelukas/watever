@@ -11,22 +11,18 @@ std::unique_ptr<Wasm> FunctionLowering::doBranch(llvm::BasicBlock *Source,
                                                  llvm::BasicBlock *Target,
                                                  Context Ctx) {
 
-  // Backward branch (continue)
-  if (DT.dominates(Target, Source)) {
-    WATEVER_LOG_TRACE("backwards branch from {} to {}", Source->getName().str(),
-                      Target->getName().str());
-    WATEVER_TODO("calcualte depth, and pass (br always needs i, delete default "
-                 "constructor)");
-    // TODO merge with forward
-    return std::make_unique<WasmBr>(WasmBr{});
-  }
-
-  // Forward branch (exit)
-  if (isMergeNode(Target)) {
-    WATEVER_LOG_TRACE("forwards branch from {} to {}", Source->getName().str(),
-                      Target->getName().str());
-
-    return std::make_unique<WasmBr>(WasmBr{});
+  // Backward branch (continue) or forward branch (exit)
+  if (DT.dominates(Target, Source) || isMergeNode(Target)) {
+#ifdef WATEVER_LOGGING
+    if (DT.dominates(Target, Source)) {
+      WATEVER_LOG_TRACE("backwards branch from {} to {}",
+                        Source->getName().str(), Target->getName().str());
+    } else {
+      WATEVER_LOG_TRACE("forwards branch from {} to {}",
+                        Source->getName().str(), Target->getName().str());
+    }
+#endif
+    return std::make_unique<WasmBr>(WasmBr{index(Target, Ctx)});
   }
 
   WATEVER_LOG_TRACE("no branch needed from {} to {}, fall through",
@@ -110,6 +106,18 @@ std::unique_ptr<Wasm> FunctionLowering::nodeWithin(
 
   return std::make_unique<WasmSeq>(
       WasmSeq{std::move(First), std::move(Second)});
+}
+
+// TODO this might be wrong, needs double checking
+int FunctionLowering::index(llvm::BasicBlock *BB, Context &Ctx) {
+  int I = 0;
+  for (auto &Syntax : Ctx) {
+    if (Syntax.Label == BB) {
+      return I;
+    }
+    ++I;
+  }
+  WATEVER_UNREACHABLE("unknown branch target");
 }
 
 std::unique_ptr<WasmActions>

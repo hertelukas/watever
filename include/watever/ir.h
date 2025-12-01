@@ -79,6 +79,7 @@ public:
 class WasmBr : public Wasm {
 public:
   int Nesting;
+  explicit WasmBr(int Nesting) : Nesting(Nesting) {}
   virtual void accept(WasmVisitor &V) override { V.visit(*this); }
 };
 
@@ -104,6 +105,7 @@ public:
 };
 
 class FunctionLowering {
+  // TODO I currently don't see why we need to store blocktype
   enum class BlockType {
     IfThenElse,
     Loop,
@@ -111,12 +113,12 @@ class FunctionLowering {
   };
   class ContainingSyntax {
     BlockType BT;
-    llvm::BasicBlock *Label;
 
     ContainingSyntax(BlockType BT, llvm::BasicBlock *Label)
         : BT(BT), Label(Label) {}
 
   public:
+    llvm::BasicBlock *Label;
     static ContainingSyntax createIf() {
       return {BlockType::IfThenElse, nullptr};
     }
@@ -142,6 +144,8 @@ class FunctionLowering {
              llvm::SmallVector<llvm::BasicBlock *> MergeChildren, Context Ctx);
 
   std::unique_ptr<Wasm> doTree(llvm::BasicBlock *Root, Context Ctx);
+
+  int index(llvm::BasicBlock *BB, Context &Ctx);
 
   std::unique_ptr<WasmActions> translateBB(llvm::BasicBlock *BB);
 
