@@ -14,6 +14,7 @@
 #include <llvm/IR/Module.h>
 #include <llvm/IR/PassManager.h>
 #include <llvm/IR/Value.h>
+#include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/raw_ostream.h>
 #include <memory>
 
@@ -39,13 +40,31 @@ public:
   virtual void visit(WasmSeq &) = 0;
 };
 
-struct WasmInst {
-  Opcode Op;
+class WasmInst {
+  enum class Format : uint8_t { None, Inline, Complex };
+  Format Fmt;
+  union {
+    uint64_t Imm;
+    void *Data;
+  };
 
-  uint64_t Imm;
+public:
+  Opcode::Enum Op;
 
-  WasmInst(Opcode O) : Op(O), Imm(0) {}
-  WasmInst(Opcode O, uint64_t Imm) : Op(O), Imm(Imm) {}
+  WasmInst(Opcode O) : Op(O), Imm(0), Fmt(Format::None) {}
+  WasmInst(Opcode O, uint64_t Imm) : Op(O), Imm(Imm), Fmt(Format::Inline) {}
+
+  std::string getString() const {
+    const char *Name = Opcode(Op).getName();
+    switch (Fmt) {
+    case Format::Inline:
+      return llvm::formatv("{0} {1}", Name, Imm).str();
+    case Format::Complex:
+      return std::string(Name) + " [complex]";
+    default:
+      return Name;
+    }
+  }
 };
 
 class Wasm {
@@ -107,7 +126,7 @@ public:
 };
 
 class Function {
-  int LastLocal;
+  int LastLocal = 0;
 
 public:
   int getNewLocal() { return LastLocal++; }
@@ -118,13 +137,19 @@ public:
   llvm::SmallVector<Function, 4> Functions;
 };
 
-class BlockLowering {
+class BlockLowering : public llvm::InstVisitor<BlockLowering> {
+  friend class llvm::InstVisitor<BlockLowering>;
   llvm::BasicBlock *BB;
 
   WasmActions Actions;
 
   llvm::SmallVector<llvm::Instruction *> getLiveOut();
   llvm::DenseMap<llvm::Instruction *, int> getInternalUserCounts();
+
+  void visitInstruction(llvm::Instruction &I) {
+    // TODO set to UNIMPLEMENTED
+    WATEVER_TODO("{} not (yet) supported", I.getOpcodeName());
+  }
 
 public:
   explicit BlockLowering(llvm::BasicBlock *BB) : BB(BB) {}
@@ -250,7 +275,7 @@ public:
 
   void visit(WasmActions &Actions) override {
     for (auto Inst : Actions.Insts) {
-      print(Inst.Op.getName());
+      print(Inst.getString());
     }
   }
 

@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <llvm/ADT/DenseMap.h>
 #include <llvm/IR/BasicBlock.h>
+#include <llvm/IR/Constants.h>
 #include <llvm/IR/InstrTypes.h>
 #include <llvm/IR/Instruction.h>
 #include <llvm/IR/Instructions.h>
@@ -82,10 +83,22 @@ std::unique_ptr<WasmActions> BlockLowering::lower(Function &F) {
       // TODO map local to inst, so we can get it later
       auto Local = F.getNewLocal();
       Actions.Insts.push_back(WasmInst(Opcode::LocalTee, Local));
-      Actions.Insts.push_back(WasmInst(Opcode::I32Add));
+      // Adds the instruction to our actions
+      visit(Next);
       for (llvm::Value *Op : Next->operands()) {
         if (auto *Inst = llvm::dyn_cast<llvm::Instruction>(Op)) {
           ToHandle.push_back(Inst);
+        } else if (auto *Const = llvm::dyn_cast<llvm::ConstantInt>(Op)) {
+          if (Const->getBitWidth() == 32) {
+            Actions.Insts.push_back(
+                WasmInst(Opcode::I32Const, Const->getValue().getZExtValue()));
+          } else if (Const->getBitWidth() == 64) {
+            Actions.Insts.push_back(
+                WasmInst(Opcode::I64Const, Const->getValue().getZExtValue()));
+          } else {
+            WATEVER_UNREACHABLE("unsupported constant bit width: {}",
+                                Const->getBitWidth());
+          }
         } else {
           WATEVER_TODO("put {} on top of the stack", llvmToString(*Op));
         }
