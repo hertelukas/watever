@@ -1,11 +1,105 @@
 #include "watever/ir.h"
+#include "watever/opcode.h"
 #include "watever/utils.h"
+#include <algorithm>
+#include <llvm/ADT/DenseMap.h>
 #include <llvm/IR/BasicBlock.h>
+#include <llvm/IR/InstrTypes.h>
 #include <llvm/IR/Instruction.h>
 #include <llvm/IR/Instructions.h>
+#include <llvm/Support/Casting.h>
 #include <memory>
 
 using namespace watever;
+
+llvm::DenseMap<llvm::Instruction *, int>
+BlockLowering::getInternalUserCounts() {
+  // TODO think about PHI nodes
+  llvm::DenseMap<llvm::Instruction *, int> Result;
+
+  for (auto &Inst : *BB) {
+    for (auto *User : Inst.users()) {
+      if (auto *UserInst = llvm::dyn_cast<llvm::Instruction>(User)) {
+        if (UserInst->getParent() == BB) {
+          Result[&Inst]++;
+        }
+      }
+    }
+  }
+
+  return Result;
+}
+
+llvm::SmallVector<llvm::Instruction *> BlockLowering::getLiveOut() {
+  llvm::SmallVector<llvm::Instruction *> Result;
+
+  for (auto &Val : *BB) {
+    if (Val.getNumUses() == 0) {
+      continue;
+    }
+    if (Val.getOpcode() == llvm::Instruction::Store) {
+      Result.push_back(&Val);
+      continue;
+    }
+    for (auto *User : Val.users()) {
+      if (auto *Inst = llvm::dyn_cast<llvm::Instruction>(User)) {
+        // value is used outside of this basic block
+        if (Inst->getParent() != BB) {
+          Result.push_back(&Val);
+          break;
+        }
+      }
+    }
+  }
+  return Result;
+}
+
+std::unique_ptr<WasmActions> BlockLowering::lower(Function &F) {
+  // The last "live-out" value is handled first, ensuring that all live-out
+  // values are emitted in the correct order - especially stores.
+  auto ToHandle = getLiveOut();
+  auto Count = getInternalUserCounts();
+
+  if (auto *Br = llvm::dyn_cast<llvm::BranchInst>(BB->getTerminator())) {
+    if (Br->isConditional()) {
+      if (auto *Inst = llvm::dyn_cast<llvm::Instruction>(Br->getOperand(0))) {
+        ToHandle.push_back(Inst);
+      } else {
+        WATEVER_TODO(
+            "put {} on top of the stack - required for conditional branch",
+            llvmToString(*Br->getOperand(0)));
+      }
+    }
+  }
+
+  while (!ToHandle.empty()) {
+    auto *Next = ToHandle.back();
+    ToHandle.pop_back();
+
+    // TODO really 1?
+    if (Count[Next] == 1) {
+      // TODO only needed if we have more users
+      // TODO map local to inst, so we can get it later
+      auto Local = F.getNewLocal();
+      Actions.Insts.push_back(WasmInst(Opcode::LocalTee, Local));
+      Actions.Insts.push_back(WasmInst(Opcode::I32Add));
+      for (llvm::Value *Op : Next->operands()) {
+        if (auto *Inst = llvm::dyn_cast<llvm::Instruction>(Op)) {
+          ToHandle.push_back(Inst);
+        } else {
+          WATEVER_TODO("put {} on top of the stack", llvmToString(*Op));
+        }
+      }
+    } else {
+      Count[Next]--;
+      // TODO lookup local
+      Actions.Insts.push_back(WasmInst(Opcode::LocalGet, 0));
+    }
+  }
+
+  std::reverse(Actions.Insts.begin(), Actions.Insts.end());
+  return std::make_unique<WasmActions>(Actions);
+}
 
 std::unique_ptr<Wasm> FunctionLowering::doBranch(llvm::BasicBlock *Source,
                                                  llvm::BasicBlock *Target,
@@ -82,6 +176,7 @@ std::unique_ptr<Wasm> FunctionLowering::nodeWithin(
     } else if (auto *Ret = llvm::dyn_cast<llvm::ReturnInst>(Term)) {
       Leaving = std::make_unique<WasmReturn>();
     } else {
+      // TODO support switch
       WATEVER_UNREACHABLE("unsupported terminator: {}",
                           Parent->getTerminator()->getOpcodeName());
     }
@@ -122,8 +217,8 @@ int FunctionLowering::index(llvm::BasicBlock *BB, Context &Ctx) {
 
 std::unique_ptr<WasmActions>
 FunctionLowering::translateBB(llvm::BasicBlock *BB) {
-  WATEVER_TODO("translate {}", BB->getName().str());
-  return std::make_unique<WasmActions>();
+  BlockLowering BL{BB};
+  return BL.lower(F);
 }
 
 void FunctionLowering::getMergeChildren(

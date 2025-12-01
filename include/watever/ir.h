@@ -2,17 +2,20 @@
 #define IR_H
 
 #include "watever/opcode.h"
+#include <llvm/ADT/DenseMap.h>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/Analysis/LoopInfo.h>
 #include <llvm/IR/Analysis.h>
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/CFG.h>
 #include <llvm/IR/Dominators.h>
+#include <llvm/IR/InstVisitor.h>
+#include <llvm/IR/Instruction.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/PassManager.h>
+#include <llvm/IR/Value.h>
 #include <llvm/Support/raw_ostream.h>
 #include <memory>
-#include <vector>
 
 namespace watever {
 class Wasm;
@@ -36,9 +39,13 @@ public:
   virtual void visit(WasmSeq &) = 0;
 };
 
-struct WasmInstruction {
+struct WasmInst {
   Opcode Op;
-  llvm::SmallVector<WasmInstruction *, 4> Operands;
+
+  uint64_t Imm;
+
+  WasmInst(Opcode O) : Op(O), Imm(0) {}
+  WasmInst(Opcode O, uint64_t Imm) : Op(O), Imm(Imm) {}
 };
 
 class Wasm {
@@ -85,8 +92,9 @@ public:
 
 class WasmReturn : public Wasm {};
 
-class WasmActions : public Wasm {
-  std::vector<std::unique_ptr<WasmInstruction>> Roots;
+struct WasmActions : public Wasm {
+  llvm::SmallVector<WasmInst, 8> Insts;
+
   virtual void accept(WasmVisitor &V) override { V.visit(*this); }
 };
 
@@ -98,10 +106,30 @@ public:
   virtual void accept(WasmVisitor &V) override { V.visit(*this); }
 };
 
-class Function {};
+class Function {
+  int LastLocal;
+
+public:
+  int getNewLocal() { return LastLocal++; }
+};
+
 class Module {
 public:
   llvm::SmallVector<Function, 4> Functions;
+};
+
+class BlockLowering {
+  llvm::BasicBlock *BB;
+
+  WasmActions Actions;
+
+  llvm::SmallVector<llvm::Instruction *> getLiveOut();
+  llvm::DenseMap<llvm::Instruction *, int> getInternalUserCounts();
+
+public:
+  explicit BlockLowering(llvm::BasicBlock *BB) : BB(BB) {}
+
+  std::unique_ptr<WasmActions> lower(Function &F);
 };
 
 class FunctionLowering {
@@ -130,6 +158,7 @@ class FunctionLowering {
     }
   };
 
+  Function F;
   using Context = llvm::SmallVector<ContainingSyntax, 8>;
 
   llvm::DominatorTree &DT;
@@ -219,7 +248,11 @@ public:
     Seq.Flow.second->accept(*this);
   }
 
-  void visit(WasmActions &Actions) override { print("actions"); }
+  void visit(WasmActions &Actions) override {
+    for (auto Inst : Actions.Insts) {
+      print(Inst.Op.getName());
+    }
+  }
 
   void visit(WasmBr &Br) override { print("br " + std::to_string(Br.Nesting)); }
 };
