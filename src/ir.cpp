@@ -67,12 +67,20 @@ std::unique_ptr<Wasm> FunctionLowering::nodeWithin(
         assert(Br->getNumSuccessors() == 2 &&
                "expected two successors in conditional branch");
 
+        WATEVER_LOG_TRACE("{} branches to {} and {}", Parent->getName().str(),
+                          Br->getSuccessor(0)->getName().str(),
+                          Br->getSuccessor(1)->getName().str());
+
         Leaving = std::make_unique<WasmIf>(
             std::move(doBranch(Parent, Br->getSuccessor(0), Ctx)),
             std::move(doBranch(Parent, Br->getSuccessor(1), Ctx)));
       } else {
         assert(Br->getNumSuccessors() == 1 &&
                "expected only one successor in unconditional branch");
+
+        WATEVER_LOG_TRACE("{} branches to {}", Parent->getName().str(),
+                          Br->getSuccessor(0)->getName().str());
+
         Leaving = doBranch(Parent, Br->getSuccessor(0), Ctx);
       }
     } else if (auto *Ret = llvm::dyn_cast<llvm::ReturnInst>(Term)) {
@@ -114,8 +122,11 @@ void FunctionLowering::getMergeChildren(
     llvm::BasicBlock *R, llvm::SmallVectorImpl<llvm::BasicBlock *> &Result) {
   if (auto *Node = DT.getNode(R)) {
     for (auto *Child : *Node) {
-      WATEVER_LOG_TRACE("{} is dominated", Child->getBlock()->getName().str());
-      Result.push_back(Child->getBlock());
+      if (isMergeNode(Child->getBlock())) {
+        WATEVER_LOG_TRACE("{} is dominated merge",
+                          Child->getBlock()->getName().str());
+        Result.push_back(Child->getBlock());
+      }
     }
   }
 }
