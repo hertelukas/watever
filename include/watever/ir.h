@@ -10,6 +10,7 @@
 #include <llvm/IR/CFG.h>
 #include <llvm/IR/Dominators.h>
 #include <llvm/IR/InstVisitor.h>
+#include <llvm/IR/InstrTypes.h>
 #include <llvm/IR/Instruction.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/PassManager.h>
@@ -51,8 +52,9 @@ class WasmInst {
 public:
   Opcode::Enum Op;
 
-  WasmInst(Opcode O) : Op(O), Imm(0), Fmt(Format::None) {}
-  WasmInst(Opcode O, uint64_t Imm) : Op(O), Imm(Imm), Fmt(Format::Inline) {}
+  WasmInst(Opcode::Enum O) : Op(O), Imm(0), Fmt(Format::None) {}
+  WasmInst(Opcode::Enum O, uint64_t Imm)
+      : Op(O), Imm(Imm), Fmt(Format::Inline) {}
 
   std::string getString() const {
     const char *Name = Opcode(Op).getName();
@@ -129,6 +131,7 @@ class Function {
   int LastLocal = 0;
 
 public:
+  explicit Function(int NumArgs) : LastLocal(NumArgs) {}
   int getNewLocal() { return LastLocal++; }
 };
 
@@ -142,10 +145,12 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
   llvm::BasicBlock *BB;
 
   WasmActions Actions;
+  llvm::DenseMap<llvm::Value *, int> LocalMapping;
 
-  llvm::SmallVector<llvm::Instruction *> getLiveOut();
-  llvm::DenseMap<llvm::Instruction *, int> getInternalUserCounts();
+  llvm::SmallVector<llvm::Value *> getLiveOut();
+  llvm::DenseMap<llvm::Value *, int> getInternalUserCounts();
 
+  void visitBinaryOperator(llvm::BinaryOperator &BO);
   void visitInstruction(llvm::Instruction &I) {
     // TODO set to UNIMPLEMENTED
     WATEVER_TODO("{} not (yet) supported", I.getOpcodeName());
@@ -211,8 +216,8 @@ class FunctionLowering {
   }
 
 public:
-  FunctionLowering(llvm::DominatorTree &DT, llvm::LoopInfo &LI)
-      : DT(DT), LI(LI) {}
+  FunctionLowering(size_t NumArgs, llvm::DominatorTree &DT, llvm::LoopInfo &LI)
+      : DT(DT), LI(LI), F(NumArgs) {}
 
   std::unique_ptr<Wasm> lower() {
     Context Ctx;
