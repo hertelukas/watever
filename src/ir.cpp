@@ -373,14 +373,17 @@ void FunctionLowering::getMergeChildren(
 
 Module ModuleLowering::convert(llvm::Module &Mod,
                                llvm::FunctionAnalysisManager &FAM) {
+  Module Res{};
   for (auto &F : Mod) {
     auto &DT = FAM.getResult<llvm::DominatorTreeAnalysis>(F);
     auto &LI = FAM.getResult<llvm::LoopAnalysis>(F);
 
-    FunctionLowering FL{F.arg_size(), DT, LI};
-    auto Wasm = FL.lower();
+    Function WasmFunction{static_cast<int>(F.arg_size())};
+    FunctionLowering FL{WasmFunction, DT, LI};
+    FL.lower();
     WasmPrinter Printer{};
-    Wasm->accept(Printer);
+    WasmFunction.visit(Printer);
+    Res.Functions.push_back(std::move(WasmFunction));
   }
-  return Module{};
+  return Res;
 }

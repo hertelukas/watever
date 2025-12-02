@@ -128,11 +128,15 @@ public:
 };
 
 class Function {
+  friend class FunctionLowering;
   int LastLocal = 0;
+  std::unique_ptr<Wasm> Body;
 
 public:
   explicit Function(int NumArgs) : LastLocal(NumArgs) {}
   int getNewLocal() { return LastLocal++; }
+
+  void visit(WasmVisitor &V) { Body->accept(V); }
 };
 
 class Module {
@@ -188,7 +192,7 @@ class FunctionLowering {
     }
   };
 
-  Function F;
+  Function &F;
   using Context = llvm::SmallVector<ContainingSyntax, 8>;
 
   llvm::DominatorTree &DT;
@@ -216,12 +220,12 @@ class FunctionLowering {
   }
 
 public:
-  FunctionLowering(size_t NumArgs, llvm::DominatorTree &DT, llvm::LoopInfo &LI)
-      : DT(DT), LI(LI), F(NumArgs) {}
+  FunctionLowering(Function &F, llvm::DominatorTree &DT, llvm::LoopInfo &LI)
+      : DT(DT), LI(LI), F(F) {}
 
-  std::unique_ptr<Wasm> lower() {
+  void lower() {
     Context Ctx;
-    return doTree(DT.getRoot(), Ctx);
+    F.Body = doTree(DT.getRoot(), Ctx);
   }
 };
 
