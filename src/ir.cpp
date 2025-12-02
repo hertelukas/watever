@@ -62,80 +62,90 @@ llvm::DenseMap<llvm::Value *, int> BlockLowering::getInternalUserCounts() {
 
 void BlockLowering::visitBinaryOperator(llvm::BinaryOperator &BO) {
   auto *Ty = BO.getType();
-  auto Width = Ty->getIntegerBitWidth();
-  bool Handled = false;
+  // TODO handle vectors
+  auto Width = Ty->getPrimitiveSizeInBits();
+  bool Handled = true;
+
+  auto Dispatch = [&](Opcode::Enum Op32, Opcode::Enum Op64) {
+    if (Width == 32)
+      Actions.Insts.emplace_back(Op32);
+    else if (Width == 64)
+      Actions.Insts.emplace_back(Op64);
+    else
+      Handled = false;
+  };
 
   switch (BO.getOpcode()) {
   case llvm::Instruction::Add: {
-    if (Width == 32) {
-      Actions.Insts.push_back(Opcode::I32Add);
-      Handled = true;
-    } else if (Width == 64) {
-      Actions.Insts.push_back(Opcode::I64Add);
-      Handled = true;
-    }
+    Dispatch(Opcode::I32Add, Opcode::I64Add);
     break;
   }
-  case llvm::Instruction::FAdd:
+  case llvm::Instruction::FAdd: {
+    Dispatch(Opcode::F32Add, Opcode::F64Add);
+    break;
+  }
   case llvm::Instruction::Sub: {
-    if (Width == 32) {
-      Actions.Insts.push_back(Opcode::I32Sub);
-      Handled = true;
-    } else if (Width == 64) {
-      Actions.Insts.push_back(Opcode::I64Sub);
-      Handled = true;
-    }
+    Dispatch(Opcode::I32Sub, Opcode::I64Sub);
     break;
   }
-  case llvm::Instruction::FSub:
+  case llvm::Instruction::FSub: {
+    Dispatch(Opcode::F32Sub, Opcode::F64Sub);
+    break;
+  }
   case llvm::Instruction::Mul: {
-    if (Width == 32) {
-      Actions.Insts.push_back(Opcode::I32Mul);
-      Handled = true;
-    } else if (Width == 64) {
-      Actions.Insts.push_back(Opcode::I64Mul);
-      Handled = true;
-    }
+    Dispatch(Opcode::I32Mul, Opcode::I64Mul);
     break;
   }
-  case llvm::Instruction::FMul:
-  case llvm::Instruction::UDiv:
-  case llvm::Instruction::SDiv:
-  case llvm::Instruction::FDiv:
-  case llvm::Instruction::URem:
-  case llvm::Instruction::SRem:
-  case llvm::Instruction::FRem:
-  case llvm::Instruction::Shl:
-  case llvm::Instruction::LShr:
-  case llvm::Instruction::AShr:
+  case llvm::Instruction::FMul: {
+    Dispatch(Opcode::F32Mul, Opcode::F64Mul);
+    break;
+  }
+  case llvm::Instruction::UDiv: {
+    Dispatch(Opcode::I32DivU, Opcode::I64DivU);
+    break;
+  }
+  case llvm::Instruction::SDiv: {
+    Dispatch(Opcode::I32DivS, Opcode::I64DivS);
+    break;
+  }
+  case llvm::Instruction::FDiv: {
+    Dispatch(Opcode::F32Div, Opcode::F64Div);
+    break;
+  }
+  case llvm::Instruction::URem: {
+    Dispatch(Opcode::I32RemU, Opcode::I64RemU);
+    break;
+  }
+  case llvm::Instruction::SRem: {
+    Dispatch(Opcode::I32RemS, Opcode::I64RemS);
+    break;
+  }
+  case llvm::Instruction::FRem: {
+    Handled = false;
+    break;
+  }
+  case llvm::Instruction::Shl: {
+    Dispatch(Opcode::I32Shl, Opcode::I64Shl);
+    break;
+  }
+  case llvm::Instruction::LShr: {
+    Dispatch(Opcode::I32ShrU, Opcode::I64ShrU);
+    break;
+  }
+  case llvm::Instruction::AShr: {
+    Dispatch(Opcode::I32ShrS, Opcode::I64ShrS);
+    break;
+  }
   case llvm::Instruction::And: {
-    if (Width == 32) {
-      Actions.Insts.push_back(Opcode::I32And);
-      Handled = true;
-    } else if (Width == 64) {
-      Actions.Insts.push_back(Opcode::I64And);
-      Handled = true;
-    }
+    Dispatch(Opcode::I32And, Opcode::I64And);
     break;
   }
   case llvm::Instruction::Or: {
-    if (Width == 32) {
-      Actions.Insts.push_back(Opcode::I32Or);
-      Handled = true;
-    } else if (Width == 64) {
-      Actions.Insts.push_back(Opcode::I64Or);
-      Handled = true;
-    }
+    Dispatch(Opcode::I32Or, Opcode::I64Or);
     break;
   }
   case llvm::Instruction::Xor: {
-    if (Width == 32) {
-      Actions.Insts.push_back(Opcode::I32Xor);
-      Handled = true;
-    } else if (Width == 64) {
-      Actions.Insts.push_back(Opcode::I64Xor);
-      Handled = true;
-    }
+    Dispatch(Opcode::I32Xor, Opcode::I64Xor);
     break;
   }
   default:
