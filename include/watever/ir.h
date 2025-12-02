@@ -31,6 +31,8 @@ class WasmSeq;
 
 class WasmVisitor {
 public:
+  virtual ~WasmVisitor() = default;
+
   virtual void visit(Wasm &) {};
   virtual void visit(WasmBlock &) = 0;
   virtual void visit(WasmLoop &) = 0;
@@ -52,9 +54,9 @@ class WasmInst {
 public:
   Opcode::Enum Op;
 
-  WasmInst(Opcode::Enum O) : Op(O), Imm(0), Fmt(Format::None) {}
+  WasmInst(Opcode::Enum O) : Fmt(Format::None), Imm(0), Op(O) {}
   WasmInst(Opcode::Enum O, uint64_t Imm)
-      : Op(O), Imm(Imm), Fmt(Format::Inline) {}
+      : Fmt(Format::Inline), Imm(Imm), Op(O) {}
 
   std::string getString() const {
     const char *Name = Opcode(Op).getName();
@@ -75,56 +77,57 @@ public:
   virtual void accept(WasmVisitor &V) { V.visit(*this); }
 };
 
-class WasmBlock : public Wasm {
+class WasmBlock final : public Wasm {
 public:
   std::unique_ptr<Wasm> InnerWasm;
 
   explicit WasmBlock(std::unique_ptr<Wasm> Inner)
       : InnerWasm(std::move(Inner)) {};
 
-  virtual void accept(WasmVisitor &V) override { V.visit(*this); }
+  void accept(WasmVisitor &V) override { V.visit(*this); }
 };
 
-class WasmLoop : public Wasm {
+class WasmLoop final : public Wasm {
 
 public:
   std::unique_ptr<Wasm> InnerWasm;
   explicit WasmLoop(std::unique_ptr<Wasm> Inner)
       : InnerWasm(std::move(Inner)) {};
-  virtual void accept(WasmVisitor &V) override { V.visit(*this); }
+  void accept(WasmVisitor &V) override { V.visit(*this); }
 };
 
-class WasmIf : public Wasm {
+class WasmIf final : public Wasm {
 public:
   std::unique_ptr<Wasm> True;
   std::unique_ptr<Wasm> False;
 
   explicit WasmIf(std::unique_ptr<Wasm> True, std::unique_ptr<Wasm> False)
       : True(std::move(True)), False(std::move(False)) {}
-  virtual void accept(WasmVisitor &V) override { V.visit(*this); }
+  void accept(WasmVisitor &V) override { V.visit(*this); }
 };
 
-class WasmBr : public Wasm {
+class WasmBr final : public Wasm {
 public:
   int Nesting;
   explicit WasmBr(int Nesting) : Nesting(Nesting) {}
-  virtual void accept(WasmVisitor &V) override { V.visit(*this); }
+  void accept(WasmVisitor &V) override { V.visit(*this); }
 };
 
-class WasmReturn : public Wasm {};
+class WasmReturn final : public Wasm {};
 
-struct WasmActions : public Wasm {
+class WasmActions final : public Wasm {
+public:
   llvm::SmallVector<WasmInst, 8> Insts;
 
-  virtual void accept(WasmVisitor &V) override { V.visit(*this); }
+  void accept(WasmVisitor &V) override { V.visit(*this); }
 };
 
-class WasmSeq : public Wasm {
+class WasmSeq final : public Wasm {
 public:
   std::pair<std::unique_ptr<Wasm>, std::unique_ptr<Wasm>> Flow;
   explicit WasmSeq(std::unique_ptr<Wasm> First, std::unique_ptr<Wasm> Second)
       : Flow(std::move(First), std::move(Second)) {}
-  virtual void accept(WasmVisitor &V) override { V.visit(*this); }
+  void accept(WasmVisitor &V) override { V.visit(*this); }
 };
 
 class Function {
@@ -151,8 +154,8 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
   WasmActions Actions;
   llvm::DenseMap<llvm::Value *, int> LocalMapping;
 
-  llvm::SmallVector<llvm::Value *> getLiveOut();
-  llvm::DenseMap<llvm::Value *, int> getInternalUserCounts();
+  llvm::SmallVector<llvm::Value *> getLiveOut() const;
+  llvm::DenseMap<llvm::Value *, int> getInternalUserCounts() const;
 
   void visitBinaryOperator(llvm::BinaryOperator &BO);
   void visitInstruction(llvm::Instruction &I) {
@@ -198,22 +201,22 @@ class FunctionLowering {
   llvm::DominatorTree &DT;
   llvm::LoopInfo &LI;
 
-  std::unique_ptr<Wasm> doBranch(llvm::BasicBlock *SourceBlock,
+  std::unique_ptr<Wasm> doBranch(const llvm::BasicBlock *SourceBlock,
                                  llvm::BasicBlock *TargetBlock, Context Ctx);
 
   // TODO MergeChildren needs better type
   std::unique_ptr<Wasm>
   nodeWithin(llvm::BasicBlock *Parent,
-             llvm::SmallVector<llvm::BasicBlock *> MergeChildren, Context Ctx);
+             llvm::SmallVector<llvm::BasicBlock *> MergeChildren, const Context &Ctx);
 
   std::unique_ptr<Wasm> doTree(llvm::BasicBlock *Root, Context Ctx);
 
-  int index(llvm::BasicBlock *BB, Context &Ctx);
+  static int index(const llvm::BasicBlock *BB, Context &Ctx);
 
-  std::unique_ptr<WasmActions> translateBB(llvm::BasicBlock *BB);
+  std::unique_ptr<WasmActions> translateBB(llvm::BasicBlock *BB) const;
 
-  void getMergeChildren(llvm::BasicBlock *R,
-                        llvm::SmallVectorImpl<llvm::BasicBlock *> &Result);
+  void getMergeChildren(const llvm::BasicBlock *R,
+                        llvm::SmallVectorImpl<llvm::BasicBlock *> &Result) const;
 
   static bool isMergeNode(const llvm::BasicBlock *BB) {
     return !llvm::pred_empty(BB) && !BB->getSinglePredecessor();
@@ -232,13 +235,13 @@ public:
 class ModuleLowering {
 
 public:
-  Module convert(llvm::Module &Mod, llvm::FunctionAnalysisManager &FAM);
+  static Module convert(llvm::Module &Mod, llvm::FunctionAnalysisManager &FAM);
 };
 
-class WasmPrinter : public WasmVisitor {
+class WasmPrinter final : public WasmVisitor {
   unsigned int Depth = 0;
 
-  void print(llvm::StringRef Text) {
+  void print(llvm::StringRef Text) const {
     for (size_t I = 0; I < Depth; ++I) {
       llvm::outs() << "|  ";
     }

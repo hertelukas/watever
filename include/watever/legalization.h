@@ -81,7 +81,7 @@ class LegalizationPass : public llvm::PassInfoMixin<LegalizationPass>,
   };
 
 public:
-  LegalizationPass(const llvm::Module &M) {
+  explicit LegalizationPass(const llvm::Module &M) {
     Int8Ty = llvm::Type::getInt8Ty(M.getContext());
     Int16Ty = llvm::Type::getInt16Ty(M.getContext());
     Int32Ty = llvm::Type::getInt32Ty(M.getContext());
@@ -95,7 +95,7 @@ public:
   llvm::PreservedAnalyses run(llvm::Function &F,
                               llvm::FunctionAnalysisManager &AM);
 
-  void visitAllocaInst(llvm::AllocaInst &AI);
+  void visitAllocaInst(llvm::AllocaInst &AI) {};
   void visitBinaryOperator(llvm::BinaryOperator &BO);
   void visitGetElementPtrInst(llvm::GetElementPtrInst &GI);
   void visitLoadInst(llvm::LoadInst &LI);

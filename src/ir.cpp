@@ -15,7 +15,7 @@
 
 using namespace watever;
 
-llvm::SmallVector<llvm::Value *> BlockLowering::getLiveOut() {
+llvm::SmallVector<llvm::Value *> BlockLowering::getLiveOut() const {
   llvm::SmallVector<llvm::Value *> Result;
 
   for (auto &Val : *BB) {
@@ -43,7 +43,7 @@ llvm::SmallVector<llvm::Value *> BlockLowering::getLiveOut() {
   return Result;
 }
 
-llvm::DenseMap<llvm::Value *, int> BlockLowering::getInternalUserCounts() {
+llvm::DenseMap<llvm::Value *, int> BlockLowering::getInternalUserCounts() const {
   // TODO think about PHI nodes
   llvm::DenseMap<llvm::Value *, int> Result;
 
@@ -61,9 +61,9 @@ llvm::DenseMap<llvm::Value *, int> BlockLowering::getInternalUserCounts() {
 }
 
 void BlockLowering::visitBinaryOperator(llvm::BinaryOperator &BO) {
-  auto *Ty = BO.getType();
+  const auto *Ty = BO.getType();
   // TODO handle vectors
-  auto Width = Ty->getPrimitiveSizeInBits();
+  const auto Width = Ty->getPrimitiveSizeInBits();
   bool Handled = true;
 
   auto Dispatch = [&](Opcode::Enum Op32, Opcode::Enum Op64) {
@@ -171,9 +171,9 @@ std::unique_ptr<WasmActions> BlockLowering::lower(Function &F) {
 #endif // WATEVER_LOGGING
 
   auto Count = getInternalUserCounts();
-  const auto OrignalCount = Count;
+  const auto OriginalCount = Count;
 
-  if (auto *Br = llvm::dyn_cast<llvm::BranchInst>(BB->getTerminator())) {
+  if (const auto *Br = llvm::dyn_cast<llvm::BranchInst>(BB->getTerminator())) {
     if (Br->isConditional()) {
       if (auto *Inst = llvm::dyn_cast<llvm::Instruction>(Br->getOperand(0))) {
         ToHandle.push_back(Inst);
@@ -195,7 +195,7 @@ std::unique_ptr<WasmActions> BlockLowering::lower(Function &F) {
     if (Count.lookup(Next) <= 1) {
       WATEVER_LOG_TRACE("materializing...");
       // Check, if someone already gets this value. If so, we tee it
-      if (OrignalCount.lookup(Next) > 1) {
+      if (OriginalCount.lookup(Next) > 1) {
         Actions.Insts.push_back(
             WasmInst(Opcode::LocalTee, LocalMapping.lookup(Next)));
       }
@@ -208,7 +208,7 @@ std::unique_ptr<WasmActions> BlockLowering::lower(Function &F) {
         }
       }
       // Otherwise, we can just load constants/arguments
-      else if (auto *Const = llvm::dyn_cast<llvm::ConstantInt>(Next)) {
+      else if (const auto *Const = llvm::dyn_cast<llvm::ConstantInt>(Next)) {
         if (Const->getBitWidth() == 32) {
           Actions.Insts.push_back(
               WasmInst(Opcode::I32Const, Const->getValue().getZExtValue()));
@@ -228,7 +228,7 @@ std::unique_ptr<WasmActions> BlockLowering::lower(Function &F) {
       WATEVER_LOG_TRACE("... so we can just load it");
       Count[Next]--;
       // Generate a new local
-      auto Local = F.getNewLocal();
+      const auto Local = F.getNewLocal();
       LocalMapping[Next] = Local;
       Actions.Insts.push_back(WasmInst(Opcode::LocalGet, Local));
     }
@@ -238,7 +238,7 @@ std::unique_ptr<WasmActions> BlockLowering::lower(Function &F) {
   return std::make_unique<WasmActions>(Actions);
 }
 
-std::unique_ptr<Wasm> FunctionLowering::doBranch(llvm::BasicBlock *Source,
+std::unique_ptr<Wasm> FunctionLowering::doBranch(const llvm::BasicBlock *Source,
                                                  llvm::BasicBlock *Target,
                                                  Context Ctx) {
 
@@ -281,7 +281,7 @@ std::unique_ptr<Wasm> FunctionLowering::doTree(llvm::BasicBlock *Root,
 
 std::unique_ptr<Wasm> FunctionLowering::nodeWithin(
     llvm::BasicBlock *Parent,
-    llvm::SmallVector<llvm::BasicBlock *> MergeChildren, Context Ctx) {
+    llvm::SmallVector<llvm::BasicBlock *> MergeChildren, const Context &Ctx) {
 
   // Base case
   if (MergeChildren.empty()) {
@@ -341,9 +341,9 @@ std::unique_ptr<Wasm> FunctionLowering::nodeWithin(
 }
 
 // TODO this might be wrong, needs double checking
-int FunctionLowering::index(llvm::BasicBlock *BB, Context &Ctx) {
+int FunctionLowering::index(const llvm::BasicBlock *BB, Context &Ctx) {
   int I = 0;
-  for (auto &Syntax : Ctx) {
+  for (const auto &Syntax : Ctx) {
     if (Syntax.Label == BB) {
       return I;
     }
@@ -353,15 +353,15 @@ int FunctionLowering::index(llvm::BasicBlock *BB, Context &Ctx) {
 }
 
 std::unique_ptr<WasmActions>
-FunctionLowering::translateBB(llvm::BasicBlock *BB) {
+FunctionLowering::translateBB(llvm::BasicBlock *BB) const {
   BlockLowering BL{BB};
   return BL.lower(F);
 }
 
 void FunctionLowering::getMergeChildren(
-    llvm::BasicBlock *R, llvm::SmallVectorImpl<llvm::BasicBlock *> &Result) {
+    const llvm::BasicBlock *R, llvm::SmallVectorImpl<llvm::BasicBlock *> &Result) const {
   if (auto *Node = DT.getNode(R)) {
-    for (auto *Child : *Node) {
+    for (const auto *Child : *Node) {
       if (isMergeNode(Child->getBlock())) {
         WATEVER_LOG_TRACE("{} is dominated merge",
                           Child->getBlock()->getName().str());

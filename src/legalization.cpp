@@ -10,7 +10,7 @@ bool LegalizationPass::expandAddWithCarry(llvm::IRBuilder<> &B,
   llvm::Value *RHS = BO.getOperand(1);
   llvm::Type *ResultTy = BO.getType();
   llvm::Type *Int64Ty = B.getInt64Ty();
-  unsigned Width = ResultTy->getIntegerBitWidth();
+  const unsigned Width = ResultTy->getIntegerBitWidth();
 
   // get the i-th pack: bits [i * 64, (i + 1) * 64)
   auto GetPack = [&](llvm::Value *V, unsigned Pack) {
@@ -19,7 +19,7 @@ bool LegalizationPass::expandAddWithCarry(llvm::IRBuilder<> &B,
   };
 
   llvm::Value *Res = llvm::ConstantInt::get(ResultTy, 0);
-  unsigned NumPacks = (Width + 63) / 64;
+  const unsigned NumPacks = (Width + 63) / 64;
   llvm::Value *Carry = llvm::ConstantInt::get(Int64Ty, 0);
 
   for (unsigned I = 0; I < NumPacks; ++I) {
@@ -66,7 +66,7 @@ bool LegalizationPass::expandSubWithBorrow(llvm::IRBuilder<> &B,
   };
 
   llvm::Value *Res = llvm::ConstantInt::get(ResultTy, 0);
-  unsigned NumPacks = (Width + 63) / 64;
+  const unsigned NumPacks = (Width + 63) / 64;
   llvm::Value *Borrow = llvm::ConstantInt::get(Int64Ty, 0);
 
   for (unsigned I = 0; I < NumPacks; ++I) {
@@ -164,10 +164,6 @@ LegalizationPass::run(llvm::Function &F, llvm::FunctionAnalysisManager &AM) {
   WATEVER_LOG_DBG("Legalized Function:\n {}", llvmToString(F));
   // TODO this is not correct
   return llvm::PreservedAnalyses::all();
-}
-
-void LegalizationPass::visitAllocaInst(llvm::AllocaInst &AI) {
-  // alloca doesn't need any legalization
 }
 
 void LegalizationPass::visitBinaryOperator(llvm::BinaryOperator &BO) {
@@ -449,7 +445,7 @@ void LegalizationPass::visitGetElementPtrInst(llvm::GetElementPtrInst &GI) {
   llvm::Type *CurrentTy = GI.getSourceElementType();
   llvm::Value *TotalOffset = llvm::ConstantInt::get(IntPtrTy, 0);
 
-  auto *IdxIt = GI.idx_begin();
+  const auto *IdxIt = GI.idx_begin();
 
   llvm::Value *FirstIndex = IdxIt->get();
   uint64_t FirstTypeSize = DL.getTypeAllocSize(CurrentTy);
@@ -530,7 +526,7 @@ void LegalizationPass::visitLoadInst(llvm::LoadInst &LI) {
     }
 
     // Best we can do is use normal, ceiled-width loads
-    if (32 + 16 + 8 < Width && Width < 64) {
+    if (32 + 16 + 8 < Width) {
       llvm::Value *Result = Builder.CreateLoad(Int64Ty, LI.getPointerOperand());
       Result = Builder.CreateTrunc(Result, InstType);
       LI.replaceAllUsesWith(Result);
@@ -659,7 +655,7 @@ void LegalizationPass::visitSExtInst(llvm::SExtInst &SI) {
   // extension with a shift left, followed by an arithmetic shift.
 
   auto *TargetTy = ToWidth < 32 ? Int32Ty : Int64Ty;
-  unsigned TargetWidth = ToWidth < 32 ? 32 : 64;
+  const unsigned TargetWidth = ToWidth < 32 ? 32 : 64;
 
   llvm::IRBuilder<> Builder(&SI);
   llvm::Value *WideOperand = Builder.CreateZExt(SI.getOperand(0), TargetTy);
@@ -673,10 +669,10 @@ void LegalizationPass::visitSExtInst(llvm::SExtInst &SI) {
 }
 
 void LegalizationPass::visitStoreInst(llvm::StoreInst &SI) {
-  auto *InstType = SI.getValueOperand()->getType();
+  const auto *InstType = SI.getValueOperand()->getType();
 
   if (InstType->isIntegerTy()) {
-    unsigned Width = InstType->getIntegerBitWidth();
+    const unsigned Width = InstType->getIntegerBitWidth();
 
     if (Width == 32 || Width == 64) {
       return;
@@ -698,7 +694,7 @@ void LegalizationPass::visitStoreInst(llvm::StoreInst &SI) {
     }
 
     // Best we can do is use normal i64 stores
-    if (32 + 16 + 8 < Width && Width < 64) {
+    if (32 + 16 + 8 < Width) {
       llvm::Value *ValExt = Builder.CreateZExt(SI.getValueOperand(), Int64Ty);
       Builder.CreateStore(ValExt, SI.getPointerOperand());
       SI.eraseFromParent();
@@ -707,7 +703,7 @@ void LegalizationPass::visitStoreInst(llvm::StoreInst &SI) {
 
     if (Width > 32) {
       llvm::Value *ToStore = Builder.CreateZExt(SI.getValueOperand(), Int64Ty);
-      llvm::APInt Mask = llvm::APInt::getLowBitsSet(64, Width);
+      const llvm::APInt Mask = llvm::APInt::getLowBitsSet(64, Width);
       llvm::Value *MaskVal = llvm::ConstantInt::get(Int64Ty, Mask);
       ToStore = Builder.CreateAnd(ToStore, MaskVal);
 
@@ -728,7 +724,7 @@ void LegalizationPass::visitStoreInst(llvm::StoreInst &SI) {
         NextBytes = Builder.CreateTrunc(NextBytes, Int16Ty);
         Builder.CreateStore(NextBytes, NewPtr);
 
-        llvm::Value *NextOffset = llvm::ConstantInt::get(IntPtrTy, 2);
+        NextOffset = llvm::ConstantInt::get(IntPtrTy, 2);
         NewPtrAsInt = Builder.CreateAdd(NewPtrAsInt, NextOffset);
         NextShift += 16;
       }
@@ -742,7 +738,7 @@ void LegalizationPass::visitStoreInst(llvm::StoreInst &SI) {
       }
     } else {
       llvm::Value *ToStore = Builder.CreateZExt(SI.getValueOperand(), Int32Ty);
-      llvm::APInt Mask = llvm::APInt::getLowBitsSet(32, Width);
+      const llvm::APInt Mask = llvm::APInt::getLowBitsSet(32, Width);
       llvm::Value *MaskVal = llvm::ConstantInt::get(Int32Ty, Mask);
       ToStore = Builder.CreateAnd(ToStore, MaskVal);
 
@@ -812,21 +808,21 @@ void LegalizationPass::visitUnaryOperator(llvm::UnaryOperator &UO) {
 }
 
 void LegalizationPass::visitZExtInst(llvm::ZExtInst &ZI) {
-  auto *InstType = ZI.getType();
+  const auto *InstType = ZI.getType();
 
   if (!InstType->isIntegerTy()) {
     WATEVER_TODO("expanding vector {} not supported", ZI.getOpcodeName());
     return;
   }
 
-  unsigned Width = InstType->getIntegerBitWidth();
+  const unsigned Width = InstType->getIntegerBitWidth();
 
   if (Width == 32 || Width == 64) {
     return;
   }
 
-  // TODO decide wether truncating should AND the result. In theory it should
-  // but this leads to quite some inefficencies where we zext to legalize,
+  // TODO decide whether truncating should AND the result. In theory it should
+  // but this leads to quite some inefficiencies where we zext to legalize,
   // don't care about upper bits. (e.g., add)
   WATEVER_TODO("zext is not really legal yet");
 }
