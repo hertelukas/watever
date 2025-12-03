@@ -18,7 +18,9 @@
 #include <llvm/IR/Value.h>
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/raw_ostream.h>
+#include <map>
 #include <memory>
+#include <variant>
 
 namespace watever {
 class Wasm;
@@ -131,21 +133,63 @@ public:
   void accept(WasmVisitor &V) override { V.visit(*this); }
 };
 
+// TODO
+struct StructType {
+  auto operator<=>(const StructType &) const = default;
+};
+
+// TODO
+struct ArrayType {
+  auto operator<=>(const ArrayType &) const = default;
+};
+
+struct FuncType {
+  // TODO not sure if "Type" is correct here (should be valtype)
+  std::vector<Type::Enum> Args;
+  std::vector<Type::Enum> Results;
+
+  auto operator<=>(const FuncType &) const = default;
+};
+
+// TODO support typeuse
+struct SubType {
+  bool IsFinal;
+  std::variant<FuncType, StructType, ArrayType> Composite;
+
+  auto operator<=>(const SubType &) const = default;
+};
+
 class Function {
   friend class FunctionLowering;
   int LastLocal = 0;
   std::unique_ptr<Wasm> Body;
+  const SubType *TypePtr;
 
 public:
-  explicit Function(int NumArgs) : LastLocal(NumArgs) {}
+  explicit Function(int NumArgs, const SubType *Type)
+      : LastLocal(NumArgs), TypePtr(Type) {}
   int getNewLocal() { return LastLocal++; }
 
   void visit(WasmVisitor &V) { Body->accept(V); }
 };
 
 class Module {
+  // Canonical storage for types
+  std::map<SubType, std::unique_ptr<SubType>> Types;
+
 public:
   llvm::SmallVector<Function, 4> Functions;
+
+  const SubType *getOrAddType(const SubType &Temp) {
+    auto It = Types.find(Temp);
+    if (It != Types.end())
+      return It->second.get();
+
+    auto NewType = std::make_unique<SubType>(Temp);
+    const SubType *Ptr = NewType.get();
+    Types.emplace(Temp, std::move(NewType));
+    return Ptr;
+  }
 };
 
 class BlockLowering : public llvm::InstVisitor<BlockLowering> {
@@ -159,7 +203,7 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
   llvm::DenseMap<llvm::Value *, int> getInternalUserCounts() const;
 
   void visitBinaryOperator(llvm::BinaryOperator &BO);
-  
+
   // nop, legalizer has to ensure that widths match
   void visitIntToPtrInst(llvm::IntToPtrInst &) {};
   void visitPtrToIntInst(llvm::PtrToIntInst &) {};

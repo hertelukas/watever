@@ -158,7 +158,6 @@ void BlockLowering::visitBinaryOperator(llvm::BinaryOperator &BO) {
   }
 }
 
-
 void BlockLowering::visitSExtInst(llvm::SExtInst &SI) {
   auto FromWidth = SI.getOperand(0)->getType()->getIntegerBitWidth();
   auto ToWidth = SI.getType()->getIntegerBitWidth();
@@ -411,7 +410,8 @@ Module ModuleLowering::convert(llvm::Module &Mod,
     auto &DT = FAM.getResult<llvm::DominatorTreeAnalysis>(F);
     auto &LI = FAM.getResult<llvm::LoopAnalysis>(F);
 
-    Function WasmFunction{static_cast<int>(F.arg_size())};
+    WATEVER_TODO("create (or get) function type");
+    Function WasmFunction{static_cast<int>(F.arg_size()), nullptr};
     FunctionLowering FL{WasmFunction, DT, LI};
     FL.lower();
     WasmPrinter Printer{};
