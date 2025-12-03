@@ -43,7 +43,8 @@ llvm::SmallVector<llvm::Value *> BlockLowering::getLiveOut() const {
   return Result;
 }
 
-llvm::DenseMap<llvm::Value *, int> BlockLowering::getInternalUserCounts() const {
+llvm::DenseMap<llvm::Value *, int>
+BlockLowering::getInternalUserCounts() const {
   // TODO think about PHI nodes
   llvm::DenseMap<llvm::Value *, int> Result;
 
@@ -154,6 +155,37 @@ void BlockLowering::visitBinaryOperator(llvm::BinaryOperator &BO) {
   }
   if (!Handled) {
     WATEVER_TODO("lowering of {}", BO.getOpcodeName());
+  }
+}
+
+
+void BlockLowering::visitSExtInst(llvm::SExtInst &SI) {
+  auto FromWidth = SI.getOperand(0)->getType()->getIntegerBitWidth();
+  auto ToWidth = SI.getType()->getIntegerBitWidth();
+
+  // TODO support --enable-sign-extension
+  if (FromWidth != 32 || ToWidth != 64) {
+    WATEVER_UNREACHABLE("Can not expand from {} to {}", FromWidth, ToWidth);
+  }
+
+  Actions.Insts.emplace_back(Opcode::I64Extend32S);
+}
+
+void BlockLowering::visitUnaryOperator(llvm::UnaryOperator &UO) {
+  switch (UO.getOpcode()) {
+  case llvm::Instruction::FNeg: {
+    if (UO.getType()->isDoubleTy()) {
+      Actions.Insts.emplace_back(Opcode::F64Neg);
+    } else if (UO.getType()->isFloatTy()) {
+      Actions.Insts.emplace_back(Opcode::F32Neg);
+    } else {
+      WATEVER_UNREACHABLE("Illegal floating point for negation: {}",
+                          llvmToString(*UO.getType()));
+    }
+  }
+  default:
+    WATEVER_UNREACHABLE("Illegal opcode encountered: {}", UO.getOpcodeName());
+    break;
   }
 }
 
@@ -359,7 +391,8 @@ FunctionLowering::translateBB(llvm::BasicBlock *BB) const {
 }
 
 void FunctionLowering::getMergeChildren(
-    const llvm::BasicBlock *R, llvm::SmallVectorImpl<llvm::BasicBlock *> &Result) const {
+    const llvm::BasicBlock *R,
+    llvm::SmallVectorImpl<llvm::BasicBlock *> &Result) const {
   if (auto *Node = DT.getNode(R)) {
     for (const auto *Child : *Node) {
       if (isMergeNode(Child->getBlock())) {

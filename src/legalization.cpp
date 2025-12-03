@@ -629,6 +629,7 @@ void LegalizationPass::visitRet(llvm::ReturnInst &RI) {
   WATEVER_TODO("handle return instruction");
 }
 
+// TODO support --enable-sign-extension
 void LegalizationPass::visitSExtInst(llvm::SExtInst &SI) {
   auto *InstType = SI.getType();
 
@@ -640,7 +641,7 @@ void LegalizationPass::visitSExtInst(llvm::SExtInst &SI) {
   unsigned ToWidth = InstType->getIntegerBitWidth();
 
   // TODO we probably also cannot legalize non i8, i16, i32, i64 from widths
-  if (ToWidth == 32 || ToWidth == 64) {
+  if (ToWidth == 64) {
     return;
   }
 

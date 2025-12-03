@@ -12,6 +12,7 @@
 #include <llvm/IR/InstVisitor.h>
 #include <llvm/IR/InstrTypes.h>
 #include <llvm/IR/Instruction.h>
+#include <llvm/IR/Instructions.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/PassManager.h>
 #include <llvm/IR/Value.h>
@@ -158,6 +159,13 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
   llvm::DenseMap<llvm::Value *, int> getInternalUserCounts() const;
 
   void visitBinaryOperator(llvm::BinaryOperator &BO);
+  
+  // nop, legalizer has to ensure that widths match
+  void visitIntToPtrInst(llvm::IntToPtrInst &) {};
+  void visitPtrToIntInst(llvm::PtrToIntInst &) {};
+
+  void visitSExtInst(llvm::SExtInst &SI);
+  void visitUnaryOperator(llvm::UnaryOperator &UO);
   void visitInstruction(llvm::Instruction &I) {
     // TODO set to UNIMPLEMENTED
     WATEVER_TODO("{} not (yet) supported", I.getOpcodeName());
@@ -207,7 +215,8 @@ class FunctionLowering {
   // TODO MergeChildren needs better type
   std::unique_ptr<Wasm>
   nodeWithin(llvm::BasicBlock *Parent,
-             llvm::SmallVector<llvm::BasicBlock *> MergeChildren, const Context &Ctx);
+             llvm::SmallVector<llvm::BasicBlock *> MergeChildren,
+             const Context &Ctx);
 
   std::unique_ptr<Wasm> doTree(llvm::BasicBlock *Root, Context Ctx);
 
@@ -215,8 +224,9 @@ class FunctionLowering {
 
   std::unique_ptr<WasmActions> translateBB(llvm::BasicBlock *BB) const;
 
-  void getMergeChildren(const llvm::BasicBlock *R,
-                        llvm::SmallVectorImpl<llvm::BasicBlock *> &Result) const;
+  void
+  getMergeChildren(const llvm::BasicBlock *R,
+                   llvm::SmallVectorImpl<llvm::BasicBlock *> &Result) const;
 
   static bool isMergeNode(const llvm::BasicBlock *BB) {
     return !llvm::pred_empty(BB) && !BB->getSinglePredecessor();
