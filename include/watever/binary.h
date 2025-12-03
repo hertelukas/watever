@@ -1,47 +1,44 @@
 #ifndef _BINARY_H
 #define _BINARY_H
 
-#include "structure.h"
+#include "watever/ir.h"
+#include "watever/linking.h"
+#include <cstdint>
 #include <llvm/Support/Endian.h>
 #include <llvm/Support/raw_ostream.h>
-#include <bit>
-#include <cstdint>
 
 namespace watever {
 static constexpr uint32_t WateverBinaryMagic = 0x6d736100;
 static constexpr uint32_t Version = 0x1;
 
-enum class Section : uint8_t {
-  Custom = 0,
-  Type = 1,
-  Import = 2,
-  Function = 3,
-  Table = 4,
-  Memory = 5,
-  Global = 6,
-  Export = 7,
-  Start = 8,
-  Element = 9,
-  Code = 10,
-  Data = 11,
-  DataCount = 12,
-  Tag = 13,
-};
-
 class BinaryWriter {
   llvm::raw_ostream &OS;
 
-  template <std::integral T> void writeIntegral(T Value) {
-    if constexpr (std::endian::native == std::endian::little) {
-      OS.write(reinterpret_cast<const char *>(&Value), sizeof(Value));
-    } else {
-      T LE = std::byteswap(Value);
-      OS.write(reinterpret_cast<const char *>(&LE), sizeof(LE));
+  void writeMagic() { writeIntegral(WateverBinaryMagic, OS); }
+  void writeVersion() { writeIntegral(Version, OS); }
+
+  // Custom section with name "reloc.<SECTION>"
+  // TODO figure out if this is a custom section or part of linking custom
+  // section
+  void writeRelocation(const Relocation &Rel) {
+    writeLEB128(Rel.Section, OS);
+    writeLEB128(Rel.Entries.size(), OS);
+
+    for (auto &Entry : Rel.Entries) {
+      OS << static_cast<uint8_t>(Entry.Type);
+      writeLEB128(Entry.Offset, OS);
+      writeLEB128(Entry.Index, OS);
     }
   }
 
-  void writeMagic() { writeIntegral(WateverBinaryMagic); }
-  void writeVersion() { writeIntegral(Version); }
+  void writeLinking(const Linking &Link) {
+    writeLEB128(Link.Version, OS);
+    for (const auto &SectionPtr : Link.Subsections) {
+      OS << static_cast<uint8_t>(SectionPtr->getSectionType());
+      writeLEB128(SectionPtr->getPayloadLen(), OS); // payload_len
+      SectionPtr->writePayload(OS);                 // payload_data
+    }
+  }
 
 public:
   BinaryWriter(llvm::raw_ostream &Stream) : OS(Stream) {}

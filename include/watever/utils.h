@@ -41,18 +41,47 @@
 #define WATEVER_UNREACHABLE(...)                                               \
   WATEVER_PANIC_IMPL("PANIC [UNREACHABLE] ", __VA_ARGS__)
 
-#include <concepts>
-#include <cstddef>
 #define WATEVER_ARRAY_SIZE(a) (sizeof(a) / sizeof(a[0]))
 enum { WATEVER_USE_NATURAL_ALIGNMENT = 0xFFFFFFFFFFFFFFFF };
 
-template <typename C>
-concept ByteContainer = requires(C &Container, std::byte B) {
-  { Container.push_back(B) };
-};
+template <typename T> std::string llvmToString(const T &V) {
+  std::string S;
+  llvm::raw_string_ostream OS(S);
+  V.print(OS);
+  return OS.str();
+}
+template <std::integral T> void writeIntegral(T Value, llvm::raw_ostream &OS) {
+  if constexpr (std::endian::native == std::endian::little) {
+    OS.write(reinterpret_cast<const char *>(&Value), sizeof(Value));
+  } else {
+    T LE = std::byteswap(Value);
+    OS.write(reinterpret_cast<const char *>(&LE), sizeof(LE));
+  }
+}
+template <std::integral T> static constexpr size_t getLEB128Size(T Value) {
+  size_t Size = 0;
+  if constexpr (std::is_unsigned_v<T>) {
+    do {
+      Value >>= 7;
+      Size++;
+    } while (Value != 0);
+  } else {
+    while (true) {
+      std::byte Byte = static_cast<std::byte>(Value & 0x7F);
+      Value >>= 7;
+      Size++;
 
-template <std::integral T, ByteContainer Container>
-void leb128(T Value, Container &OutBuffer) {
+      bool SignBitClear = (Byte & std::byte{0x40}) == std::byte{0x00};
+      bool SignBitSet = (Byte & std::byte{0x40}) != std::byte{0x00};
+
+      if ((Value == 0 && SignBitClear) || (Value == -1 && SignBitSet)) {
+        break;
+      }
+    }
+  }
+  return Size;
+}
+template <std::integral T> void writeLEB128(T Value, llvm::raw_ostream &OS) {
   if constexpr (std::is_unsigned_v<T>) {
     do {
       std::byte Byte = static_cast<std::byte>(Value & 0x7F);
@@ -60,11 +89,9 @@ void leb128(T Value, Container &OutBuffer) {
       if (Value != 0) {
         Byte |= static_cast<std::byte>(0x80);
       }
-      OutBuffer.push_back(Byte);
+      OS << static_cast<char>(Byte);
     } while (Value != 0);
   } else {
-    static_assert(std::is_signed_v<T>,
-                  "Integral type must be signed or unsigned");
     while (true) {
       std::byte Byte = static_cast<std::byte>(Value & 0x7F);
       Value >>= 7;
@@ -73,20 +100,30 @@ void leb128(T Value, Container &OutBuffer) {
       bool SignBitSet = (Byte & std::byte{0x40}) != std::byte{0x00};
 
       if ((Value == 0 && SignBitClear) || (Value == -1 && SignBitSet)) {
-        OutBuffer.push_back(Byte);
+        OS << static_cast<char>(Byte);
+
         break;
       }
       Byte |= static_cast<std::byte>(0x80);
-      OutBuffer.push_back(Byte);
+      OS << static_cast<char>(Byte);
     }
   }
 }
+// Writes exactly n bytes, regardless of the value
+template <std::unsigned_integral T>
+void writeLEB128Fixed(T Value, size_t N, llvm::raw_ostream &OS) {
+  for (size_t I = 0; I < N; ++I) {
+    std::byte Byte = static_cast<std::byte>(Value & 0x7F);
+    Value >>= 7;
 
-template <typename T> std::string llvmToString(const T &V) {
-  std::string S;
-  llvm::raw_string_ostream OS(S);
-  V.print(OS);
-  return OS.str();
+    if (I < N - 1) {
+      Byte |= static_cast<std::byte>(0x80);
+    }
+    OS << static_cast<char>(Byte);
+  }
+  if (Value != 0) {
+    WATEVER_LOG_ERR("value too large for fixed-width LEB128 encoding");
+  }
 }
 
 #endif // WATEVER_UTILS_H
