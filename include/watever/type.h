@@ -153,7 +153,8 @@ public:
   //   ...
   //   (block (type $T) ...)
   //
-  bool IsIndex() const { return static_cast<int32_t>(enum_) >= 0; }
+  // TODO very likely wrong
+  bool IsIndex() const { return static_cast<int8_t>(enum_) >= 0; }
 
   Index GetIndex() const {
     assert(IsIndex());
