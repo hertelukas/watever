@@ -408,6 +408,10 @@ Module ModuleLowering::convert(llvm::Module &Mod,
                                llvm::FunctionAnalysisManager &FAM) {
   Module Res{};
   for (auto &F : Mod) {
+    if (F.isDeclaration()) {
+      WATEVER_TODO("handle function declaration");
+      continue;
+    }
     auto &DT = FAM.getResult<llvm::DominatorTreeAnalysis>(F);
     auto &LI = FAM.getResult<llvm::LoopAnalysis>(F);
 
