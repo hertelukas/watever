@@ -8,10 +8,11 @@ set(APP_SOURCES
   
 add_library(${PROJECT_NAME}lib ${APP_SOURCES})
 
-target_include_directories(${PROJECT_NAME}lib
-  PUBLIC
-    ${PROJECT_SOURCE_DIR}/include
-    ${LLVM_INCLUDE_DIRS}
+target_include_directories(${PROJECT_NAME}lib PUBLIC
+  ${PROJECT_SOURCE_DIR}/include
+)
+target_include_directories(${PROJECT_NAME}lib SYSTEM PUBLIC
+  ${LLVM_INCLUDE_DIRS}
 )
 
 target_link_libraries(${PROJECT_NAME}lib PUBLIC LLVM)
