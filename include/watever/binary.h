@@ -12,6 +12,20 @@ namespace watever {
 static constexpr uint32_t WateverBinaryMagic = 0x6d736100;
 static constexpr uint32_t Version = 0x1;
 
+class CodeWriter final : public WasmVisitor {
+  llvm::raw_svector_ostream &OS;
+
+public:
+  CodeWriter(llvm::raw_svector_ostream &OS) : OS(OS) {}
+  void visit(WasmBlock &Block) override;
+  void visit(WasmLoop &Loop) override;
+  void visit(WasmIf &IfElse) override;
+  void visit(WasmReturn &) override;
+  void visit(WasmSeq &Seq) override;
+  void visit(WasmActions &Actions) override;
+  void visit(WasmBr &Br) override;
+};
+
 enum class Section : uint8_t {
   Custom = 0,
   Type = 1,
@@ -37,6 +51,8 @@ class BinaryWriter {
   void writeVersion() { writeIntegral(Version, OS); }
 
   void writeTypes();
+  void writeFunctions();
+  void writeCode();
 
   // Custom section with name "reloc.<SECTION>"
   // TODO figure out if this is a custom section or part of linking custom

@@ -2,6 +2,7 @@
 #define IR_H
 
 #include "watever/opcode.h"
+#include "watever/utils.h"
 #include <llvm/ADT/DenseMap.h>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/Analysis/LoopInfo.h>
@@ -17,6 +18,7 @@
 #include <llvm/IR/PassManager.h>
 #include <llvm/IR/Value.h>
 #include <llvm/Support/FormatVariadic.h>
+#include <llvm/Support/LEB128.h>
 #include <llvm/Support/raw_ostream.h>
 #include <map>
 #include <memory>
@@ -72,6 +74,21 @@ public:
       return Name;
     }
   }
+
+  void write(llvm::raw_svector_ostream &OS) {
+    Opcode(Op).writeBytes(OS);
+    switch (Fmt) {
+
+    case Format::None:
+      break;
+    case Format::Inline:
+      llvm::encodeULEB128(Imm, OS);
+      break;
+    case Format::Complex:
+      WATEVER_UNIMPLEMENTED("Handle complex parameters");
+      break;
+    }
+  }
 };
 
 class Wasm {
@@ -111,7 +128,7 @@ public:
 
 class WasmBr final : public Wasm {
 public:
-  int Nesting;
+  uint32_t Nesting;
   explicit WasmBr(int Nesting) : Nesting(Nesting) {}
   void accept(WasmVisitor &V) override { V.visit(*this); }
 };
@@ -166,17 +183,19 @@ struct SubType {
 
 class Function {
   friend class FunctionLowering;
-  int LastLocal = 0;
-  std::unique_ptr<Wasm> Body;
-  [[maybe_unused]]
-  const SubType *TypePtr;
+  std::unique_ptr<Wasm> Body{};
 
 public:
-  explicit Function(int NumArgs, const SubType *Type)
-      : LastLocal(NumArgs), TypePtr(Type) {}
-  int getNewLocal() { return LastLocal++; }
+  llvm::DenseMap<Type::Enum, uint32_t> Locals;
+  const SubType *TypePtr{};
 
-  void visit(WasmVisitor &V) { Body->accept(V); }
+  explicit Function(const SubType *Type,
+                    llvm::DenseMap<Type::Enum, uint32_t> Args)
+      : Locals(Args), TypePtr(Type) {}
+
+  int getNewLocal(Type::Enum Ty) { return Locals[Ty]++; }
+
+  void visit(WasmVisitor &V) const { Body->accept(V); }
 };
 
 class Module {

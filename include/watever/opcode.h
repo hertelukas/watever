@@ -10,6 +10,7 @@
 #include "watever/opcode-code-table.h"
 #include "watever/type.h"
 #include "watever/utils.h"
+#include <llvm/Support/raw_ostream.h>
 
 namespace watever {
 struct Opcode {
@@ -41,8 +42,8 @@ struct Opcode {
   static Opcode fromCode(uint8_t Prefix, uint32_t Code);
   bool hasPrefix() const { return getInfo().Prefix != 0; }
   uint8_t getPrefix() const { return getInfo().Prefix; }
-  uint32_t getCode() const { return getInfo().Code; }
-  size_t getLength() const { return getBytes().size(); }
+  uint8_t getCode() const { return getInfo().Code; }
+  // size_t getLength() const { return getBytes().size(); }
   const char *getName() const { return getInfo().Name; }
   const char *getDecomp() const {
     return *getInfo().Decomp ? getInfo().Decomp : getInfo().Name;
@@ -54,8 +55,8 @@ struct Opcode {
   Type getParamType(int N) const { return getInfo().ParamTypes[N - 1]; }
   Address getMemorySize() const { return getInfo().MemorySize; }
 
-  // Get the byte sequence for this opcode, including prefix.
-  std::vector<uint8_t> getBytes() const;
+  // Write the opcode to OS
+  void writeBytes(llvm::raw_svector_ostream &OS) const;
 
   // Get the lane count of an extract/replace simd op.
   uint32_t getSimdLaneCount() const;

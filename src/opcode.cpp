@@ -5,6 +5,7 @@
 
 #include "watever/opcode.h"
 #include "watever/feature.h"
+#include <llvm/Support/raw_ostream.h>
 
 namespace watever {
 
@@ -423,5 +424,12 @@ uint32_t Opcode::getSimdLaneCount() const {
 // }
 // return Result;
 // }
+
+void Opcode::writeBytes(llvm::raw_svector_ostream &OS) const {
+  if (hasPrefix()) {
+    WATEVER_TODO("writeout prefix");
+  }
+  OS << getCode();
+}
 
 } // namespace watever
