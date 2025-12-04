@@ -181,6 +181,7 @@ void BlockLowering::visitUnaryOperator(llvm::UnaryOperator &UO) {
       WATEVER_UNREACHABLE("Illegal floating point for negation: {}",
                           llvmToString(*UO.getType()));
     }
+    break;
   }
   default:
     WATEVER_UNREACHABLE("Illegal opcode encountered: {}", UO.getOpcodeName());
@@ -330,8 +331,8 @@ std::unique_ptr<Wasm> FunctionLowering::nodeWithin(
                           Br->getSuccessor(1)->getName().str());
 
         Leaving = std::make_unique<WasmIf>(
-            std::move(doBranch(Parent, Br->getSuccessor(0), Ctx)),
-            std::move(doBranch(Parent, Br->getSuccessor(1), Ctx)));
+            doBranch(Parent, Br->getSuccessor(0), Ctx),
+            doBranch(Parent, Br->getSuccessor(1), Ctx));
       } else {
         assert(Br->getNumSuccessors() == 1 &&
                "expected only one successor in unconditional branch");
@@ -341,7 +342,7 @@ std::unique_ptr<Wasm> FunctionLowering::nodeWithin(
 
         Leaving = doBranch(Parent, Br->getSuccessor(0), Ctx);
       }
-    } else if (auto *Ret = llvm::dyn_cast<llvm::ReturnInst>(Term)) {
+    } else if (llvm::isa<llvm::ReturnInst>(Term)) {
       Leaving = std::make_unique<WasmReturn>();
     } else {
       // TODO support switch

@@ -408,20 +408,20 @@ uint32_t Opcode::getSimdLaneCount() const {
 }
 
 // Get the byte sequence for this opcode, including prefix.
-std::vector<uint8_t> Opcode::getBytes() const {
-  std::vector<uint8_t> Result;
-  if (hasPrefix()) {
-    Result.push_back(getPrefix());
-    uint8_t Buffer[5];
-    assert(false && "todo");
-    // Offset length =
-    //     WriteU32Leb128Raw(buffer, buffer + sizeof(buffer), GetCode());
-    // assert(length != 0);
-    // result.insert(result.end(), buffer, buffer + length);
-  } else {
-    Result.push_back(getCode());
-  }
-  return Result;
-}
+// std::vector<uint8_t> Opcode::getBytes() const {
+//   std::vector<uint8_t> Result;
+//   if (hasPrefix()) {
+//     Result.push_back(getPrefix());
+//     uint8_t Buffer[5];
+//     assert(false && "todo");
+// Offset length =
+//     WriteU32Leb128Raw(buffer, buffer + sizeof(buffer), GetCode());
+// assert(length != 0);
+// result.insert(result.end(), buffer, buffer + length);
+// } else {
+//   Result.push_back(getCode());
+// }
+// return Result;
+// }
 
 } // namespace watever

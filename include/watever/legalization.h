@@ -95,7 +95,7 @@ public:
   llvm::PreservedAnalyses run(llvm::Function &F,
                               llvm::FunctionAnalysisManager &AM);
 
-  void visitAllocaInst(llvm::AllocaInst &AI) {};
+  void visitAllocaInst(llvm::AllocaInst &) {};
   void visitBinaryOperator(llvm::BinaryOperator &BO);
   void visitGetElementPtrInst(llvm::GetElementPtrInst &GI);
   void visitLoadInst(llvm::LoadInst &LI);

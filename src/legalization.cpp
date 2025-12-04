@@ -108,7 +108,6 @@ bool LegalizationPass::expandWithRuntimeLib(llvm::IRBuilder<> &B,
   llvm::Type *Int128Ty = B.getInt128Ty();
 
   llvm::Module *M = BO.getModule();
-  llvm::Type *OpTy = BO.getOperand(0)->getType();
 
   auto *FTy = llvm::FunctionType::get(Int128Ty, {Int128Ty, Int128Ty}, false);
   const auto Callee = M->getOrInsertFunction(FuncName, FTy);
@@ -156,8 +155,8 @@ bool LegalizationPass::expandPackwise(llvm::IRBuilder<> &B,
   return true;
 }
 
-llvm::PreservedAnalyses
-LegalizationPass::run(llvm::Function &F, llvm::FunctionAnalysisManager &AM) {
+llvm::PreservedAnalyses LegalizationPass::run(llvm::Function &F,
+                                              llvm::FunctionAnalysisManager &) {
   WATEVER_LOG_DBG("Legalizing {}", F.getName().str());
   this->visit(F);
 
@@ -173,7 +172,7 @@ void LegalizationPass::visitBinaryOperator(llvm::BinaryOperator &BO) {
   case llvm::Instruction::Add: {
     Handled = legalizeIntegerBinaryOp(
         BO,
-        [](auto &B, auto *LHS, auto *RHS, auto _) {
+        [](auto &B, auto *LHS, auto *RHS, auto) {
           return B.CreateAdd(LHS, RHS);
         },
         expandAddWithCarry);
@@ -188,7 +187,7 @@ void LegalizationPass::visitBinaryOperator(llvm::BinaryOperator &BO) {
   case llvm::Instruction::Sub: {
     Handled = legalizeIntegerBinaryOp(
         BO,
-        [](auto &B, auto *LHS, auto *RHS, auto _) {
+        [](auto &B, auto *LHS, auto *RHS, auto) {
           return B.CreateSub(LHS, RHS);
         },
         expandSubWithBorrow);
@@ -203,7 +202,7 @@ void LegalizationPass::visitBinaryOperator(llvm::BinaryOperator &BO) {
   case llvm::Instruction::Mul: {
     Handled = legalizeIntegerBinaryOp(
         BO,
-        [](auto &B, auto *LHS, auto *RHS, auto _) {
+        [](auto &B, auto *LHS, auto *RHS, auto) {
           return B.CreateMul(LHS, RHS);
         },
         [](auto &B, auto &BO) {
@@ -326,7 +325,7 @@ void LegalizationPass::visitBinaryOperator(llvm::BinaryOperator &BO) {
           unsigned TargetBitWidth = LHS->getType()->getIntegerBitWidth();
           llvm::APInt Mask = llvm::APInt::getLowBitsSet(TargetBitWidth, Width);
           llvm::Value *MaskVal = llvm::ConstantInt::get(LHS->getType(), Mask);
-          llvm::Value *LegalRHS = B.CreateAnd(RHS);
+          llvm::Value *LegalRHS = B.CreateAnd(RHS, MaskVal);
           return B.CreateShl(LHS, LegalRHS);
         });
     break;
@@ -384,7 +383,7 @@ void LegalizationPass::visitBinaryOperator(llvm::BinaryOperator &BO) {
   case llvm::Instruction::And: {
     Handled = legalizeIntegerBinaryOp(
         BO,
-        [](auto &B, auto *LHS, auto *RHS, auto _) {
+        [](auto &B, auto *LHS, auto *RHS, auto) {
           return B.CreateAnd(LHS, RHS);
         },
         expandPackwise);
@@ -393,7 +392,7 @@ void LegalizationPass::visitBinaryOperator(llvm::BinaryOperator &BO) {
   case llvm::Instruction::Or: {
     Handled = legalizeIntegerBinaryOp(
         BO,
-        [](auto &B, auto *LHS, auto *RHS, auto _) {
+        [](auto &B, auto *LHS, auto *RHS, auto) {
           return B.CreateOr(LHS, RHS);
         },
         expandPackwise);
@@ -402,7 +401,7 @@ void LegalizationPass::visitBinaryOperator(llvm::BinaryOperator &BO) {
   case llvm::Instruction::Xor: {
     Handled = legalizeIntegerBinaryOp(
         BO,
-        [](auto &B, auto *LHS, auto *RHS, auto _) {
+        [](auto &B, auto *LHS, auto *RHS, auto) {
           return B.CreateXor(LHS, RHS);
         },
         expandPackwise);
@@ -625,7 +624,7 @@ void LegalizationPass::visitLoadInst(llvm::LoadInst &LI) {
   WATEVER_TODO("handle load of {}", llvmToString(*InstType));
 }
 
-void LegalizationPass::visitRet(llvm::ReturnInst &RI) {
+void LegalizationPass::visitRet(llvm::ReturnInst &) {
   WATEVER_TODO("handle return instruction");
 }
 
@@ -790,7 +789,7 @@ void LegalizationPass::visitStoreInst(llvm::StoreInst &SI) {
 // I think we can pollute upper bits always, so we should just be able to ignore
 // truncation. A solution to this would be to handle in a first pass only
 // Truncs, and in a second ignore them
-void LegalizationPass::visitTruncInst(llvm::TruncInst &TI) {
+void LegalizationPass::visitTruncInst(llvm::TruncInst &) {
   WATEVER_TODO("decide wether truncating should AND the result");
 }
 

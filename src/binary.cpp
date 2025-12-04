@@ -2,7 +2,7 @@
 
 namespace watever {
 
-void BinaryWriter::write(const Module &Mod) {
+void BinaryWriter::write(const Module &) {
   writeMagic();
   writeVersion();
 }

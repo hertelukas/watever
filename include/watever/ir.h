@@ -163,6 +163,7 @@ class Function {
   friend class FunctionLowering;
   int LastLocal = 0;
   std::unique_ptr<Wasm> Body;
+  [[maybe_unused]]
   const SubType *TypePtr;
 
 public:
@@ -229,6 +230,7 @@ class FunctionLowering {
     Block,
   };
   class ContainingSyntax {
+    [[maybe_unused]]
     BlockType BT;
 
     ContainingSyntax(BlockType BT, llvm::BasicBlock *Label)
@@ -278,7 +280,7 @@ class FunctionLowering {
 
 public:
   FunctionLowering(Function &F, llvm::DominatorTree &DT, llvm::LoopInfo &LI)
-      : DT(DT), LI(LI), F(F) {}
+      : F(F), DT(DT), LI(LI) {}
 
   void lower() {
     Context Ctx;
@@ -332,7 +334,7 @@ public:
     Depth--;
   }
 
-  void visit(WasmReturn &Ret) override { print("ret"); }
+  void visit(WasmReturn &) override { print("ret"); }
 
   void visit(WasmSeq &Seq) override {
     Seq.Flow.first->accept(*this);

@@ -34,7 +34,7 @@
     std::abort();                                                              \
   } while (0)
 
-#define WATEVER_TODO(fmt, ...) WATEVER_LOG_WARN("[TODO] " fmt, ##__VA_ARGS__)
+#define WATEVER_TODO(fmt, ...) WATEVER_LOG_WARN("[TODO] " fmt __VA_OPT__(,) __VA_ARGS__)
 #define WATEVER_UNIMPLEMENTED(...)                                             \
   WATEVER_PANIC_IMPL("PANIC [UNIMPLEMENTED] ", __VA_ARGS__)
 
