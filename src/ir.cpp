@@ -10,6 +10,7 @@
 #include <llvm/IR/InstrTypes.h>
 #include <llvm/IR/Instruction.h>
 #include <llvm/IR/Instructions.h>
+#include <llvm/IR/Type.h>
 #include <llvm/Support/Casting.h>
 #include <memory>
 
@@ -415,8 +416,21 @@ Module ModuleLowering::convert(llvm::Module &Mod,
     auto &DT = FAM.getResult<llvm::DominatorTreeAnalysis>(F);
     auto &LI = FAM.getResult<llvm::LoopAnalysis>(F);
 
-    WATEVER_TODO("create (or get) function type");
-    Function WasmFunction{static_cast<int>(F.arg_size()), nullptr};
+    auto *FT = F.getFunctionType();
+
+    FuncType WasmFuncTy{};
+    for (auto *ParamTy : FT->params()) {
+      WasmFuncTy.Args.push_back(Type::fromLLVMType(ParamTy));
+    }
+
+    if (!FT->getReturnType()->isVoidTy()) {
+      WasmFuncTy.Results.push_back(Type::fromLLVMType(FT->getReturnType()));
+    }
+
+    SubType WasmTy(WasmFuncTy);
+    const auto *WasmFuncTyPtr = Res.getOrAddType(WasmTy);
+
+    Function WasmFunction{static_cast<int>(F.arg_size()), WasmFuncTyPtr};
     FunctionLowering FL{WasmFunction, DT, LI};
     FL.lower();
     WasmPrinter Printer{};

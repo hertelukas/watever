@@ -155,8 +155,13 @@ struct FuncType {
 struct SubType {
   bool IsFinal;
   std::variant<FuncType, StructType, ArrayType> Composite;
+  uint32_t Index;
 
   auto operator<=>(const SubType &) const = default;
+
+  SubType(FuncType FT) : Composite(FT) {}
+  SubType(StructType ST) : Composite(ST) {}
+  SubType(ArrayType AT) : Composite(AT) {}
 };
 
 class Function {
@@ -175,10 +180,9 @@ public:
 };
 
 class Module {
+public:
   // Canonical storage for types
   std::map<SubType, std::unique_ptr<SubType>> Types;
-
-public:
   llvm::SmallVector<Function, 4> Functions;
 
   const SubType *getOrAddType(const SubType &Temp) {

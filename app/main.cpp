@@ -1,3 +1,4 @@
+#include "watever/binary.h"
 #include "watever/ir.h"
 #include <llvm/Analysis/CGSCCPassManager.h>
 #include <llvm/Analysis/LoopAnalysisManager.h>
@@ -120,7 +121,9 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  Mod->print(OS, nullptr);
+  // Mod->print(OS, nullptr);
 
+  watever::BinaryWriter Writer{OS, LoweredModule};
+  Writer.write();
   return 0;
 }

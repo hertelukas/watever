@@ -1,29 +1,12 @@
 #ifndef LINKING_H
 #define LINKING_H
 
-#include "watever/utils.h"
 #include <cstdint>
+#include <llvm/Support/LEB128.h>
 #include <llvm/Support/raw_ostream.h>
 #include <vector>
 namespace watever {
 static constexpr uint32_t LinkingVersion = 0x2;
-
-enum class Section : uint8_t {
-  Custom = 0,
-  Type = 1,
-  Import = 2,
-  Function = 3,
-  Table = 4,
-  Memory = 5,
-  Global = 6,
-  Export = 7,
-  Start = 8,
-  Element = 9,
-  Code = 10,
-  Data = 11,
-  DataCount = 12,
-  Tag = 13,
-};
 
 enum class RelocationType : uint8_t {
   R_WASM_FUNCTION_INDEX_LEB = 0,
@@ -107,10 +90,10 @@ struct Segment {
 
   uint32_t getSegmentLen() const {
     uint32_t Len = 0;
-    Len += getLEB128Size(Name.size()); // name_len
-    Len += Name.size();                // name_data
-    Len += getLEB128Size(Alignment);
-    Len += getLEB128Size(Flags);
+    Len += llvm::getULEB128Size(Name.size()); // name_len
+    Len += Name.size();                       // name_data
+    Len += llvm::getULEB128Size(Alignment);
+    Len += llvm::getULEB128Size(Flags);
     return Len;
   }
 };
@@ -123,7 +106,7 @@ struct SegmentInfo final : Subsection {
   }
 
   uint32_t getPayloadLen() const override {
-    uint32_t Res = getLEB128Size(Segments.size());
+    uint32_t Res = llvm::getULEB128Size(Segments.size());
     for (auto &Seg : Segments) {
       Res += Seg.getSegmentLen();
     }
@@ -131,12 +114,12 @@ struct SegmentInfo final : Subsection {
   }
 
   void writePayload(llvm::raw_ostream &OS) const override {
-    writeLEB128(Segments.size(), OS); // count
+    llvm::encodeULEB128(Segments.size(), OS); // count
     for (auto &Seg : Segments) {
-      writeLEB128(Seg.Name.size(), OS);
+      llvm::encodeULEB128(Seg.Name.size(), OS);
       OS << Seg.Name;
-      writeLEB128(Seg.Alignment, OS);
-      writeLEB128(Seg.Flags, OS);
+      llvm::encodeULEB128(Seg.Alignment, OS);
+      llvm::encodeULEB128(Seg.Flags, OS);
     }
   }
 };
@@ -148,8 +131,8 @@ struct InitFunc {
   uint32_t SymbolIndex;
 
   uint32_t getInitFuncLen() const {
-    uint32_t Len = getLEB128Size(Priority);
-    Len += getLEB128Size(SymbolIndex);
+    uint32_t Len = llvm::getULEB128Size(Priority);
+    Len += llvm::getULEB128Size(SymbolIndex);
     return Len;
   }
 };
@@ -162,7 +145,7 @@ struct InitFunctions final : Subsection {
   }
 
   uint32_t getPayloadLen() const override {
-    uint32_t Res = getLEB128Size(Functions.size());
+    uint32_t Res = llvm::getULEB128Size(Functions.size());
     for (auto &F : Functions) {
       Res += F.getInitFuncLen();
     }
@@ -170,10 +153,10 @@ struct InitFunctions final : Subsection {
   }
 
   void writePayload(llvm::raw_ostream &OS) const override {
-    writeLEB128(Functions.size(), OS);
+    llvm::encodeULEB128(Functions.size(), OS);
     for (auto &F : Functions) {
-      writeLEB128(F.Priority, OS);
-      writeLEB128(F.SymbolIndex, OS);
+      llvm::encodeULEB128(F.Priority, OS);
+      llvm::encodeULEB128(F.SymbolIndex, OS);
     }
   }
 };
@@ -236,7 +219,7 @@ struct SymInfo {
 
   uint32_t getSymInfoLen() const {
     uint32_t Len = 1; // kind
-    Len += getLEB128Size(Flags);
+    Len += llvm::getULEB128Size(Flags);
     return Len;
   }
 };
@@ -249,7 +232,7 @@ struct SymbolTable final : Subsection {
   }
 
   uint32_t getPayloadLen() const override {
-    uint32_t Res = getLEB128Size(Infos.size());
+    uint32_t Res = llvm::getULEB128Size(Infos.size());
     for (auto &S : Infos) {
       Res += S.getSymInfoLen();
     }
@@ -257,10 +240,10 @@ struct SymbolTable final : Subsection {
   }
 
   void writePayload(llvm::raw_ostream &OS) const override {
-    writeLEB128(Infos.size(), OS);
+    llvm::encodeULEB128(Infos.size(), OS);
     for (auto &S : Infos) {
       OS << static_cast<uint8_t>(S.Kind);
-      writeLEB128(S.Flags, OS);
+      llvm::encodeULEB128(S.Flags, OS);
     }
   }
 };
@@ -278,7 +261,7 @@ struct ComdatSym {
   ComdatKind Kind;
   uint32_t Index;
 
-  uint32_t getComdatSymLen() const { return 1 + getLEB128Size(Index); }
+  uint32_t getComdatSymLen() const { return 1 + llvm::getULEB128Size(Index); }
 };
 
 struct Comdat {
@@ -286,10 +269,10 @@ struct Comdat {
   const uint32_t Flags = 0; // Must be zero
   std::vector<ComdatSym> ComdatSyms;
   uint32_t getComdatLen() const {
-    uint32_t Res = getLEB128Size(Name.size()); // name_len
-    Res += Name.size();                        // name_str
-    Res += getLEB128Size(Flags);               // flags
-    Res += getLEB128Size(ComdatSyms.size());   // count
+    uint32_t Res = llvm::getULEB128Size(Name.size()); // name_len
+    Res += Name.size();                               // name_str
+    Res += llvm::getULEB128Size(Flags);               // flags
+    Res += llvm::getULEB128Size(ComdatSyms.size());   // count
     for (auto &CS : ComdatSyms) {
       Res += CS.getComdatSymLen();
     }
@@ -305,7 +288,7 @@ struct ComdatInfo final : Subsection {
   }
 
   uint32_t getPayloadLen() const override {
-    uint32_t Res = getLEB128Size(Comdats.size());
+    uint32_t Res = llvm::getULEB128Size(Comdats.size());
     for (auto &C : Comdats) {
       Res += C.getComdatLen();
     }
@@ -313,15 +296,15 @@ struct ComdatInfo final : Subsection {
   }
 
   void writePayload(llvm::raw_ostream &OS) const override {
-    writeLEB128(Comdats.size(), OS);
+    llvm::encodeULEB128(Comdats.size(), OS);
     for (auto &C : Comdats) {
-      writeLEB128(C.Name.size(), OS);
+      llvm::encodeULEB128(C.Name.size(), OS);
       OS << C.Name;
-      writeLEB128(C.Flags, OS);
-      writeLEB128(C.ComdatSyms.size(), OS);
+      llvm::encodeULEB128(C.Flags, OS);
+      llvm::encodeULEB128(C.ComdatSyms.size(), OS);
       for (auto &CS : C.ComdatSyms) {
         OS << static_cast<uint8_t>(CS.Kind);
-        writeLEB128(CS.Index, OS);
+        llvm::encodeULEB128(CS.Index, OS);
       }
     }
   }

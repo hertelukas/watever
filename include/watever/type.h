@@ -7,9 +7,11 @@
 #define WATEVER_TYPE_H
 
 #include "watever/base-types.h"
+#include "watever/utils.h"
 
 #include <cassert>
 #include <format>
+#include <llvm/IR/Type.h>
 #include <string>
 #include <vector>
 
@@ -22,23 +24,23 @@ using TypeVector = std::vector<Type>;
 class Type {
 public:
   // Matches binary format, do not change.
-  enum Enum : int32_t {
-    I32 = -0x01,       // 0x7f
-    I64 = -0x02,       // 0x7e
-    F32 = -0x03,       // 0x7d
-    F64 = -0x04,       // 0x7c
-    V128 = -0x05,      // 0x7b
-    I8 = -0x06,        // 0x7a  : packed-type only, used in gc and as v128 lane
-    I16 = -0x07,       // 0x79  : packed-type only, used in gc and as v128 lane
-    ExnRef = -0x17,    // 0x69
-    FuncRef = -0x10,   // 0x70
-    ExternRef = -0x11, // 0x6f
-    Reference = -0x15, // 0x6b
-    Func = -0x20,      // 0x60
-    Struct = -0x21,    // 0x5f
-    Array = -0x22,     // 0x5e
-    Void = -0x40,      // 0x40
-    ___ = Void,        // Convenient for the opcode table in opcode.h
+  enum Enum : uint8_t {
+    I32 = 0x7F,
+    I64 = 0x7E,
+    F32 = 0x7D,
+    F64 = 0x7C,
+    V128 = 0x7B,
+    I8 = 0x7A,
+    I16 = 0x79,
+    ExnRef = 0x69,
+    FuncRef = 0x70,
+    ExternRef = 0x6F,
+    Reference = 0x6B,
+    Func = 0x60,
+    Struct = 0x5F,
+    Array = 0x5E,
+    Void = 0x40,
+    ___ = Void, // Convenient for the opcode table in opcode.h
 
     Any = 0,  // Not actually specified, but useful for type-checking
     I8U = 4,  // Not actually specified, but used internally with load/store
@@ -183,6 +185,32 @@ public:
     default:
       assert(false && "unreachable");
     }
+  }
+
+  static Type::Enum fromLLVMType(llvm::Type *T) {
+    switch (T->getTypeID()) {
+    case llvm::Type::IntegerTyID: {
+      const unsigned Width = T->getIntegerBitWidth();
+      if (Width == 32) {
+        return Type::Enum::I32;
+      }
+      if (Width == 64) {
+        return Type::Enum::I64;
+      }
+      break;
+    }
+    case llvm::Type::FloatTyID:
+      return Type::Enum::F32;
+    case llvm::Type::DoubleTyID:
+      return Type::Enum::F64;
+    case llvm::Type::PointerTyID: {
+      WATEVER_TODO("check if pointer is 32-bit or 64-bit");
+      return Type::Enum::I32;
+    }
+    default:
+      break;
+    }
+    WATEVER_UNREACHABLE("unsupported type {}", llvmToString(*T));
   }
 
 private:
