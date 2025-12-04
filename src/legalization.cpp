@@ -162,7 +162,7 @@ llvm::PreservedAnalyses LegalizationPass::run(llvm::Function &F,
 
   WATEVER_LOG_DBG("Legalized Function:\n {}", llvmToString(F));
   // TODO this is not correct
-  return llvm::PreservedAnalyses::all();
+  return llvm::PreservedAnalyses::none();
 }
 
 void LegalizationPass::visitBinaryOperator(llvm::BinaryOperator &BO) {
