@@ -128,6 +128,7 @@ int main(int argc, char *argv[]) {
 
   if (LegalOnly) {
     Mod->print(*OS, nullptr);
+    return 0;
   }
 
   watever::ModuleLowering LoweringContext{};
