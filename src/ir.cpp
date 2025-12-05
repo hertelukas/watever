@@ -159,6 +159,123 @@ void BlockLowering::visitBinaryOperator(llvm::BinaryOperator &BO) {
   }
 }
 
+void BlockLowering::visitICmpInst(llvm::ICmpInst &II) {
+  const unsigned Width = II.getOperand(0)->getType()->getIntegerBitWidth();
+  bool Handled = true;
+
+  auto Dispatch = [&](Opcode::Enum Op32, Opcode::Enum Op64) {
+    if (Width == 32)
+      Actions.Insts.emplace_back(Op32);
+    else if (Width == 64)
+      Actions.Insts.emplace_back(Op64);
+    else
+      Handled = false;
+  };
+
+  switch (II.getCmpPredicate()) {
+  case llvm::CmpInst::ICMP_EQ: {
+    Dispatch(Opcode::I32Eq, Opcode::I64Eq);
+    break;
+  }
+  case llvm::CmpInst::ICMP_NE: {
+    Dispatch(Opcode::I32Ne, Opcode::I64Ne);
+    break;
+  }
+  case llvm::CmpInst::ICMP_UGT: {
+    Dispatch(Opcode::I32GtU, Opcode::I64GtS);
+    break;
+  }
+  case llvm::CmpInst::ICMP_UGE: {
+    Dispatch(Opcode::I32GeU, Opcode::I64GeU);
+    break;
+  }
+  case llvm::CmpInst::ICMP_ULT: {
+    Dispatch(Opcode::I32LtU, Opcode::I64LtU);
+    break;
+  }
+  case llvm::CmpInst::ICMP_ULE: {
+    Dispatch(Opcode::I32LeU, Opcode::I64LeU);
+    break;
+  }
+  case llvm::CmpInst::ICMP_SGT: {
+    Dispatch(Opcode::I32GtS, Opcode::I64GtS);
+    break;
+  }
+  case llvm::CmpInst::ICMP_SGE: {
+    Dispatch(Opcode::I32GeS, Opcode::I64GeS);
+    break;
+  }
+  case llvm::CmpInst::ICMP_SLT: {
+    Dispatch(Opcode::I32LtS, Opcode::I64LtS);
+    break;
+  }
+  case llvm::CmpInst::ICMP_SLE: {
+    Dispatch(Opcode::I32LeS, Opcode::I64LeS);
+    break;
+  }
+  default:
+    WATEVER_UNREACHABLE("Illegal int comparison");
+  }
+
+  if (!Handled) {
+    WATEVER_UNREACHABLE("Unhandled ICMP");
+  }
+}
+
+void BlockLowering::visitFCmpInst(llvm::FCmpInst &FI) {
+  const unsigned Width = FI.getOperand(0)->getType()->getScalarSizeInBits();
+  bool Handled = true;
+
+  auto Dispatch = [&](Opcode::Enum Op32, Opcode::Enum Op64) {
+    if (Width == 32)
+      Actions.Insts.emplace_back(Op32);
+    else if (Width == 64)
+      Actions.Insts.emplace_back(Op64);
+    else
+      Handled = false;
+  };
+
+  switch (FI.getPredicate()) {
+  case llvm::CmpInst::FCMP_OEQ: {
+    Dispatch(Opcode::F32Eq, Opcode::F64Eq);
+    break;
+  }
+  case llvm::CmpInst::FCMP_OGT: {
+    Dispatch(Opcode::F32Gt, Opcode::F64Gt);
+    break;
+  }
+  case llvm::CmpInst::FCMP_OGE: {
+    Dispatch(Opcode::F32Ge, Opcode::F64Ge);
+    break;
+  }
+  case llvm::CmpInst::FCMP_OLT: {
+    Dispatch(Opcode::F32Lt, Opcode::F64Lt);
+    break;
+  }
+  case llvm::CmpInst::FCMP_OLE: {
+    Dispatch(Opcode::F32Le, Opcode::F64Le);
+    break;
+  }
+  case llvm::CmpInst::FCMP_ONE: {
+    Dispatch(Opcode::F32Ne, Opcode::F64Ne);
+    break;
+  }
+  case llvm::CmpInst::FCMP_ORD: {
+    WATEVER_UNREACHABLE("Ordered check is not supported");
+  }
+  case llvm::CmpInst::FCMP_UNO:
+  case llvm::CmpInst::FCMP_UEQ:
+  case llvm::CmpInst::FCMP_UGT:
+  case llvm::CmpInst::FCMP_UGE:
+  case llvm::CmpInst::FCMP_ULT:
+  case llvm::CmpInst::FCMP_ULE:
+  case llvm::CmpInst::FCMP_UNE:
+    WATEVER_UNREACHABLE("Unordered float comparisons are not supported");
+  default:
+    WATEVER_UNREACHABLE("Illegal float comparison");
+  }
+}
+
 void BlockLowering::visitSExtInst(llvm::SExtInst &SI) {
   auto FromWidth = SI.getOperand(0)->getType()->getIntegerBitWidth();
   auto ToWidth = SI.getType()->getIntegerBitWidth();

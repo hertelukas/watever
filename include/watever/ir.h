@@ -240,6 +240,8 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
   void visitIntToPtrInst(llvm::IntToPtrInst &) {};
   void visitPtrToIntInst(llvm::PtrToIntInst &) {};
 
+  void visitFCmpInst(llvm::FCmpInst &FI);
+  void visitICmpInst(llvm::ICmpInst &II);
   void visitSExtInst(llvm::SExtInst &SI);
   void visitUnaryOperator(llvm::UnaryOperator &UO);
   void visitInstruction(llvm::Instruction &I) {
