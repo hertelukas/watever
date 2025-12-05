@@ -184,6 +184,7 @@ struct SubType {
 class Function {
   friend class FunctionLowering;
   std::unique_ptr<Wasm> Body{};
+  uint32_t TotalLocals{};
 
 public:
   llvm::DenseMap<Type::Enum, uint32_t> Locals;
@@ -191,9 +192,16 @@ public:
 
   explicit Function(const SubType *Type,
                     llvm::DenseMap<Type::Enum, uint32_t> Args)
-      : Locals(Args), TypePtr(Type) {}
+      : Locals(Args), TypePtr(Type) {
+    for (const auto &[Ty, Amount] : Locals) {
+      TotalLocals += Amount;
+    }
+  }
 
-  int getNewLocal(Type::Enum Ty) { return Locals[Ty]++; }
+  int getNewLocal(Type::Enum Ty) {
+    Locals[Ty]++;
+    return TotalLocals++;
+  }
 
   void visit(WasmVisitor &V) const { Body->accept(V); }
 };
