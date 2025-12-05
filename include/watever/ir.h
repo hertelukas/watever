@@ -190,6 +190,7 @@ public:
   std::unique_ptr<Wasm> Body{};
   llvm::DenseMap<Type::Enum, uint32_t> Locals{};
   const SubType *TypePtr{};
+  uint32_t Index;
 
   explicit Function(const SubType *Type, uint32_t Args, llvm::StringRef Name)
       : TotalLocals(Args), Name(Name), TypePtr(Type) {}

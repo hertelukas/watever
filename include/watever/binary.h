@@ -46,7 +46,7 @@ enum class Section : uint8_t {
 
 class BinaryWriter {
   llvm::raw_ostream &OS;
-  const Module &Mod;
+  Module &Mod;
 
   void writeMagic() { writeIntegral(WateverBinaryMagic, OS); }
   void writeVersion() { writeIntegral(Version, OS); }
@@ -89,8 +89,8 @@ class BinaryWriter {
   }
 
 public:
-  BinaryWriter(llvm::raw_ostream &Stream, const Module &Mod)
-      : OS(Stream), Mod(Mod) {}
+  // TODO make Module const? Currently, I'm writing indices into functions...
+  BinaryWriter(llvm::raw_ostream &Stream, Module &Mod) : OS(Stream), Mod(Mod) {}
   void write();
 };
 

@@ -95,11 +95,14 @@ void BinaryWriter::writeTypes() {
 void BinaryWriter::writeFunctions() {
   llvm::SmallVector<char> Content;
   llvm::raw_svector_ostream ContentOS(Content);
+
+  uint32_t CurrentIdx{};
   // list(typeidx)
   // TODO handle imports
   llvm::encodeULEB128(Mod.Functions.size(), ContentOS);
-  for (const auto &Func : Mod.Functions) {
+  for (auto &Func : Mod.Functions) {
     llvm::encodeULEB128(Func.TypePtr->Index, ContentOS);
+    Func.Index = CurrentIdx++;
   }
 
   OS << static_cast<uint8_t>(Section::Function);
@@ -156,7 +159,7 @@ void BinaryWriter::write() {
   for (const auto &F : Mod.Functions) {
     SymInfo SymInfo{};
     SymbolName SymName{};
-    SymName.Index = F.TypePtr->Index;
+    SymName.Index = F.Index;
     SymName.Name = F.Name.str();
     SymInfo.Kind = SymbolKind::SYMTAB_FUNCTION;
     SymInfo.Content = SymName;
