@@ -38,7 +38,7 @@ jobs:
     
     steps:
     - name: Dependencies
-      run: pacman -Sy --noconfirm base-devel git cmake ninja llvm python 
+      run: pacman -Sy --noconfirm base-devel git cmake ninja llvm python wabt
 
     - uses: actions/checkout@v6
       with:
