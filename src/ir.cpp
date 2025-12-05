@@ -535,13 +535,11 @@ Module ModuleLowering::convert(llvm::Module &Mod,
     auto &LI = FAM.getResult<llvm::LoopAnalysis>(F);
 
     auto *FT = F.getFunctionType();
-    llvm::DenseMap<Type::Enum, uint32_t> Args;
 
     FuncType WasmFuncTy{};
     for (auto *ParamTy : FT->params()) {
       auto WasmType = Type::fromLLVMType(ParamTy);
       WasmFuncTy.Args.push_back(WasmType);
-      Args[WasmType]++;
     }
 
     if (!FT->getReturnType()->isVoidTy()) {
@@ -551,7 +549,8 @@ Module ModuleLowering::convert(llvm::Module &Mod,
     SubType WasmTy(WasmFuncTy);
     const auto *WasmFuncTyPtr = Res.getOrAddType(WasmTy);
 
-    Function WasmFunction{WasmFuncTyPtr, std::move(Args), F.getName()};
+    Function WasmFunction{WasmFuncTyPtr, static_cast<uint32_t>(F.arg_size()),
+                          F.getName()};
     FunctionLowering FL{WasmFunction, DT, LI};
     FL.lower();
     WATEVER_LOG_DBG("Lowered function {}", F.getName().str());
