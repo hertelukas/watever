@@ -1,18 +1,16 @@
 #include "watever/binary.h"
 #include "watever/ir.h"
+#include "watever/linking.h"
 #include "watever/opcode.h"
 #include "watever/utils.h"
 #include <cstdint>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/Support/LEB128.h>
 #include <llvm/Support/raw_ostream.h>
+#include <memory>
 #include <variant>
 
 namespace watever {
-
-template <class... Ts> struct Overloaded : Ts... {
-  using Ts::operator()...;
-};
 
 void CodeWriter::visit(WasmBlock &Block) {
   Opcode(Opcode::Enum::Block).writeBytes(OS);
@@ -149,6 +147,25 @@ void BinaryWriter::write() {
   writeTypes();
   writeFunctions();
   writeCode();
+
+  Linking Link{};
+
+  SymbolTable SymTab{};
+  // TODO this is very inefficient, use constructors, don't copy everything
+  // everywhere
+  for (const auto &F : Mod.Functions) {
+    SymInfo SymInfo{};
+    SymbolName SymName{};
+    SymName.Index = F.TypePtr->Index;
+    SymName.Name = F.Name.str();
+    SymInfo.Kind = SymbolKind::SYMTAB_FUNCTION;
+    SymInfo.Content = SymName;
+    SymTab.Infos.push_back(SymInfo);
+  }
+
+  Link.Subsections.push_back(std::make_unique<SymbolTable>(SymTab));
+
+  writeLinking(Link);
 }
 
 } /* namespace watever */

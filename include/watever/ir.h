@@ -186,13 +186,15 @@ class Function {
   uint32_t TotalLocals{};
 
 public:
+  llvm::StringRef Name;
   std::unique_ptr<Wasm> Body{};
   llvm::DenseMap<Type::Enum, uint32_t> Locals;
   const SubType *TypePtr{};
 
   explicit Function(const SubType *Type,
-                    llvm::DenseMap<Type::Enum, uint32_t> Args)
-      : Locals(Args), TypePtr(Type) {
+                    llvm::DenseMap<Type::Enum, uint32_t> Args,
+                    llvm::StringRef Name)
+      : Name(Name), Locals(Args), TypePtr(Type) {
     for (const auto &[Ty, Amount] : Locals) {
       TotalLocals += Amount;
     }

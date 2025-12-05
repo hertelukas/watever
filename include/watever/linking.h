@@ -1,9 +1,11 @@
 #ifndef LINKING_H
 #define LINKING_H
 
+#include "watever/utils.h"
 #include <cstdint>
 #include <llvm/Support/LEB128.h>
 #include <llvm/Support/raw_ostream.h>
+#include <variant>
 #include <vector>
 namespace watever {
 static constexpr uint32_t LinkingVersion = 0x2;
@@ -210,16 +212,56 @@ enum class SymbolFlag : uint32_t {
   WASM_SYM_ABSOLUTE = 0x200,
 };
 
+// For FUNCTION, GLOBAL, EVENT, TABLE (afaik)
+struct SymbolName {
+  uint32_t Index;
+  std::string Name;
+
+  uint32_t getLen() const {
+    uint32_t Len{};
+    Len += llvm::getULEB128Size(Index);
+    Len += llvm::getULEB128Size(Name.size());
+    Len += Name.size();
+    return Len;
+  }
+};
+
+// For DATA
+struct SymbolData {
+  std::string Name;
+  // TODO these are all optionals, see spec
+  uint32_t Index;
+  uint32_t Offset;
+  uint32_t Size;
+
+  uint32_t getLen() const {
+    uint32_t Len{};
+    Len += llvm::getULEB128Size(Name.size());
+    Len += Name.size();
+    Len += llvm::getULEB128Size(Index);
+    Len += llvm::getULEB128Size(Offset);
+    Len += llvm::getULEB128Size(Size);
+    return Len;
+  }
+};
+
+// For SECTION
+struct SymbolSection {
+  uint32_t Section;
+
+  uint32_t getLen() const { return llvm::getULEB128Size(Section); }
+};
+
 struct SymInfo {
   SymbolKind Kind;
   uint32_t Flags;
 
-  // TODO the specification is not very clear, but probably add several more
-  // fields depending on the type of symbol
+  std::variant<SymbolName, SymbolData, SymbolSection> Content;
 
   uint32_t getSymInfoLen() const {
     uint32_t Len = 1; // kind
     Len += llvm::getULEB128Size(Flags);
+    Len += std::visit([](const auto &Arg) { return Arg.getLen(); }, Content);
     return Len;
   }
 };
@@ -244,6 +286,22 @@ struct SymbolTable final : Subsection {
     for (auto &S : Infos) {
       OS << static_cast<uint8_t>(S.Kind);
       llvm::encodeULEB128(S.Flags, OS);
+      std::visit(Overloaded{[&](const SymbolName &SymName) {
+                              llvm::encodeULEB128(SymName.Index, OS);
+                              llvm::encodeULEB128(SymName.Name.size(), OS);
+                              OS << SymName.Name;
+                            },
+                            [&](const SymbolData &SymData) {
+                              llvm::encodeULEB128(SymData.Name.size(), OS);
+                              OS << SymData.Name;
+                              llvm::encodeULEB128(SymData.Index, OS);
+                              llvm::encodeULEB128(SymData.Offset, OS);
+                              llvm::encodeULEB128(SymData.Size, OS);
+                            },
+                            [&](const SymbolSection &SymSec) {
+                              llvm::encodeULEB128(SymSec.Section, OS);
+                            }},
+                 S.Content);
     }
   }
 };

@@ -4,6 +4,7 @@
 #include "watever/ir.h"
 #include "watever/linking.h"
 #include <cstdint>
+#include <llvm/ADT/SmallVector.h>
 #include <llvm/Support/Endian.h>
 #include <llvm/Support/LEB128.h>
 #include <llvm/Support/raw_ostream.h>
@@ -69,12 +70,22 @@ class BinaryWriter {
   }
 
   void writeLinking(const Linking &Link) {
-    llvm::encodeULEB128(Link.Version, OS);
+    llvm::SmallVector<char> Content;
+    llvm::raw_svector_ostream ContentOS(Content);
+
+    llvm::encodeULEB128(7, ContentOS);
+    ContentOS << "linking";
+    llvm::encodeULEB128(Link.Version, ContentOS);
     for (const auto &SectionPtr : Link.Subsections) {
-      OS << static_cast<uint8_t>(SectionPtr->getSectionType());
-      llvm::encodeULEB128(SectionPtr->getPayloadLen(), OS); // payload_len
-      SectionPtr->writePayload(OS);                         // payload_data
+      ContentOS << static_cast<uint8_t>(SectionPtr->getSectionType());
+      llvm::encodeULEB128(SectionPtr->getPayloadLen(),
+                          ContentOS);      // payload_len
+      SectionPtr->writePayload(ContentOS); // payload_data
     }
+
+    OS << static_cast<uint8_t>(Section::Custom);
+    llvm::encodeULEB128(Content.size(), OS);
+    OS << ContentOS.str();
   }
 
 public:

@@ -59,4 +59,9 @@ template <std::integral T> void writeIntegral(T Value, llvm::raw_ostream &OS) {
     OS.write(reinterpret_cast<const char *>(&LE), sizeof(LE));
   }
 }
+
+template <class... Ts> struct Overloaded : Ts... {
+  using Ts::operator()...;
+};
+
 #endif // WATEVER_UTILS_H

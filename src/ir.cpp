@@ -551,7 +551,7 @@ Module ModuleLowering::convert(llvm::Module &Mod,
     SubType WasmTy(WasmFuncTy);
     const auto *WasmFuncTyPtr = Res.getOrAddType(WasmTy);
 
-    Function WasmFunction{WasmFuncTyPtr, std::move(Args)};
+    Function WasmFunction{WasmFuncTyPtr, std::move(Args), F.getName()};
     FunctionLowering FL{WasmFunction, DT, LI};
     FL.lower();
     WATEVER_LOG_DBG("Lowered function {}", F.getName().str());
