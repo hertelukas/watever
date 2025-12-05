@@ -32,6 +32,9 @@ int main(int argc, char *argv[]) {
   args::ValueFlag<std::string> OutputPath(
       Parser, "output_path", "Path to the output file", {'o', "output"});
 
+  args::Flag LegalOnly(Parser, "legal", "Run only legalization and print IR",
+                       {"legal"});
+
   Parser.ParseCLI(argc, argv);
   if (Parser.GetError() == args::Error::Help) {
     std::cout << Parser;
@@ -71,6 +74,24 @@ int main(int argc, char *argv[]) {
   }
 #endif
 
+  // Setup output
+  llvm::raw_ostream *OS = &llvm::outs();
+  std::unique_ptr<llvm::raw_fd_ostream> FileOS;
+
+  if (OutputPath) {
+    std::string OutFile = args::get(OutputPath);
+    std::error_code EC;
+
+    FileOS = std::make_unique<llvm::raw_fd_ostream>(OutFile, EC,
+                                                    llvm::sys::fs::OF_None);
+
+    if (EC) {
+      WATEVER_LOG_WARN("Error opening output file: {}", EC.message());
+      return 1;
+    }
+    OS = FileOS.get();
+  }
+
   auto Context = std::make_unique<llvm::LLVMContext>();
   llvm::SMDiagnostic Diag{};
   auto Mod = llvm::parseIRFile(IRPath.Get(), Diag, *Context);
@@ -105,26 +126,15 @@ int main(int argc, char *argv[]) {
 
   MPM.run(*Mod, MAM);
 
+  if (LegalOnly) {
+    Mod->print(*OS, nullptr);
+  }
+
   watever::ModuleLowering LoweringContext{};
   auto LoweredModule = LoweringContext.convert(*Mod, FAM);
 
-  // Write to output file
-  if (!OutputPath) {
-    return 0;
-  }
 
-  std::string OutFile = args::get(OutputPath);
-  std::error_code EC;
-  llvm::raw_fd_ostream OS(OutFile, EC, llvm::sys::fs::OF_None);
-
-  if (EC) {
-    WATEVER_LOG_WARN("Error opening output file: {}", EC.message());
-    return 1;
-  }
-
-  // Mod->print(OS, nullptr);
-
-  watever::BinaryWriter Writer{OS, LoweredModule};
+  watever::BinaryWriter Writer{*OS, LoweredModule};
   Writer.write();
   return 0;
 }

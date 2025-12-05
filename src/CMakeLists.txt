@@ -4,7 +4,8 @@ set(APP_SOURCES
   legalization.cpp
   utils.cpp
   opcode.cpp
-  opcode-code-table.c)
+  opcode-code-table.c
+  printer.cpp)
   
 add_library(${PROJECT_NAME}lib ${APP_SOURCES})
 

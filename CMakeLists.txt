@@ -49,3 +49,4 @@ message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 
 add_subdirectory(src)
 add_subdirectory(app)
+add_subdirectory(test)

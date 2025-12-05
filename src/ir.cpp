@@ -1,5 +1,6 @@
 #include "watever/ir.h"
 #include "watever/opcode.h"
+#include "watever/printer.h"
 #include "watever/utils.h"
 #include <algorithm>
 #include <llvm/ADT/DenseMap.h>
@@ -553,8 +554,8 @@ Module ModuleLowering::convert(llvm::Module &Mod,
     Function WasmFunction{WasmFuncTyPtr, std::move(Args)};
     FunctionLowering FL{WasmFunction, DT, LI};
     FL.lower();
-    WasmPrinter Printer{};
-    WasmFunction.visit(Printer);
+    WATEVER_LOG_DBG("Lowered function {}", F.getName().str());
+    dumpWasm(*WasmFunction.Body);
     Res.Functions.push_back(std::move(WasmFunction));
   }
   return Res;

@@ -183,10 +183,10 @@ struct SubType {
 
 class Function {
   friend class FunctionLowering;
-  std::unique_ptr<Wasm> Body{};
   uint32_t TotalLocals{};
 
 public:
+  std::unique_ptr<Wasm> Body{};
   llvm::DenseMap<Type::Enum, uint32_t> Locals;
   const SubType *TypePtr{};
 
@@ -327,61 +327,6 @@ public:
   static Module convert(llvm::Module &Mod, llvm::FunctionAnalysisManager &FAM);
 };
 
-class WasmPrinter final : public WasmVisitor {
-  unsigned int Depth = 0;
-
-  void print(llvm::StringRef Text) const {
-    for (size_t I = 0; I < Depth; ++I) {
-      llvm::outs() << "|  ";
-    }
-
-    llvm::outs() << Text << "\n";
-  }
-
-public:
-  void visit(WasmBlock &Block) override {
-    print("block");
-    Depth++;
-    Block.InnerWasm->accept(*this);
-    print("end_block");
-    Depth--;
-  }
-
-  void visit(WasmLoop &Loop) override {
-    print("loop");
-    Depth++;
-    Loop.InnerWasm->accept(*this);
-    print("end_loop");
-    Depth--;
-  }
-
-  void visit(WasmIf &IfElse) override {
-    print("if");
-    Depth++;
-    IfElse.True->accept(*this);
-    Depth--;
-    print("else");
-    Depth++;
-    IfElse.False->accept(*this);
-    print("end_if");
-    Depth--;
-  }
-
-  void visit(WasmReturn &) override { print("ret"); }
-
-  void visit(WasmSeq &Seq) override {
-    Seq.Flow.first->accept(*this);
-    Seq.Flow.second->accept(*this);
-  }
-
-  void visit(WasmActions &Actions) override {
-    for (auto Inst : Actions.Insts) {
-      print(Inst.getString());
-    }
-  }
-
-  void visit(WasmBr &Br) override { print("br " + std::to_string(Br.Nesting)); }
-};
 } // namespace watever
 
 #endif /* IR_H */
