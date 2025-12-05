@@ -76,6 +76,7 @@ int main(int argc, char *argv[]) {
   auto Mod = llvm::parseIRFile(IRPath.Get(), Diag, *Context);
   if (!Mod) {
     Diag.print(argv[0], llvm::errs());
+    return 1;
   }
 
   WATEVER_LOG_DBG("File name: {}", Mod->getSourceFileName());
