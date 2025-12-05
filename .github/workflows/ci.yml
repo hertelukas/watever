@@ -31,3 +31,38 @@ jobs:
     - name: Build
       # Build your program with the given configuration
       run: ninja -v -C ${{github.workspace}}/build
+
+    - name: Upload a Build Artifact
+      uses: actions/upload-artifact@v5.0.0
+      with:
+        # A file, directory or wildcard pattern that describes what to upload
+        path: ${{github.workspace}}/build
+
+          
+  test:
+    needs: build
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+        
+    - name: Dependencies
+      run: sudo apt install -y llvm-20
+
+    - name: Download a Build Artifact
+      uses: actions/download-artifact@v6.0.0
+      with:
+        # Destination path. Supports basic tilde expansion. Defaults to $GITHUB_WORKSPACE
+        path: ${{github.workspace}}/build
+
+    - name: Fix Permissions
+      run: chmod +x ${{github.workspace}}/build/app/watever
+
+    - name: Run Tests
+      run: ninja -v -C ${{github.workspace}}/build check-watever
+
+          
+    
+  
