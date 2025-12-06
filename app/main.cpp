@@ -119,10 +119,7 @@ int main(int argc, char *argv[]) {
 
   llvm::ModulePassManager MPM;
 
-  llvm::FunctionPassManager FPM;
-  FPM.addPass(watever::LegalizationPass(*Mod));
-
-  MPM.addPass(createModuleToFunctionPassAdaptor(std::move(FPM)));
+  MPM.addPass(watever::LegalizationPass());
 
   MPM.run(*Mod, MAM);
 
