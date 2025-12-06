@@ -13,6 +13,7 @@
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/PassManager.h>
 #include <llvm/IR/Type.h>
+#include <llvm/Support/Casting.h>
 
 #include "watever/utils.hpp"
 
@@ -23,6 +24,22 @@ class FunctionLegalizer : public llvm::InstVisitor<FunctionLegalizer> {
   // Maps Old Value -> New Legal Value
   llvm::DenseMap<llvm::Value *, llvm::Value *> ValueMap{};
   llvm::IRBuilder<> &Builder;
+
+  llvm::Value *legalizeConstant(llvm::Constant *C);
+
+  llvm::Value *getMappedValue(llvm::Value *OldVal) {
+    // Value is mapped
+    if (auto It = ValueMap.find(OldVal); It != ValueMap.end()) {
+      return It->second;
+    }
+
+    // Value is not mapped, it might be a constant
+    if (auto *C = llvm::dyn_cast<llvm::Constant>(OldVal)) {
+      return legalizeConstant(C);
+    }
+
+    WATEVER_UNREACHABLE("No value found for {}", llvmToString(*OldVal));
+  }
 
 public:
   llvm::Function *NewFunc;
@@ -45,14 +62,14 @@ public:
   }
 
   void visitBasicBlock(llvm::BasicBlock &BB);
-  
+
   // Terminator Instructions
   void visitReturnInst(llvm::ReturnInst &RI);
-  
+
   // Unary Operations
 
   // Binary Operations
-
+  void visitBinaryOperator(llvm::BinaryOperator &BO);
   // Bitwise Binary Operations
 
   // Vector Operations

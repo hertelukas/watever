@@ -5,11 +5,29 @@
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/IRBuilder.h>
+#include <llvm/IR/InstrTypes.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/PassManager.h>
 #include <llvm/Support/Casting.h>
 
 using namespace watever;
+
+llvm::Value *FunctionLegalizer::legalizeConstant(llvm::Constant *C) {
+  if (auto *CI = llvm::dyn_cast<llvm::ConstantInt>(C)) {
+    const unsigned Width = CI->getBitWidth();
+    if (Width == 32 || Width == 64) {
+      return C;
+    }
+    if (Width < 32) {
+      return llvm::ConstantInt::get(Builder.getInt32Ty(), CI->getZExtValue());
+    }
+    if (Width < 64) {
+      return llvm::ConstantInt::get(Builder.getInt64Ty(), CI->getZExtValue());
+    }
+  }
+
+  WATEVER_UNIMPLEMENTED("unsupported constant type {}", llvmToString(*C));
+}
 
 void FunctionLegalizer::visitBasicBlock(llvm::BasicBlock &BB) {
   if (auto *NewBB = llvm::dyn_cast<llvm::BasicBlock>(ValueMap[&BB])) {
@@ -23,6 +41,7 @@ void FunctionLegalizer::visitBasicBlock(llvm::BasicBlock &BB) {
 // Terminator Instructions
 //===----------------------------------------------------------------------===//
 void FunctionLegalizer::visitReturnInst(llvm::ReturnInst &RI) {
+  WATEVER_LOG_TRACE("legalizing ret {}", llvmToString(RI));
   Builder.CreateRet(ValueMap[RI.getReturnValue()]);
 }
 
@@ -32,6 +51,16 @@ void FunctionLegalizer::visitReturnInst(llvm::ReturnInst &RI) {
 //===----------------------------------------------------------------------===//
 // Binary Operations
 //===----------------------------------------------------------------------===//
+void FunctionLegalizer::visitBinaryOperator(llvm::BinaryOperator &BO) {
+  WATEVER_LOG_TRACE("legalizing binop {}", llvmToString(BO));
+  auto *LHS = getMappedValue(BO.getOperand(0));
+  auto *RHS = getMappedValue(BO.getOperand(1));
+
+  // TODO this is not generally legal, e.g., when dividing
+  auto *NewBO = Builder.CreateBinOp(BO.getOpcode(), LHS, RHS);
+  ValueMap[&BO] = NewBO;
+}
+
 //===----------------------------------------------------------------------===//
 // Bitwise Binary Operations
 //===----------------------------------------------------------------------===//
