@@ -40,6 +40,14 @@ entry:
   ret void
 }
 
+define void @add_i51_i51(i51 %a, i51 %b) {
+; CHECK-LABEL: @add_i51_i51
+; CHECK: add i64
+entry:
+  %0 = add i51 %a, %b
+  ret void
+}
+
 define void @add_i64_i64(i64 %a, i64 %b) {
 ; CHECK-LABEL: @add_i64_i64
 ; CHECK: add i64
