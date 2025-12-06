@@ -1,8 +1,7 @@
-#ifndef IR_H
-#define IR_H
+#pragma once
 
-#include "watever/opcode.h"
-#include "watever/utils.h"
+#include "watever/opcode.hpp"
+#include "watever/utils.hpp"
 #include <llvm/ADT/DenseMap.h>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/Analysis/LoopInfo.h>
@@ -326,4 +325,3 @@ public:
 
 } // namespace watever
 
-#endif /* IR_H */

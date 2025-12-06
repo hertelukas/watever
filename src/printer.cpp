@@ -1,4 +1,4 @@
-#include "watever/printer.h"
+#include "watever/printer.hpp"
 
 namespace watever {
 #ifdef WATEVER_LOGGING

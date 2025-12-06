@@ -1,5 +1,4 @@
-#ifndef WATEVER_UTILS_H
-#define WATEVER_UTILS_H
+#pragma once
 
 #include <llvm/IR/Type.h>
 
@@ -63,5 +62,3 @@ template <std::integral T> void writeIntegral(T Value, llvm::raw_ostream &OS) {
 template <class... Ts> struct Overloaded : Ts... {
   using Ts::operator()...;
 };
-
-#endif // WATEVER_UTILS_H

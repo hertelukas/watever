@@ -2,9 +2,7 @@
  * Copied from
  * https://github.com/WebAssembly/wabt/blob/main/include/wabt/base-types.h
  */
-
-#ifndef WATEVER_BASE_TYPES_H
-#define WATEVER_BASE_TYPES_H
+#pragma once
 
 #include <cstddef>
 #include <cstdint>
@@ -20,4 +18,4 @@ constexpr Offset KInvalidOffset = ~0;
 
 } // namespace watever
 
-#endif // WATEVER_BASE_TYPES_H
+

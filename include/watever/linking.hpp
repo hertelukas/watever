@@ -1,7 +1,6 @@
-#ifndef LINKING_H
-#define LINKING_H
+#pragma once
 
-#include "watever/utils.h"
+#include "watever/utils.hpp"
 #include <cstdint>
 #include <llvm/Support/LEB128.h>
 #include <llvm/Support/raw_ostream.h>
@@ -375,5 +374,3 @@ struct Linking {
   std::vector<std::unique_ptr<Subsection>> Subsections;
 };
 } // namespace watever
-
-#endif /* LINKING_H */

@@ -1,8 +1,7 @@
-#ifndef _BINARY_H
-#define _BINARY_H
+#pragma once
 
-#include "watever/ir.h"
-#include "watever/linking.h"
+#include "watever/ir.hpp"
+#include "watever/linking.hpp"
 #include <cstdint>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/Support/Endian.h>
@@ -95,5 +94,3 @@ public:
 };
 
 } /* namespace watever */
-
-#endif /* _BINARY_H */

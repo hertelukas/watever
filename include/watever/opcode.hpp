@@ -3,13 +3,12 @@
  * https://github.com/WebAssembly/wabt/blob/main/include/wabt/opcode.h
  */
 
-#ifndef WATEVER_OPCODE_H
-#define WATEVER_OPCODE_H
+#pragma once
 
-#include "watever/feature.h"
+#include "watever/feature.hpp"
 #include "watever/opcode-code-table.h"
-#include "watever/type.h"
-#include "watever/utils.h"
+#include "watever/type.hpp"
+#include "watever/utils.hpp"
 #include <llvm/Support/raw_ostream.h>
 
 namespace watever {
@@ -153,5 +152,3 @@ inline Opcode Opcode::fromCode(uint8_t Prefix, uint32_t Code) {
 }
 
 } // namespace watever
-
-#endif // WATEVER_OPCODE_H

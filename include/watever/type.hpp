@@ -2,12 +2,10 @@
  * Copied from
  * https://github.com/WebAssembly/wabt/blob/main/include/wabt/type.h
  */
+#pragma once
 
-#ifndef WATEVER_TYPE_H
-#define WATEVER_TYPE_H
-
-#include "watever/base-types.h"
-#include "watever/utils.h"
+#include "watever/base-types.hpp"
+#include "watever/utils.hpp"
 
 #include <cassert>
 #include <format>
@@ -227,4 +225,3 @@ private:
 };
 } // namespace watever
 
-#endif // WATEVER_TYPE_H

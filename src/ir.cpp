@@ -1,7 +1,7 @@
-#include "watever/ir.h"
-#include "watever/opcode.h"
-#include "watever/printer.h"
-#include "watever/utils.h"
+#include "watever/ir.hpp"
+#include "watever/opcode.hpp"
+#include "watever/printer.hpp"
+#include "watever/utils.hpp"
 #include <algorithm>
 #include <llvm/ADT/DenseMap.h>
 #include <llvm/Analysis/LoopNestAnalysis.h>

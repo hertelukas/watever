@@ -3,8 +3,8 @@
  * https://github.com/WebAssembly/wabt/blob/main/src/opcode.cc
  */
 
-#include "watever/opcode.h"
-#include "watever/feature.h"
+#include "watever/opcode.hpp"
+#include "watever/feature.hpp"
 #include <llvm/Support/raw_ostream.h>
 
 namespace watever {

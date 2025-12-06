@@ -1,5 +1,3 @@
-#include "watever/binary.h"
-#include "watever/ir.h"
 #include <llvm/Analysis/CGSCCPassManager.h>
 #include <llvm/Analysis/LoopAnalysisManager.h>
 #include <llvm/IR/LLVMContext.h>
@@ -13,8 +11,10 @@
 #define ARGS_NOEXCEPT
 #include "args/args.hxx"
 
-#include <watever/legalization.h>
-#include <watever/utils.h>
+#include "watever/binary.hpp"
+#include "watever/ir.hpp"
+#include "watever/legalization.hpp"
+#include "watever/utils.hpp"
 
 int main(int argc, char *argv[]) {
   args::ArgumentParser Parser("Watever");
@@ -133,7 +133,6 @@ int main(int argc, char *argv[]) {
 
   watever::ModuleLowering LoweringContext{};
   auto LoweredModule = LoweringContext.convert(*Mod, FAM);
-
 
   watever::BinaryWriter Writer{*OS, LoweredModule};
   Writer.write();

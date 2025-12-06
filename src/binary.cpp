@@ -1,8 +1,8 @@
-#include "watever/binary.h"
-#include "watever/ir.h"
-#include "watever/linking.h"
-#include "watever/opcode.h"
-#include "watever/utils.h"
+#include "watever/binary.hpp"
+#include "watever/ir.hpp"
+#include "watever/linking.hpp"
+#include "watever/opcode.hpp"
+#include "watever/utils.hpp"
 #include <cstdint>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/Support/LEB128.h>

@@ -1,4 +1,4 @@
-#include <watever/legalization.h>
+#include "watever/legalization.hpp"
 
 using namespace watever;
 

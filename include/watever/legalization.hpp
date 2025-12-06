@@ -1,5 +1,4 @@
-#ifndef LEGALIZATION_H
-#define LEGALIZATION_H
+#pragma once
 
 #include <llvm/ADT/StringRef.h>
 #include <llvm/IR/Analysis.h>
@@ -12,7 +11,7 @@
 #include <llvm/IR/PassManager.h>
 #include <llvm/IR/Type.h>
 
-#include <watever/utils.h>
+#include "watever/utils.hpp"
 
 namespace watever {
 
@@ -113,5 +112,3 @@ public:
   }
 };
 } // namespace watever
-
-#endif /* LEGALIZATION_H */
