@@ -41,6 +41,39 @@ class FunctionLegalizer : public llvm::InstVisitor<FunctionLegalizer> {
     WATEVER_UNREACHABLE("No value found for {}", llvmToString(*OldVal));
   }
 
+  // Sign-extends val from `From` to `To` bits. Note, that `Val` might already
+  // be `To` bits wide, but this ensures that the entire `To` bits are signed
+  // correctly. This is needed if we cannot ignore the upper bits, and sign
+  // matters. (sdiv)
+  llvm::Value *signExtendTo(llvm::Value *Val, unsigned From, unsigned To) {
+
+    // If the original value had the same width, we don't need to do anything
+    if (To == From) {
+      return Val;
+    }
+
+    // Supported natively
+    if (To == 64 && From == 32 && Val->getType()->getIntegerBitWidth() == 32) {
+      return Builder.CreateSExt(Val, llvm::Type::getInt64Ty(Val->getContext()));
+    }
+
+    llvm::Type *TargetTy = nullptr;
+    if (To == 32) {
+      TargetTy = llvm::Type::getInt32Ty(Val->getContext());
+    } else if (To == 64) {
+      TargetTy = llvm::Type::getInt64Ty(Val->getContext());
+    } else {
+      WATEVER_UNIMPLEMENTED("Unsupported target sign extension to {}", To);
+    }
+
+    // TODO check for --enable-sign-extension
+    auto *WideOperand = Builder.CreateZExt(Val, TargetTy);
+    auto *MaskVal = llvm::ConstantInt::get(TargetTy, To - From);
+    llvm::Value *Shl = Builder.CreateShl(WideOperand, MaskVal);
+    llvm::Value *Shr = Builder.CreateAShr(Shl, MaskVal);
+    return Shr;
+  }
+
 public:
   llvm::Function *NewFunc;
   FunctionLegalizer(llvm::Function *OldFunc, llvm::Function *NewFunc,

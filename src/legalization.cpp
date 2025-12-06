@@ -57,7 +57,40 @@ void FunctionLegalizer::visitBinaryOperator(llvm::BinaryOperator &BO) {
   auto *RHS = getMappedValue(BO.getOperand(1));
 
   // TODO this is not generally legal, e.g., when dividing
-  auto *NewBO = Builder.CreateBinOp(BO.getOpcode(), LHS, RHS);
+  llvm::Value *NewBO = nullptr;
+  switch (BO.getOpcode()) {
+  case llvm::Instruction::Add:
+  case llvm::Instruction::FAdd:
+  case llvm::Instruction::Sub:
+  case llvm::Instruction::FSub:
+  case llvm::Instruction::Mul:
+  case llvm::Instruction::FMul:
+    break;
+  case llvm::Instruction::UDiv:
+    break;
+  case llvm::Instruction::SDiv: {
+    LHS = signExtendTo(LHS, BO.getOperand(0)->getType()->getIntegerBitWidth(),
+                       LHS->getType()->getIntegerBitWidth());
+    RHS = signExtendTo(RHS, BO.getOperand(1)->getType()->getIntegerBitWidth(),
+                       RHS->getType()->getIntegerBitWidth());
+    break;
+  }
+  case llvm::Instruction::FDiv:
+  case llvm::Instruction::URem:
+  case llvm::Instruction::SRem:
+  case llvm::Instruction::FRem:
+  case llvm::Instruction::Shl:
+  case llvm::Instruction::LShr:
+  case llvm::Instruction::AShr:
+  case llvm::Instruction::And:
+  case llvm::Instruction::Or:
+  case llvm::Instruction::Xor:
+    break;
+  default:
+    WATEVER_UNREACHABLE("Illegal opcode encountered: {}", BO.getOpcodeName());
+  }
+  NewBO = Builder.CreateBinOp(BO.getOpcode(), LHS, RHS);
+
   ValueMap[&BO] = NewBO;
 }
 
