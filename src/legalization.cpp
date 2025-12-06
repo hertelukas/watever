@@ -26,6 +26,10 @@ llvm::Value *FunctionLegalizer::legalizeConstant(llvm::Constant *C) {
     }
   }
 
+  if (C->getType()->isFloatTy() || C->getType()->isDoubleTy()) {
+    return C;
+  }
+
   WATEVER_UNIMPLEMENTED("unsupported constant type {}", llvmToString(*C));
 }
 
@@ -68,19 +72,20 @@ void FunctionLegalizer::visitBinaryOperator(llvm::BinaryOperator &BO) {
     break;
   case llvm::Instruction::UDiv: {
     LHS = zeroExtend(LHS, BO.getOperand(0)->getType()->getIntegerBitWidth(),
-                       LHS->getType()->getIntegerBitWidth());
+                     LHS->getType()->getIntegerBitWidth());
     RHS = zeroExtend(RHS, BO.getOperand(1)->getType()->getIntegerBitWidth(),
-                       RHS->getType()->getIntegerBitWidth());
+                     RHS->getType()->getIntegerBitWidth());
     break;
   }
   case llvm::Instruction::SDiv: {
     LHS = signExtend(LHS, BO.getOperand(0)->getType()->getIntegerBitWidth(),
-                       LHS->getType()->getIntegerBitWidth());
+                     LHS->getType()->getIntegerBitWidth());
     RHS = signExtend(RHS, BO.getOperand(1)->getType()->getIntegerBitWidth(),
-                       RHS->getType()->getIntegerBitWidth());
+                     RHS->getType()->getIntegerBitWidth());
     break;
   }
   case llvm::Instruction::FDiv:
+    break;
   case llvm::Instruction::URem:
   case llvm::Instruction::SRem:
   case llvm::Instruction::FRem:

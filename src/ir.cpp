@@ -370,7 +370,16 @@ std::unique_ptr<WasmActions> BlockLowering::lower(Function &F) {
           WATEVER_UNREACHABLE("unsupported constant bit width: {}",
                               Const->getBitWidth());
         }
-      } else if (auto *Arg = llvm::dyn_cast<llvm::Argument>(Next)) {
+      } else if (const auto *FConst = llvm::dyn_cast<llvm::ConstantFP>(Next)) {
+        if (FConst->getType()->isFloatTy()) {
+          WATEVER_TODO("put float {} on top of the stack",
+                       FConst->getValue().convertToFloat());
+        } else if (FConst->getType()->isDoubleTy()) {
+          WATEVER_TODO("put double {} on top of the stack",
+                       FConst->getValue().convertToDouble());
+        }
+      }
+      else if (auto *Arg = llvm::dyn_cast<llvm::Argument>(Next)) {
         Actions.Insts.push_back(WasmInst(Opcode::LocalGet, Arg->getArgNo()));
       } else {
         WATEVER_TODO("put {} on top of the stack", llvmToString(*Next));
