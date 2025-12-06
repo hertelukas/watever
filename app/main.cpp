@@ -3,6 +3,7 @@
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/PassManager.h>
+#include <llvm/IR/Verifier.h>
 #include <llvm/IRReader/IRReader.h>
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/Support/FileSystem.h>
@@ -122,6 +123,14 @@ int main(int argc, char *argv[]) {
   MPM.addPass(watever::LegalizationPass());
 
   MPM.run(*Mod, MAM);
+
+#ifdef WATEVER_LOGGING
+  if (llvm::verifyModule(*Mod, &llvm::errs())) {
+    WATEVER_LOG_ERR("Legalization left the module in an inconsistent state!");
+    return 1;
+  }
+  WATEVER_LOG_INFO("Legalization returned a legal module.");
+#endif
 
   if (LegalOnly) {
     Mod->print(*OS, nullptr);
