@@ -41,11 +41,30 @@ class FunctionLegalizer : public llvm::InstVisitor<FunctionLegalizer> {
     WATEVER_UNREACHABLE("No value found for {}", llvmToString(*OldVal));
   }
 
+  // Zero-extends val from `From` to `To` bits. Note, that `Val` might already
+  // be `To` bits wide, but this ensures that the entire `To` bits are zeroed
+  // above `From`. This is needed if we cannot ignore the upper bits. (udiv)
+  llvm::Value *zeroExtend(llvm::Value *Val, unsigned From, unsigned To) {
+    // If the original value had the same width, we don't need to do anything
+    if (To == From) {
+      return Val;
+    }
+
+    // TODO check if it makes to use native extensions, LLVM doesn't seem to do this
+
+    if (To != 32 && To != 64) {
+      WATEVER_UNIMPLEMENTED("Unsupported zero extension to {}", To);
+    }
+
+    llvm::APInt Mask = llvm::APInt::getLowBitsSet(To, From);
+    return Builder.CreateAnd(Val, Mask);
+  }
+
   // Sign-extends val from `From` to `To` bits. Note, that `Val` might already
   // be `To` bits wide, but this ensures that the entire `To` bits are signed
   // correctly. This is needed if we cannot ignore the upper bits, and sign
   // matters. (sdiv)
-  llvm::Value *signExtendTo(llvm::Value *Val, unsigned From, unsigned To) {
+  llvm::Value *signExtend(llvm::Value *Val, unsigned From, unsigned To) {
 
     // If the original value had the same width, we don't need to do anything
     if (To == From) {
@@ -63,7 +82,7 @@ class FunctionLegalizer : public llvm::InstVisitor<FunctionLegalizer> {
     } else if (To == 64) {
       TargetTy = llvm::Type::getInt64Ty(Val->getContext());
     } else {
-      WATEVER_UNIMPLEMENTED("Unsupported target sign extension to {}", To);
+      WATEVER_UNIMPLEMENTED("Unsupported sign extension to {}", To);
     }
 
     // TODO check for --enable-sign-extension

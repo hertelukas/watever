@@ -66,12 +66,17 @@ void FunctionLegalizer::visitBinaryOperator(llvm::BinaryOperator &BO) {
   case llvm::Instruction::Mul:
   case llvm::Instruction::FMul:
     break;
-  case llvm::Instruction::UDiv:
-    break;
-  case llvm::Instruction::SDiv: {
-    LHS = signExtendTo(LHS, BO.getOperand(0)->getType()->getIntegerBitWidth(),
+  case llvm::Instruction::UDiv: {
+    LHS = zeroExtend(LHS, BO.getOperand(0)->getType()->getIntegerBitWidth(),
                        LHS->getType()->getIntegerBitWidth());
-    RHS = signExtendTo(RHS, BO.getOperand(1)->getType()->getIntegerBitWidth(),
+    RHS = zeroExtend(RHS, BO.getOperand(1)->getType()->getIntegerBitWidth(),
+                       RHS->getType()->getIntegerBitWidth());
+    break;
+  }
+  case llvm::Instruction::SDiv: {
+    LHS = signExtend(LHS, BO.getOperand(0)->getType()->getIntegerBitWidth(),
+                       LHS->getType()->getIntegerBitWidth());
+    RHS = signExtend(RHS, BO.getOperand(1)->getType()->getIntegerBitWidth(),
                        RHS->getType()->getIntegerBitWidth());
     break;
   }
