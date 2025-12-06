@@ -44,6 +44,27 @@ public:
     }
   }
 
+  void visitBasicBlock(llvm::BasicBlock &BB);
+  
+  // Terminator Instructions
+  void visitReturnInst(llvm::ReturnInst &RI);
+  
+  // Unary Operations
+
+  // Binary Operations
+
+  // Bitwise Binary Operations
+
+  // Vector Operations
+
+  // Aggregatge Operations
+
+  // Memory Access and Addressing Operations
+
+  // Conversion Operations
+
+  // Other Operations
+
   void visitInstruction(llvm::Instruction &I) {
     // TODO set to UNIMPLEMENTED
     WATEVER_TODO("{} not (yet) supported", I.getOpcodeName());

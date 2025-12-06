@@ -1,16 +1,60 @@
 #include "watever/legalization.hpp"
 #include "watever/utils.hpp"
 #include <llvm/ADT/STLExtras.h>
+#include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/PassManager.h>
+#include <llvm/Support/Casting.h>
 
 using namespace watever;
 
+void FunctionLegalizer::visitBasicBlock(llvm::BasicBlock &BB) {
+  if (auto *NewBB = llvm::dyn_cast<llvm::BasicBlock>(ValueMap[&BB])) {
+    Builder.SetInsertPoint(NewBB);
+    return;
+  }
+  WATEVER_UNREACHABLE("Corresponding BB not found in new function");
+}
+
+//===----------------------------------------------------------------------===//
+// Terminator Instructions
+//===----------------------------------------------------------------------===//
+void FunctionLegalizer::visitReturnInst(llvm::ReturnInst &RI) {
+  Builder.CreateRet(ValueMap[RI.getReturnValue()]);
+}
+
+//===----------------------------------------------------------------------===//
+// Unary Operations
+//===----------------------------------------------------------------------===//
+//===----------------------------------------------------------------------===//
+// Binary Operations
+//===----------------------------------------------------------------------===//
+//===----------------------------------------------------------------------===//
+// Bitwise Binary Operations
+//===----------------------------------------------------------------------===//
+//===----------------------------------------------------------------------===//
+// Vector Operations
+//===----------------------------------------------------------------------===//
+//===----------------------------------------------------------------------===//
+// Aggregate Operations
+//===----------------------------------------------------------------------===//
+//===----------------------------------------------------------------------===//
+// Memory Access and Addressing Operations
+//===----------------------------------------------------------------------===//
+//===----------------------------------------------------------------------===//
+// Conversion Operations
+//===----------------------------------------------------------------------===//
+//===----------------------------------------------------------------------===//
+// Other Operations
+//===----------------------------------------------------------------------===//
+
 llvm::Function *LegalizationPass::createLegalFunction(llvm::Module &Mod,
                                                       llvm::Function *OldFunc) {
+
+  // TODO not correct, e.g., vectors are returned through pointer
   llvm::Function *Fn = llvm::Function::Create(
       createLegalFunctionType(OldFunc->getFunctionType()),
       OldFunc->getLinkage(), OldFunc->getName(), Mod);
@@ -34,6 +78,9 @@ LegalizationPass::createLegalFunctionType(llvm::FunctionType *OldFuncTy) {
 }
 
 llvm::Type *LegalizationPass::getLegalType(llvm::Type *Ty) {
+  if (Ty->isVoidTy()) {
+    return Ty;
+  }
   if (Ty->isIntegerTy()) {
     if (Ty->getIntegerBitWidth() <= 32) {
       return llvm::Type::getInt32Ty(Ty->getContext());
