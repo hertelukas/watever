@@ -72,7 +72,7 @@ class FunctionLegalizer : public llvm::InstVisitor<FunctionLegalizer> {
   llvm::DenseMap<llvm::Value *, LegalValue> ValueMap{};
   llvm::IRBuilder<> &Builder;
 
-  llvm::Value *legalizeConstant(llvm::Constant *C);
+  LegalValue legalizeConstant(llvm::Constant *C);
 
   LegalValue getMappedValue(llvm::Value *OldVal) {
     WATEVER_LOG_TRACE("getting mapped value for {}", llvmToString(*OldVal));

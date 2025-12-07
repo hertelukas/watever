@@ -12,7 +12,7 @@
 
 using namespace watever;
 
-llvm::Value *FunctionLegalizer::legalizeConstant(llvm::Constant *C) {
+LegalValue FunctionLegalizer::legalizeConstant(llvm::Constant *C) {
   if (auto *CI = llvm::dyn_cast<llvm::ConstantInt>(C)) {
     const unsigned Width = CI->getBitWidth();
     if (Width == 32 || Width == 64) {
@@ -24,6 +24,18 @@ llvm::Value *FunctionLegalizer::legalizeConstant(llvm::Constant *C) {
     if (Width < 64) {
       return llvm::ConstantInt::get(Builder.getInt64Ty(), CI->getZExtValue());
     }
+
+    unsigned NumParts = (Width + 63) / 64;
+    auto Value = CI->getValue();
+
+    llvm::SmallVector<llvm::Value *> Vs;
+    for (unsigned I = 0; I < NumParts; ++I) {
+      // TODO think about order
+      Vs.push_back(llvm::ConstantInt::get(
+          Builder.getInt64Ty(), Value.extractBitsAsZExtValue(64, I * 64)));
+    }
+
+    return LegalValue{Vs};
   }
 
   if (C->getType()->isFloatTy() || C->getType()->isDoubleTy()) {
@@ -37,7 +49,11 @@ FunctionLegalizer::FunctionLegalizer(llvm::Function *OldFunc,
                                      llvm::Function *NewFunc,
                                      llvm::IRBuilder<> &B)
     : Builder(B), NewFunc(NewFunc) {
-  size_t I = 0;
+
+  bool IndirectReturn =
+      LegalizationPass::getLegalType(OldFunc->getReturnType()).size() > 1;
+
+  size_t I = IndirectReturn ? 1 : 0;
   for (auto &OldArg : OldFunc->args()) {
     auto LegalArgType = LegalizationPass::getLegalType(OldArg.getType());
 
@@ -74,7 +90,7 @@ void FunctionLegalizer::visitBasicBlock(llvm::BasicBlock &BB) {
 // Terminator Instructions
 //===----------------------------------------------------------------------===//
 void FunctionLegalizer::visitReturnInst(llvm::ReturnInst &RI) {
-  WATEVER_LOG_TRACE("legalizing ret {}", llvmToString(RI));
+  WATEVER_LOG_TRACE("legalizing {}", llvmToString(RI));
 
   if (RI.getNumOperands() == 0) {
     Builder.CreateRetVoid();
@@ -82,12 +98,30 @@ void FunctionLegalizer::visitReturnInst(llvm::ReturnInst &RI) {
   }
 
   auto LegalReturnValue = getMappedValue(RI.getReturnValue());
+
+  if (!LegalReturnValue.isScalar()) {
+    WATEVER_LOG_TRACE("storing return value in first argument");
+    // TODO support wasm64
+    auto *ReturnPtr = NewFunc->getArg(0);
+    auto *ReturnPtrAsInt = Builder.CreatePtrToInt(
+        ReturnPtr, llvm::Type::getInt32Ty(RI.getContext()));
+    unsigned I = 0;
+    for (auto *ReturnValue : LegalReturnValue) {
+      auto *CurrentPtrAsInt =
+          Builder.CreateAdd(ReturnPtrAsInt, Builder.getInt32(I));
+      auto *CurrentPtr = Builder.CreateIntToPtr(
+          CurrentPtrAsInt, llvm::PointerType::getUnqual(RI.getContext()));
+      Builder.CreateAlignedStore(ReturnValue, CurrentPtr, llvm::Align(8));
+      I += 8;
+    }
+    Builder.CreateRetVoid();
+    return;
+  }
+
   if (LegalReturnValue.isScalar()) {
     Builder.CreateRet(LegalReturnValue[0]);
     return;
   }
-
-  WATEVER_UNREACHABLE("Only scalar return values up to 64-bit are allowed");
 }
 
 //===----------------------------------------------------------------------===//
@@ -182,6 +216,8 @@ void FunctionLegalizer::visitBinaryOperator(llvm::BinaryOperator &BO) {
     }
 
     ValueMap[&BO] = Builder.CreateBinOp(BO.getOpcode(), LHS, RHS);
+
+    return;
   }
 }
 
@@ -208,7 +244,13 @@ llvm::Function *LegalizationPass::createLegalFunction(llvm::Module &Mod,
       createLegalFunctionType(OldFunc->getFunctionType()),
       OldFunc->getLinkage(), OldFunc->getName(), Mod);
 
+  bool IndirectReturn = getLegalType(OldFunc->getReturnType()).size() > 1;
+
   size_t I = 0;
+  if (IndirectReturn) {
+    Fn->getArg(0)->setName("ret.ptr");
+    ++I;
+  }
   for (auto &OldArg : OldFunc->args()) {
     auto LegalArgType = LegalizationPass::getLegalType(OldArg.getType());
 
@@ -229,14 +271,18 @@ llvm::Function *LegalizationPass::createLegalFunction(llvm::Module &Mod,
 llvm::FunctionType *
 LegalizationPass::createLegalFunctionType(llvm::FunctionType *OldFuncTy) {
   auto LegalResultTy = getLegalType(OldFuncTy->getReturnType());
+
+  llvm::Type *ResultTy = nullptr;
+  llvm::SmallVector<llvm::Type *> Params;
   if (LegalResultTy.size() > 1) {
     // TODO the spec uses multi value return types, however, LLVM still compiles
     // with indirect types
-    WATEVER_UNIMPLEMENTED(
-        "multi value return types not supported, use indirect return type");
+    WATEVER_LOG_DBG("Return type not supported, using indirect return");
+    ResultTy = llvm::Type::getVoidTy(OldFuncTy->getContext());
+    Params.push_back(llvm::PointerType::getUnqual(OldFuncTy->getContext()));
+  } else {
+    ResultTy = LegalResultTy[0];
   }
-  auto *ResultTy = LegalResultTy[0];
-  llvm::SmallVector<llvm::Type *> Params;
 
   for (auto *OldParamType : OldFuncTy->params()) {
     auto LegalParamType = getLegalType(OldParamType);

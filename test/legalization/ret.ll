@@ -30,3 +30,24 @@ define i64 @ret_i64(i64 %a) {
   ret i64 %a
 }
 
+define i128 @ret_i128_const() {
+; CHECK-LABEL: void @ret_i128_const(ptr
+; CHECK: store i64 10
+; CHECK: store i64 0
+  ret i128 10
+}
+
+define i128 @ret_i128(i128 %a) {
+; CHECK-LABEL: void @ret_i128(ptr
+; CHECK: store i64
+; CHECK: store i64
+  ret i128 %a
+}
+
+define i160 @ret_i160_const() {
+; CHECK-LABEL: void @ret_i160_const(ptr
+; CHECK: store i64 10
+; CHECK: store i64 0
+; CHECK: store i64 0
+  ret i160 10
+}
