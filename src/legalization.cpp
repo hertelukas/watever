@@ -282,7 +282,83 @@ void FunctionLegalizer::visitBinaryOperator(llvm::BinaryOperator &BO) {
 // Memory Access and Addressing Operations
 //===----------------------------------------------------------------------===//
 
-void FunctionLegalizer::visitGetElementPtrInst(llvm::GetElementPtrInst &) {}
+void FunctionLegalizer::visitGetElementPtrInst(llvm::GetElementPtrInst &GI) {
+  const llvm::DataLayout &DL = GI.getModule()->getDataLayout();
+
+  // TODO handle vectors
+  auto *PtrArg = getMappedValue(GI.getPointerOperand())[0];
+
+  llvm::APInt Offset(DL.getPointerSizeInBits(GI.getPointerAddressSpace()), 0);
+  if (GI.accumulateConstantOffset(DL, Offset)) {
+    WATEVER_LOG_TRACE("GEP with constant offset of {}", Offset.getSExtValue());
+    if (Offset.isZero()) {
+      // Just send the ptr itself
+      ValueMap[&GI] = PtrArg;
+    } else {
+      llvm::Value *OffsetVal = llvm::ConstantInt::get(IntPtrTy, Offset);
+      llvm::Value *PtrAsInt = Builder.CreatePtrToInt(PtrArg, IntPtrTy);
+      llvm::Value *PtrWithOffsetAsInt = Builder.CreateAdd(PtrAsInt, OffsetVal);
+      llvm::Value *PtrWithOffset =
+          Builder.CreateIntToPtr(PtrWithOffsetAsInt, PtrTy);
+      ValueMap[&GI] = PtrWithOffset;
+    }
+    return;
+  }
+
+  llvm::Type *CurrentTy = GI.getSourceElementType();
+  llvm::Value *TotalOffset = llvm::ConstantInt::get(IntPtrTy, 0);
+
+  const auto *IdxIt = GI.idx_begin();
+
+  llvm::Value *FirstIndex = getMappedValue(IdxIt->get())[0];
+  uint64_t FirstTypeSize = DL.getTypeAllocSize(CurrentTy);
+  llvm::Value *SextIdx = Builder.CreateSExtOrTrunc(FirstIndex, IntPtrTy);
+
+  WATEVER_LOG_TRACE("Accessing type at index {}, with a type size of {}",
+                    llvmToString(*SextIdx), FirstTypeSize);
+
+  if (FirstTypeSize != 0) {
+    TotalOffset = Builder.CreateMul(
+        SextIdx, llvm::ConstantInt::get(IntPtrTy, FirstTypeSize));
+  }
+
+  ++IdxIt;
+
+  for (; IdxIt != GI.idx_end(); ++IdxIt) {
+    llvm::Value *Index = getMappedValue(IdxIt->get())[0];
+    SextIdx = Builder.CreateSExtOrTrunc(Index, IntPtrTy);
+
+    if (llvm::StructType *STy = llvm::dyn_cast<llvm::StructType>(CurrentTy)) {
+      // TODO can we index into a struct with a variable?
+      unsigned FieldIdx = cast<llvm::ConstantInt>(Index)->getZExtValue();
+      uint64_t FieldOffset =
+          DL.getStructLayout(STy)->getElementOffset(FieldIdx);
+
+      WATEVER_LOG_TRACE("Accessing struct at index {}, with offset of {}",
+                        FieldIdx, FieldOffset);
+
+      TotalOffset = Builder.CreateAdd(
+          TotalOffset, llvm::ConstantInt::get(IntPtrTy, FieldOffset));
+      CurrentTy = STy->getElementType(FieldIdx);
+    } else {
+      CurrentTy = CurrentTy->getContainedType(0);
+      uint64_t ElementSize = DL.getTypeAllocSize(CurrentTy);
+
+      WATEVER_LOG_TRACE("Accessing array at index {}, with element sizes of {}",
+                        llvmToString(*SextIdx), ElementSize);
+
+      llvm::Value *ScaledOffset = Builder.CreateMul(
+          SextIdx, llvm::ConstantInt::get(IntPtrTy, ElementSize));
+      TotalOffset = Builder.CreateAdd(TotalOffset, ScaledOffset);
+    }
+  }
+
+  llvm::Value *BasePtrInt = Builder.CreatePtrToInt(PtrArg, IntPtrTy);
+  llvm::Value *NewPtrInt = Builder.CreateAdd(BasePtrInt, TotalOffset);
+  llvm::Value *NewPtr = Builder.CreateIntToPtr(NewPtrInt, PtrTy);
+
+  ValueMap[&GI] = NewPtr;
+}
 
 //===----------------------------------------------------------------------===//
 // Conversion Operations
@@ -372,6 +448,11 @@ LegalType LegalizationPass::getLegalType(llvm::Type *Ty) {
       return Ty;
     }
   }
+
+  if (Ty->isPointerTy()) {
+    return Ty;
+  }
+
   WATEVER_UNIMPLEMENTED("Unsupported type {}", llvmToString(*Ty));
 }
 
