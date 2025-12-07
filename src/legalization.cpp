@@ -33,8 +33,37 @@ llvm::Value *FunctionLegalizer::legalizeConstant(llvm::Constant *C) {
   WATEVER_UNIMPLEMENTED("unsupported constant type {}", llvmToString(*C));
 }
 
+FunctionLegalizer::FunctionLegalizer(llvm::Function *OldFunc,
+                                     llvm::Function *NewFunc,
+                                     llvm::IRBuilder<> &B)
+    : Builder(B), NewFunc(NewFunc) {
+  size_t I = 0;
+  for (auto &OldArg : OldFunc->args()) {
+    auto LegalArgType = LegalizationPass::getLegalType(OldArg.getType());
+
+    if (LegalArgType.size() == 1) {
+      ValueMap[&OldArg] = LegalValue{NewFunc->getArg(I)};
+    } else {
+      llvm::SmallVector<llvm::Value *> MappedToValues{};
+      for (size_t J = 0; J < LegalArgType.size(); ++J) {
+        MappedToValues.push_back(NewFunc->getArg(I + J));
+      }
+
+      ValueMap[&OldArg] = LegalValue{MappedToValues};
+    }
+
+    I += LegalArgType.size();
+  }
+
+  for (auto &OldBB : *OldFunc) {
+    llvm::BasicBlock *NewBB = llvm::BasicBlock::Create(
+        NewFunc->getContext(), OldBB.getName(), NewFunc);
+    ValueMap[&OldBB] = NewBB;
+  }
+}
+
 void FunctionLegalizer::visitBasicBlock(llvm::BasicBlock &BB) {
-  if (auto *NewBB = llvm::dyn_cast<llvm::BasicBlock>(ValueMap[&BB])) {
+  if (auto *NewBB = llvm::dyn_cast<llvm::BasicBlock>(ValueMap[&BB][0])) {
     Builder.SetInsertPoint(NewBB);
     return;
   }
@@ -46,7 +75,19 @@ void FunctionLegalizer::visitBasicBlock(llvm::BasicBlock &BB) {
 //===----------------------------------------------------------------------===//
 void FunctionLegalizer::visitReturnInst(llvm::ReturnInst &RI) {
   WATEVER_LOG_TRACE("legalizing ret {}", llvmToString(RI));
-  Builder.CreateRet(ValueMap[RI.getReturnValue()]);
+
+  if (RI.getNumOperands() == 0) {
+    Builder.CreateRetVoid();
+    return;
+  }
+
+  auto LegalReturnValue = getMappedValue(RI.getReturnValue());
+  if (LegalReturnValue.isScalar()) {
+    Builder.CreateRet(LegalReturnValue[0]);
+    return;
+  }
+
+  WATEVER_UNREACHABLE("Only scalar return values up to 64-bit are allowed");
 }
 
 //===----------------------------------------------------------------------===//
@@ -57,87 +98,93 @@ void FunctionLegalizer::visitReturnInst(llvm::ReturnInst &RI) {
 //===----------------------------------------------------------------------===//
 void FunctionLegalizer::visitBinaryOperator(llvm::BinaryOperator &BO) {
   WATEVER_LOG_TRACE("legalizing binop {}", llvmToString(BO));
-  auto *LHS = getMappedValue(BO.getOperand(0));
-  auto *RHS = getMappedValue(BO.getOperand(1));
+  LegalValue LegalLHS = getMappedValue(BO.getOperand(0));
+  LegalValue LegalRHS = getMappedValue(BO.getOperand(1));
+
+#ifdef WATEVER_LOGGING
+  if (LegalLHS.size() != LegalRHS.size()) {
+    WATEVER_UNREACHABLE(
+        "binary operators must have equally sized LHS and RHS!");
+  }
+#endif
 
   // TODO vectos and >128 bit
-  llvm::Value *NewBO = nullptr;
-  switch (BO.getOpcode()) {
-  case llvm::Instruction::Add:
-  case llvm::Instruction::FAdd:
-  case llvm::Instruction::Sub:
-  case llvm::Instruction::FSub:
-  case llvm::Instruction::Mul:
-  case llvm::Instruction::FMul:
-    break;
-  case llvm::Instruction::UDiv: {
-    LHS = zeroExtend(LHS, BO.getOperand(0)->getType()->getIntegerBitWidth(),
-                     LHS->getType()->getIntegerBitWidth());
-    RHS = zeroExtend(RHS, BO.getOperand(1)->getType()->getIntegerBitWidth(),
-                     RHS->getType()->getIntegerBitWidth());
-    break;
-  }
-  case llvm::Instruction::SDiv: {
-    LHS = signExtend(LHS, BO.getOperand(0)->getType()->getIntegerBitWidth(),
-                     LHS->getType()->getIntegerBitWidth());
-    RHS = signExtend(RHS, BO.getOperand(1)->getType()->getIntegerBitWidth(),
-                     RHS->getType()->getIntegerBitWidth());
-    break;
-  }
-  case llvm::Instruction::FDiv:
-    break;
-  case llvm::Instruction::URem: {
-    LHS = zeroExtend(LHS, BO.getOperand(0)->getType()->getIntegerBitWidth(),
-                     LHS->getType()->getIntegerBitWidth());
-    RHS = zeroExtend(RHS, BO.getOperand(1)->getType()->getIntegerBitWidth(),
-                     RHS->getType()->getIntegerBitWidth());
-    break;
-  }
-  case llvm::Instruction::SRem: {
-    LHS = signExtend(LHS, BO.getOperand(0)->getType()->getIntegerBitWidth(),
-                     LHS->getType()->getIntegerBitWidth());
-    RHS = signExtend(RHS, BO.getOperand(1)->getType()->getIntegerBitWidth(),
-                     RHS->getType()->getIntegerBitWidth());
-    break;
-  }
-  case llvm::Instruction::FRem: {
-    WATEVER_UNIMPLEMENTED("Support frem");
-  }
-  case llvm::Instruction::Shl: {
-    // we don't care about upper bits in LHS, as they are shifted away anyway
-    RHS = zeroExtend(RHS, BO.getOperand(1)->getType()->getIntegerBitWidth(),
-                     RHS->getType()->getIntegerBitWidth());
-    break;
-  }
-  case llvm::Instruction::LShr: {
-    LHS = zeroExtend(LHS, BO.getOperand(0)->getType()->getIntegerBitWidth(),
-                     LHS->getType()->getIntegerBitWidth());
-    RHS = zeroExtend(RHS, BO.getOperand(1)->getType()->getIntegerBitWidth(),
-                     RHS->getType()->getIntegerBitWidth());
-    break;
-  }
-  case llvm::Instruction::AShr: {
-    LHS = signExtend(LHS, BO.getOperand(0)->getType()->getIntegerBitWidth(),
-                     LHS->getType()->getIntegerBitWidth());
-    RHS = zeroExtend(RHS, BO.getOperand(1)->getType()->getIntegerBitWidth(),
-                     RHS->getType()->getIntegerBitWidth());
-    break;
-  }
-  case llvm::Instruction::And:
-  case llvm::Instruction::Or:
-  case llvm::Instruction::Xor:
-    break;
-  default:
-    WATEVER_UNREACHABLE("Illegal opcode encountered: {}", BO.getOpcodeName());
-  }
-  NewBO = Builder.CreateBinOp(BO.getOpcode(), LHS, RHS);
+  if (LegalLHS.isScalar()) {
+    auto *LHS = LegalLHS[0];
+    auto *RHS = LegalRHS[0];
+    switch (BO.getOpcode()) {
+    case llvm::Instruction::Add:
+    case llvm::Instruction::FAdd:
+    case llvm::Instruction::Sub:
+    case llvm::Instruction::FSub:
+    case llvm::Instruction::Mul:
+    case llvm::Instruction::FMul:
+      break;
+    case llvm::Instruction::UDiv: {
+      LHS = zeroExtend(LHS, BO.getOperand(0)->getType()->getIntegerBitWidth(),
+                       LHS->getType()->getIntegerBitWidth());
+      RHS = zeroExtend(RHS, BO.getOperand(1)->getType()->getIntegerBitWidth(),
+                       RHS->getType()->getIntegerBitWidth());
+      break;
+    }
+    case llvm::Instruction::SDiv: {
+      LHS = signExtend(LHS, BO.getOperand(0)->getType()->getIntegerBitWidth(),
+                       LHS->getType()->getIntegerBitWidth());
+      RHS = signExtend(RHS, BO.getOperand(1)->getType()->getIntegerBitWidth(),
+                       RHS->getType()->getIntegerBitWidth());
+      break;
+    }
+    case llvm::Instruction::FDiv:
+      break;
+    case llvm::Instruction::URem: {
+      LHS = zeroExtend(LHS, BO.getOperand(0)->getType()->getIntegerBitWidth(),
+                       LHS->getType()->getIntegerBitWidth());
+      RHS = zeroExtend(RHS, BO.getOperand(1)->getType()->getIntegerBitWidth(),
+                       RHS->getType()->getIntegerBitWidth());
+      break;
+    }
+    case llvm::Instruction::SRem: {
+      LHS = signExtend(LHS, BO.getOperand(0)->getType()->getIntegerBitWidth(),
+                       LHS->getType()->getIntegerBitWidth());
+      RHS = signExtend(RHS, BO.getOperand(1)->getType()->getIntegerBitWidth(),
+                       RHS->getType()->getIntegerBitWidth());
+      break;
+    }
+    case llvm::Instruction::FRem: {
+      WATEVER_UNIMPLEMENTED("Support frem");
+    }
+    case llvm::Instruction::Shl: {
+      // we don't care about upper bits in LHS, as they are shifted away anyway
+      RHS = zeroExtend(RHS, BO.getOperand(1)->getType()->getIntegerBitWidth(),
+                       RHS->getType()->getIntegerBitWidth());
+      break;
+    }
+    case llvm::Instruction::LShr: {
+      LHS = zeroExtend(LHS, BO.getOperand(0)->getType()->getIntegerBitWidth(),
+                       LHS->getType()->getIntegerBitWidth());
+      RHS = zeroExtend(RHS, BO.getOperand(1)->getType()->getIntegerBitWidth(),
+                       RHS->getType()->getIntegerBitWidth());
+      break;
+    }
+    case llvm::Instruction::AShr: {
+      LHS = signExtend(LHS, BO.getOperand(0)->getType()->getIntegerBitWidth(),
+                       LHS->getType()->getIntegerBitWidth());
+      RHS = zeroExtend(RHS, BO.getOperand(1)->getType()->getIntegerBitWidth(),
+                       RHS->getType()->getIntegerBitWidth());
+      break;
+    }
+    case llvm::Instruction::And:
+    case llvm::Instruction::Or:
+    case llvm::Instruction::Xor:
+      break;
+    default:
+      WATEVER_UNREACHABLE("Illegal opcode encountered: {}", BO.getOpcodeName());
+    }
 
-  ValueMap[&BO] = NewBO;
+    ValueMap[&BO] = Builder.CreateBinOp(BO.getOpcode(), LHS, RHS);
+  }
 }
 
-//===----------------------------------------------------------------------===//
-// Bitwise Binary Operations
-//===----------------------------------------------------------------------===//
 //===----------------------------------------------------------------------===//
 // Vector Operations
 //===----------------------------------------------------------------------===//
@@ -157,40 +204,67 @@ void FunctionLegalizer::visitBinaryOperator(llvm::BinaryOperator &BO) {
 llvm::Function *LegalizationPass::createLegalFunction(llvm::Module &Mod,
                                                       llvm::Function *OldFunc) {
 
-  // TODO not correct, e.g., vectors are returned through pointer
   llvm::Function *Fn = llvm::Function::Create(
       createLegalFunctionType(OldFunc->getFunctionType()),
       OldFunc->getLinkage(), OldFunc->getName(), Mod);
 
-  for (auto [OldArg, NewArg] : llvm::zip_equal(OldFunc->args(), Fn->args())) {
-    NewArg.setName(OldArg.getName());
+  size_t I = 0;
+  for (auto &OldArg : OldFunc->args()) {
+    auto LegalArgType = LegalizationPass::getLegalType(OldArg.getType());
+
+    if (LegalArgType.size() == 1) {
+      Fn->getArg(I)->setName(OldArg.getName());
+    } else {
+      for (size_t J = 0; J < LegalArgType.size(); ++J) {
+        Fn->getArg(I + J)->setName(OldArg.getName() + "." + llvm::Twine(J));
+      }
+    }
+
+    I += LegalArgType.size();
   }
+
   return Fn;
 }
 
 llvm::FunctionType *
 LegalizationPass::createLegalFunctionType(llvm::FunctionType *OldFuncTy) {
-  llvm::Type *ResultTy = getLegalType(OldFuncTy->getReturnType());
+  auto LegalResultTy = getLegalType(OldFuncTy->getReturnType());
+  if (LegalResultTy.size() > 1) {
+    // TODO the spec uses multi value return types, however, LLVM still compiles
+    // with indirect types
+    WATEVER_UNIMPLEMENTED(
+        "multi value return types not supported, use indirect return type");
+  }
+  auto *ResultTy = LegalResultTy[0];
   llvm::SmallVector<llvm::Type *> Params;
 
-  for (auto *Param : OldFuncTy->params()) {
-    Params.push_back(getLegalType(Param));
+  for (auto *OldParamType : OldFuncTy->params()) {
+    auto LegalParamType = getLegalType(OldParamType);
+    for (auto &Ty : LegalParamType) {
+      Params.push_back(Ty);
+    }
   }
 
   return llvm::FunctionType::get(ResultTy, Params, OldFuncTy->isVarArg());
 }
 
-llvm::Type *LegalizationPass::getLegalType(llvm::Type *Ty) {
+LegalType LegalizationPass::getLegalType(llvm::Type *Ty) {
   if (Ty->isVoidTy()) {
     return Ty;
   }
   if (Ty->isIntegerTy()) {
-    if (Ty->getIntegerBitWidth() <= 32) {
+    unsigned Width = Ty->getIntegerBitWidth();
+    if (Width <= 32) {
       return llvm::Type::getInt32Ty(Ty->getContext());
     }
-    if (Ty->getIntegerBitWidth() <= 64) {
+    if (Width <= 64) {
       return llvm::Type::getInt64Ty(Ty->getContext());
     }
+
+    unsigned NumParts = (Width + 63) / 64;
+    llvm::SmallVector<llvm::Type *> Ts(
+        NumParts, llvm::Type::getInt64Ty(Ty->getContext()));
+    return LegalType{Ts};
   }
 
   if (Ty->isFloatingPointTy()) {
