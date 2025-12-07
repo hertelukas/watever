@@ -6,6 +6,7 @@
 #include <llvm/IR/Function.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/InstrTypes.h>
+#include <llvm/IR/Instruction.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/PassManager.h>
 #include <llvm/Support/Casting.h>
@@ -142,7 +143,6 @@ void FunctionLegalizer::visitBinaryOperator(llvm::BinaryOperator &BO) {
   }
 #endif
 
-  // TODO vectos and >128 bit
   if (LegalLHS.isScalar()) {
     auto *LHS = LegalLHS[0];
     auto *RHS = LegalRHS[0];
@@ -218,6 +218,50 @@ void FunctionLegalizer::visitBinaryOperator(llvm::BinaryOperator &BO) {
     ValueMap[&BO] = Builder.CreateBinOp(BO.getOpcode(), LHS, RHS);
 
     return;
+  }
+
+  // TODO vectors
+  switch (BO.getOpcode()) {
+
+  case llvm::Instruction::Add: {
+    // TODO there might be a more efficient solution, than checking the carry twice
+    llvm::Value *Carry =
+        llvm::ConstantInt::get(llvm::Type::getInt64Ty(BO.getContext()), 0);
+    llvm::SmallVector<llvm::Value *> Result;
+    for (auto [LHS, RHS] : llvm::zip_equal(LegalLHS, LegalRHS)) {
+      llvm::Value *Sum1 = Builder.CreateAdd(LHS, RHS);
+      llvm::Value *Carry1 = Builder.CreateICmpULT(Sum1, LHS);
+      llvm::Value *SumFinal = Builder.CreateAdd(Sum1, Carry);
+      llvm::Value *Carry2 = Builder.CreateICmpULT(SumFinal, Sum1);
+      // TODO could be skipped in last round
+      llvm::Value *CarryBit = Builder.CreateOr(Carry1, Carry2);
+      Carry =
+          Builder.CreateZExt(CarryBit, llvm::Type::getInt64Ty(BO.getContext()));
+      Result.push_back(SumFinal);
+    }
+    ValueMap[&BO] = LegalValue{Result};
+    return;
+  }
+  case llvm::Instruction::FAdd:
+  case llvm::Instruction::Sub:
+  case llvm::Instruction::FSub:
+  case llvm::Instruction::Mul:
+  case llvm::Instruction::FMul:
+  case llvm::Instruction::UDiv:
+  case llvm::Instruction::SDiv:
+  case llvm::Instruction::FDiv:
+  case llvm::Instruction::URem:
+  case llvm::Instruction::SRem:
+  case llvm::Instruction::FRem:
+  case llvm::Instruction::Shl:
+  case llvm::Instruction::LShr:
+  case llvm::Instruction::AShr:
+  case llvm::Instruction::And:
+  case llvm::Instruction::Or:
+  case llvm::Instruction::Xor:
+    WATEVER_UNIMPLEMENTED("unsupported long binop");
+  default:
+    WATEVER_UNREACHABLE("Illegal opcode encountered: {}", BO.getOpcodeName());
   }
 }
 

@@ -56,3 +56,11 @@ entry:
   ret void
 }
 
+define void @add_i128_i128(i128 %a, i128 %b) {
+; CHECK-LABEL: @add_i128_i128(i64 %a.0, i64 %a.1, i64 %b.0, i64 %b.1
+; CHECK: add i64 %a.0, %b.0
+; CHECK: add i64 %a.1, %b.1
+entry:
+  %0 = add i128 %a, %b
+  ret void
+}
