@@ -15,6 +15,7 @@
 #include <llvm/IR/Type.h>
 #include <llvm/Support/Casting.h>
 
+#include "watever/target.hpp"
 #include "watever/utils.hpp"
 
 namespace watever {
@@ -71,6 +72,14 @@ class FunctionLegalizer : public llvm::InstVisitor<FunctionLegalizer> {
   // Maps Old Value -> New Legal Value
   llvm::DenseMap<llvm::Value *, LegalValue> ValueMap{};
   llvm::IRBuilder<> &Builder;
+  const TargetConfig &Config;
+
+  llvm::Type *Int8Ty;
+  llvm::Type *Int16Ty;
+  llvm::Type *Int32Ty;
+  llvm::Type *Int64Ty;
+  llvm::Type *PtrTy;
+  llvm::Type *IntPtrTy;
 
   LegalValue legalizeConstant(llvm::Constant *C);
 
@@ -123,14 +132,14 @@ class FunctionLegalizer : public llvm::InstVisitor<FunctionLegalizer> {
 
     // Supported natively
     if (To == 64 && From == 32 && Val->getType()->getIntegerBitWidth() == 32) {
-      return Builder.CreateSExt(Val, llvm::Type::getInt64Ty(Val->getContext()));
+      return Builder.CreateSExt(Val, Int64Ty);
     }
 
     llvm::Type *TargetTy = nullptr;
     if (To == 32) {
-      TargetTy = llvm::Type::getInt32Ty(Val->getContext());
+      TargetTy = Int32Ty;
     } else if (To == 64) {
-      TargetTy = llvm::Type::getInt64Ty(Val->getContext());
+      TargetTy = Int64Ty;
     } else {
       WATEVER_UNIMPLEMENTED("Unsupported sign extension to {}", To);
     }
@@ -146,7 +155,7 @@ class FunctionLegalizer : public llvm::InstVisitor<FunctionLegalizer> {
 public:
   llvm::Function *NewFunc;
   FunctionLegalizer(llvm::Function *OldFunc, llvm::Function *NewFunc,
-                    llvm::IRBuilder<> &B);
+                    llvm::IRBuilder<> &B, const TargetConfig &Config);
 
   void visitBasicBlock(llvm::BasicBlock &BB);
 
@@ -163,6 +172,7 @@ public:
   // Aggregatge Operations
 
   // Memory Access and Addressing Operations
+  void visitGetElementPtrInst(llvm::GetElementPtrInst &GI);
 
   // Conversion Operations
 
@@ -175,7 +185,7 @@ public:
 };
 
 class LegalizationPass : public llvm::PassInfoMixin<LegalizationPass> {
-
+  const TargetConfig Config;
   static llvm::Function *createLegalFunction(llvm::Module &M,
                                              llvm::Function *OldFunc);
 
@@ -183,6 +193,7 @@ class LegalizationPass : public llvm::PassInfoMixin<LegalizationPass> {
   createLegalFunctionType(llvm::FunctionType *OldFuncTy);
 
 public:
+  explicit LegalizationPass(const TargetConfig &C) : Config(C) {}
   static LegalType getLegalType(llvm::Type *Ty);
   llvm::PreservedAnalyses run(llvm::Module &M,
                               llvm::ModuleAnalysisManager &MAM);

@@ -7,6 +7,7 @@
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/InstrTypes.h>
 #include <llvm/IR/Instruction.h>
+#include <llvm/IR/Instructions.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/PassManager.h>
 #include <llvm/Support/Casting.h>
@@ -48,8 +49,9 @@ LegalValue FunctionLegalizer::legalizeConstant(llvm::Constant *C) {
 
 FunctionLegalizer::FunctionLegalizer(llvm::Function *OldFunc,
                                      llvm::Function *NewFunc,
-                                     llvm::IRBuilder<> &B)
-    : Builder(B), NewFunc(NewFunc) {
+                                     llvm::IRBuilder<> &B,
+                                     const TargetConfig &Config)
+    : Builder(B), Config(Config), NewFunc(NewFunc) {
 
   bool IndirectReturn =
       LegalizationPass::getLegalType(OldFunc->getReturnType()).size() > 1;
@@ -77,6 +79,15 @@ FunctionLegalizer::FunctionLegalizer(llvm::Function *OldFunc,
         NewFunc->getContext(), OldBB.getName(), NewFunc);
     ValueMap[&OldBB] = NewBB;
   }
+
+  Int8Ty = llvm::Type::getInt8Ty(OldFunc->getContext());
+  Int16Ty = llvm::Type::getInt16Ty(OldFunc->getContext());
+  Int32Ty = llvm::Type::getInt32Ty(OldFunc->getContext());
+  Int64Ty = llvm::Type::getInt64Ty(OldFunc->getContext());
+
+  // TODO support multiple address spaces
+  PtrTy = llvm::PointerType::get(OldFunc->getContext(), 0);
+  IntPtrTy = OldFunc->getDataLayout().getIntPtrType(OldFunc->getContext());
 }
 
 void FunctionLegalizer::visitBasicBlock(llvm::BasicBlock &BB) {
@@ -102,16 +113,13 @@ void FunctionLegalizer::visitReturnInst(llvm::ReturnInst &RI) {
 
   if (!LegalReturnValue.isScalar()) {
     WATEVER_LOG_TRACE("storing return value in first argument");
-    // TODO support wasm64
     auto *ReturnPtr = NewFunc->getArg(0);
-    auto *ReturnPtrAsInt = Builder.CreatePtrToInt(
-        ReturnPtr, llvm::Type::getInt32Ty(RI.getContext()));
+    auto *ReturnPtrAsInt = Builder.CreatePtrToInt(ReturnPtr, IntPtrTy);
     unsigned I = 0;
     for (auto *ReturnValue : LegalReturnValue) {
-      auto *CurrentPtrAsInt =
-          Builder.CreateAdd(ReturnPtrAsInt, Builder.getInt32(I));
-      auto *CurrentPtr = Builder.CreateIntToPtr(
-          CurrentPtrAsInt, llvm::PointerType::getUnqual(RI.getContext()));
+      auto *CurrentPtrAsInt = Builder.CreateAdd(
+          ReturnPtrAsInt, llvm::ConstantInt::get(IntPtrTy, I));
+      auto *CurrentPtr = Builder.CreateIntToPtr(CurrentPtrAsInt, PtrTy);
       Builder.CreateAlignedStore(ReturnValue, CurrentPtr, llvm::Align(8));
       I += 8;
     }
@@ -224,9 +232,9 @@ void FunctionLegalizer::visitBinaryOperator(llvm::BinaryOperator &BO) {
   switch (BO.getOpcode()) {
 
   case llvm::Instruction::Add: {
-    // TODO there might be a more efficient solution, than checking the carry twice
-    llvm::Value *Carry =
-        llvm::ConstantInt::get(llvm::Type::getInt64Ty(BO.getContext()), 0);
+    // TODO there might be a more efficient solution, than checking the carry
+    // twice
+    llvm::Value *Carry = llvm::ConstantInt::get(Int64Ty, 0);
     llvm::SmallVector<llvm::Value *> Result;
     for (auto [LHS, RHS] : llvm::zip_equal(LegalLHS, LegalRHS)) {
       llvm::Value *Sum1 = Builder.CreateAdd(LHS, RHS);
@@ -235,8 +243,7 @@ void FunctionLegalizer::visitBinaryOperator(llvm::BinaryOperator &BO) {
       llvm::Value *Carry2 = Builder.CreateICmpULT(SumFinal, Sum1);
       // TODO could be skipped in last round
       llvm::Value *CarryBit = Builder.CreateOr(Carry1, Carry2);
-      Carry =
-          Builder.CreateZExt(CarryBit, llvm::Type::getInt64Ty(BO.getContext()));
+      Carry = Builder.CreateZExt(CarryBit, Int64Ty);
       Result.push_back(SumFinal);
     }
     ValueMap[&BO] = LegalValue{Result};
@@ -274,6 +281,9 @@ void FunctionLegalizer::visitBinaryOperator(llvm::BinaryOperator &BO) {
 //===----------------------------------------------------------------------===//
 // Memory Access and Addressing Operations
 //===----------------------------------------------------------------------===//
+
+void FunctionLegalizer::visitGetElementPtrInst(llvm::GetElementPtrInst &) {}
+
 //===----------------------------------------------------------------------===//
 // Conversion Operations
 //===----------------------------------------------------------------------===//
@@ -381,7 +391,7 @@ llvm::PreservedAnalyses LegalizationPass::run(llvm::Module &Mod,
     WATEVER_LOG_DBG("Legalizing {}", F->getName().str());
     auto *NewFunc = LegalizationPass::createLegalFunction(Mod, F);
     llvm::IRBuilder<> Builder(Mod.getContext());
-    FunctionLegalizer FL{F, NewFunc, Builder};
+    FunctionLegalizer FL{F, NewFunc, Builder, Config};
     FL.visit(F);
     FL.NewFunc->takeName(F);
     WATEVER_LOG_DBG("Legalized Function:\n {}", llvmToString(*FL.NewFunc));

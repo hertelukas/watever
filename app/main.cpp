@@ -1,3 +1,4 @@
+#include "watever/target.hpp"
 #include <llvm/Analysis/CGSCCPassManager.h>
 #include <llvm/Analysis/LoopAnalysisManager.h>
 #include <llvm/IR/LLVMContext.h>
@@ -120,7 +121,10 @@ int main(int argc, char *argv[]) {
 
   llvm::ModulePassManager MPM;
 
-  MPM.addPass(watever::LegalizationPass());
+  watever::TargetConfig Config{
+      .Is64Bit = Mod->getDataLayout().getPointerSizeInBits() == 64};
+
+  MPM.addPass(watever::LegalizationPass(Config));
 
   MPM.run(*Mod, MAM);
 
