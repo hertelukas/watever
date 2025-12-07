@@ -1,0 +1,69 @@
+; RUN: watever -l 0 --legal %s | FileCheck %s
+
+define void @urem_i1_i1(i1 %a, i1 %b) {
+; CHECK-LABEL: @urem_i1_i1
+; CHECK:  and  i32  %a,  1
+; CHECK:  and  i32  %b,  1
+; CHECK:  urem  i32  %0,  %1
+entry:
+  %0 = urem i1 %a, %b
+  ret void
+}
+
+define void @urem_i8_3(i8 %a) {
+; CHECK-LABEL: @urem_i8_3
+; CHECK: and i32 %a, 255
+; CHECK: urem i32 %0, 3
+entry:
+  %1 = urem i8 %a, 3
+  ret void
+}
+
+define void @urem_i8_i8(i8 %a, i8 %b) {
+; CHECK-LABEL: @urem_i8_i8
+; CHECK: and i32 %a, 255
+; CHECK: and i32 %b, 255
+; CHECK: urem i32 %0, %1
+entry:
+  %0 = urem i8 %a, %b
+  ret void
+}
+
+define void @urem_i16_i16(i16 %a, i16 %b) {
+; CHECK-LABEL: @urem_i16_i16
+; CHECK: and i32 %a, 65535
+; CHECK: and i32 %b, 65535
+; CHECK: urem i32 %0, %1
+entry:
+  %0 = urem i16 %a, %b
+  ret void
+}
+
+define void @urem_i32_i32(i32 %a, i32 %b) {
+; CHECK-LABEL: @urem_i32_i32
+; CHECK-NOT: and
+; CHECK: urem i32
+entry:
+  %0 = urem i32 %a, %b
+  ret void
+}
+
+define void @urem_i51_i51(i51 %a, i51 %b) {
+; CHECK-LABEL: @urem_i51_i51
+; CHECK: and i64 %a, 2251799813685247
+; CHECK: and i64 %b, 2251799813685247
+; CHECK: urem i64
+entry:
+  %0 = urem i51 %a, %b
+  ret void
+}
+
+define void @urem_i64_i64(i64 %a, i64 %b) {
+; CHECK-LABEL: @urem_i64_i64
+; CHECK-NOT: and
+; CHECK: urem i64
+entry:
+  %0 = urem i64 %a, %b
+  ret void
+}
+

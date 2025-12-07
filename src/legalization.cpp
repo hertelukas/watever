@@ -60,7 +60,7 @@ void FunctionLegalizer::visitBinaryOperator(llvm::BinaryOperator &BO) {
   auto *LHS = getMappedValue(BO.getOperand(0));
   auto *RHS = getMappedValue(BO.getOperand(1));
 
-  // TODO this is not generally legal, e.g., when dividing
+  // TODO vectos and >128 bit
   llvm::Value *NewBO = nullptr;
   switch (BO.getOpcode()) {
   case llvm::Instruction::Add:
@@ -86,12 +86,43 @@ void FunctionLegalizer::visitBinaryOperator(llvm::BinaryOperator &BO) {
   }
   case llvm::Instruction::FDiv:
     break;
-  case llvm::Instruction::URem:
-  case llvm::Instruction::SRem:
-  case llvm::Instruction::FRem:
-  case llvm::Instruction::Shl:
-  case llvm::Instruction::LShr:
-  case llvm::Instruction::AShr:
+  case llvm::Instruction::URem: {
+    LHS = zeroExtend(LHS, BO.getOperand(0)->getType()->getIntegerBitWidth(),
+                     LHS->getType()->getIntegerBitWidth());
+    RHS = zeroExtend(RHS, BO.getOperand(1)->getType()->getIntegerBitWidth(),
+                     RHS->getType()->getIntegerBitWidth());
+    break;
+  }
+  case llvm::Instruction::SRem: {
+    LHS = signExtend(LHS, BO.getOperand(0)->getType()->getIntegerBitWidth(),
+                     LHS->getType()->getIntegerBitWidth());
+    RHS = signExtend(RHS, BO.getOperand(1)->getType()->getIntegerBitWidth(),
+                     RHS->getType()->getIntegerBitWidth());
+    break;
+  }
+  case llvm::Instruction::FRem: {
+    WATEVER_UNIMPLEMENTED("Support frem");
+  }
+  case llvm::Instruction::Shl: {
+    // we don't care about upper bits in LHS, as they are shifted away anyway
+    RHS = zeroExtend(RHS, BO.getOperand(1)->getType()->getIntegerBitWidth(),
+                     RHS->getType()->getIntegerBitWidth());
+    break;
+  }
+  case llvm::Instruction::LShr: {
+    LHS = zeroExtend(LHS, BO.getOperand(0)->getType()->getIntegerBitWidth(),
+                     LHS->getType()->getIntegerBitWidth());
+    RHS = zeroExtend(RHS, BO.getOperand(1)->getType()->getIntegerBitWidth(),
+                     RHS->getType()->getIntegerBitWidth());
+    break;
+  }
+  case llvm::Instruction::AShr: {
+    LHS = signExtend(LHS, BO.getOperand(0)->getType()->getIntegerBitWidth(),
+                     LHS->getType()->getIntegerBitWidth());
+    RHS = zeroExtend(RHS, BO.getOperand(1)->getType()->getIntegerBitWidth(),
+                     RHS->getType()->getIntegerBitWidth());
+    break;
+  }
   case llvm::Instruction::And:
   case llvm::Instruction::Or:
   case llvm::Instruction::Xor:
