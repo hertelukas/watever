@@ -438,6 +438,113 @@ void FunctionLegalizer::visitLoadInst(llvm::LoadInst &LI) {
   }
 }
 
+void FunctionLegalizer::visitStoreInst(llvm::StoreInst &SI) {
+  auto *StoreType = SI.getValueOperand()->getType();
+  auto StoreValue = getMappedValue(SI.getValueOperand());
+  auto *Pointer = getMappedValue(SI.getPointerOperand())[0];
+
+  if (StoreType->isIntegerTy()) {
+    const unsigned Width = StoreType->getIntegerBitWidth();
+    if (Width == 32 || Width == 64) {
+      ValueMap[&SI] =
+          Builder.CreateAlignedStore(StoreValue[0], Pointer, SI.getAlign());
+      return;
+    }
+
+    if (Width > 64) {
+      WATEVER_UNIMPLEMENTED("expanding store not supported");
+      return;
+    }
+
+    llvm::Value *ToStore = nullptr;
+
+    // We have to make sure that we don't store unclean bits
+    if (Width % 8 != 0) {
+      ToStore = Builder.CreateAnd(
+          StoreValue[0],
+          llvm::APInt::getLowBitsSet(
+              StoreValue[0]->getType()->getIntegerBitWidth(), Width));
+    } else {
+      ToStore = StoreValue[0];
+    }
+
+    // Can't split
+    if (Width > 32 + 16 + 8 || (Width < 32 && Width > 16 + 8)) {
+      ValueMap[&SI] =
+          Builder.CreateAlignedStore(ToStore, Pointer, SI.getAlign());
+      return;
+    }
+
+    llvm::Value *Res = nullptr;
+
+    if (Width > 32) {
+      llvm::Value *LowestBytes = Builder.CreateTrunc(ToStore, Int32Ty);
+      Builder.CreateStore(LowestBytes, Pointer);
+
+      llvm::Value *PtrAsInt = Builder.CreatePtrToInt(Pointer, IntPtrTy);
+      llvm::Value *NextOffset = llvm::ConstantInt::get(IntPtrTy, 4);
+      llvm::Value *NewPtrAsInt = Builder.CreateAdd(PtrAsInt, NextOffset);
+
+      unsigned NextShift = 32;
+      // The number is wide enough to require a 16-bit store
+      if (Width > 32 + 8) {
+        llvm::Value *NewPtr = Builder.CreateIntToPtr(NewPtrAsInt, PtrTy);
+        llvm::Value *NextBytes = Builder.CreateLShr(ToStore, NextShift);
+        NextBytes = Builder.CreateTrunc(NextBytes, Int16Ty);
+        Res = Builder.CreateStore(NextBytes, NewPtr);
+
+        NextOffset = llvm::ConstantInt::get(IntPtrTy, 2);
+        NewPtrAsInt = Builder.CreateAdd(NewPtrAsInt, NextOffset);
+        NextShift += 16;
+      }
+      // If it wasn't wide enough (e.g., [33, 40]), we only need a 8-bit store
+      // Or if it is still not fully stored (e.g., [49, 56])
+      if (Width <= 32 + 8 || Width > 32 + 16) {
+        llvm::Value *NewPtr = Builder.CreateIntToPtr(NewPtrAsInt, PtrTy);
+        llvm::Value *NextByte = Builder.CreateLShr(ToStore, NextShift);
+        NextByte = Builder.CreateTrunc(NextByte, Int8Ty);
+        Res = Builder.CreateStore(NextByte, NewPtr);
+      }
+    } else {
+      // We need to store at least a 16-bit
+      if (Width > 8) {
+        llvm::Value *LowestBytes = Builder.CreateTrunc(ToStore, Int16Ty);
+        Res = Builder.CreateStore(LowestBytes, Pointer);
+      }
+      if (Width <= 8 || Width > 16) {
+        llvm::Value *Ptr = Pointer;
+        // We are storing higher bytes
+        if (Width > 16) {
+          ToStore = Builder.CreateLShr(ToStore, 16);
+          llvm::Value *IntPtr = Builder.CreatePtrToInt(Ptr, IntPtrTy);
+          IntPtr =
+              Builder.CreateAdd(IntPtr, llvm::ConstantInt::get(IntPtrTy, 2));
+          Ptr = Builder.CreateIntToPtr(IntPtr, PtrTy);
+        }
+        llvm::Value *LowestByte = Builder.CreateTrunc(ToStore, Int8Ty);
+        Res = Builder.CreateStore(LowestByte, Ptr);
+      }
+    }
+    ValueMap[&SI] = Res;
+    return;
+  }
+  if (StoreType->isFloatingPointTy()) {
+    if (StoreType->isDoubleTy() || StoreType->isFloatTy()) {
+      ValueMap[&SI] =
+          Builder.CreateAlignedStore(StoreValue[0], Pointer, SI.getAlign());
+      return;
+    }
+    WATEVER_UNIMPLEMENTED("handle store of unsupported floating point type",
+                          llvmToString(*StoreType));
+  }
+
+  if (StoreType->isPointerTy()) {
+    ValueMap[&SI] =
+        Builder.CreateAlignedStore(StoreValue[0], Pointer, SI.getAlign());
+    return;
+  }
+}
+
 void FunctionLegalizer::visitGetElementPtrInst(llvm::GetElementPtrInst &GI) {
   const llvm::DataLayout &DL = GI.getModule()->getDataLayout();
 

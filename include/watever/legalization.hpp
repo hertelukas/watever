@@ -176,6 +176,7 @@ public:
 
   // Memory Access and Addressing Operations
   void visitLoadInst(llvm::LoadInst &LI);
+  void visitStoreInst(llvm::StoreInst &SI);
   void visitGetElementPtrInst(llvm::GetElementPtrInst &GI);
 
   // Conversion Operations
