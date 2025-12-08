@@ -63,6 +63,31 @@ BlockLowering::getInternalUserCounts() const {
   return Result;
 }
 
+//===----------------------------------------------------------------------===//
+// Unary Operations
+//===----------------------------------------------------------------------===//
+void BlockLowering::visitUnaryOperator(llvm::UnaryOperator &UO) {
+  switch (UO.getOpcode()) {
+  case llvm::Instruction::FNeg: {
+    if (UO.getType()->isDoubleTy()) {
+      Actions.Insts.emplace_back(Opcode::F64Neg);
+    } else if (UO.getType()->isFloatTy()) {
+      Actions.Insts.emplace_back(Opcode::F32Neg);
+    } else {
+      WATEVER_UNREACHABLE("Illegal floating point for negation: {}",
+                          llvmToString(*UO.getType()));
+    }
+    break;
+  }
+  default:
+    WATEVER_UNREACHABLE("Illegal opcode encountered: {}", UO.getOpcodeName());
+    break;
+  }
+}
+
+//===----------------------------------------------------------------------===//
+// Binary Operations
+//===----------------------------------------------------------------------===//
 void BlockLowering::visitBinaryOperator(llvm::BinaryOperator &BO) {
   const auto *Ty = BO.getType();
   // TODO handle vectors
@@ -159,7 +184,33 @@ void BlockLowering::visitBinaryOperator(llvm::BinaryOperator &BO) {
     WATEVER_TODO("lowering of {}", BO.getOpcodeName());
   }
 }
+//===----------------------------------------------------------------------===//
+// Vector Operations
+//===----------------------------------------------------------------------===//
+//===----------------------------------------------------------------------===//
+// Aggregate Operations
+//===----------------------------------------------------------------------===//
+//===----------------------------------------------------------------------===//
+// Memory Access and Addressing Operations
+//===----------------------------------------------------------------------===//
+//===----------------------------------------------------------------------===//
+// Conversion Operations
+//===----------------------------------------------------------------------===//
+void BlockLowering::visitSExtInst(llvm::SExtInst &SI) {
+  auto FromWidth = SI.getOperand(0)->getType()->getIntegerBitWidth();
+  auto ToWidth = SI.getType()->getIntegerBitWidth();
 
+  // TODO support --enable-sign-extension
+  if (FromWidth != 32 || ToWidth != 64) {
+    WATEVER_UNREACHABLE("Can not expand from {} to {}", FromWidth, ToWidth);
+  }
+
+  Actions.Insts.emplace_back(Opcode::I64Extend32S);
+}
+
+//===----------------------------------------------------------------------===//
+// Other Operations
+//===----------------------------------------------------------------------===//
 void BlockLowering::visitICmpInst(llvm::ICmpInst &II) {
   const unsigned Width = II.getOperand(0)->getType()->getIntegerBitWidth();
   bool Handled = true;
@@ -274,37 +325,6 @@ void BlockLowering::visitFCmpInst(llvm::FCmpInst &FI) {
     WATEVER_UNREACHABLE("Unordered float comparisons are not supported");
   default:
     WATEVER_UNREACHABLE("Illegal float comparison");
-  }
-}
-
-void BlockLowering::visitSExtInst(llvm::SExtInst &SI) {
-  auto FromWidth = SI.getOperand(0)->getType()->getIntegerBitWidth();
-  auto ToWidth = SI.getType()->getIntegerBitWidth();
-
-  // TODO support --enable-sign-extension
-  if (FromWidth != 32 || ToWidth != 64) {
-    WATEVER_UNREACHABLE("Can not expand from {} to {}", FromWidth, ToWidth);
-  }
-
-  Actions.Insts.emplace_back(Opcode::I64Extend32S);
-}
-
-void BlockLowering::visitUnaryOperator(llvm::UnaryOperator &UO) {
-  switch (UO.getOpcode()) {
-  case llvm::Instruction::FNeg: {
-    if (UO.getType()->isDoubleTy()) {
-      Actions.Insts.emplace_back(Opcode::F64Neg);
-    } else if (UO.getType()->isFloatTy()) {
-      Actions.Insts.emplace_back(Opcode::F32Neg);
-    } else {
-      WATEVER_UNREACHABLE("Illegal floating point for negation: {}",
-                          llvmToString(*UO.getType()));
-    }
-    break;
-  }
-  default:
-    WATEVER_UNREACHABLE("Illegal opcode encountered: {}", UO.getOpcodeName());
-    break;
   }
 }
 

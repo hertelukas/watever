@@ -232,8 +232,10 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
   llvm::SmallVector<llvm::Value *> getLiveOut() const;
   llvm::DenseMap<llvm::Value *, int> getInternalUserCounts() const;
 
-  // Terminator Instructions (should not be needed, as these are mapped to blocks)
-
+  // Terminator Instructions (should not be needed, as these are mapped to
+  // blocks)
+  void visitReturnInst(llvm::ReturnInst &) {};
+  void visitBranchInst(llvm::BranchInst &) {};
   // Unary Operations
   void visitUnaryOperator(llvm::UnaryOperator &UO);
   // Binary Operations
