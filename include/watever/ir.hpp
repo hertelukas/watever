@@ -132,7 +132,9 @@ public:
   void accept(WasmVisitor &V) override { V.visit(*this); }
 };
 
-class WasmReturn final : public Wasm {};
+class WasmReturn final : public Wasm {
+  void accept(WasmVisitor &V) override { V.visit(*this); }
+};
 
 class WasmActions final : public Wasm {
 public:
@@ -230,16 +232,24 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
   llvm::SmallVector<llvm::Value *> getLiveOut() const;
   llvm::DenseMap<llvm::Value *, int> getInternalUserCounts() const;
 
-  void visitBinaryOperator(llvm::BinaryOperator &BO);
+  // Terminator Instructions (should not be needed, as these are mapped to blocks)
 
-  // nop, legalizer has to ensure that widths match
+  // Unary Operations
+  void visitUnaryOperator(llvm::UnaryOperator &UO);
+  // Binary Operations
+  void visitBinaryOperator(llvm::BinaryOperator &BO);
+  // Vector Operations
+  // Aggregatge Operations
+  // Memory Access and Addressing Operations
+  // Conversion Operations
+  void visitSExtInst(llvm::SExtInst &SI);
   void visitIntToPtrInst(llvm::IntToPtrInst &) {};
   void visitPtrToIntInst(llvm::PtrToIntInst &) {};
 
+  // Other Operations
   void visitFCmpInst(llvm::FCmpInst &FI);
   void visitICmpInst(llvm::ICmpInst &II);
-  void visitSExtInst(llvm::SExtInst &SI);
-  void visitUnaryOperator(llvm::UnaryOperator &UO);
+
   void visitInstruction(llvm::Instruction &I) {
     // TODO set to UNIMPLEMENTED
     WATEVER_TODO("{} not (yet) supported", I.getOpcodeName());
@@ -324,4 +334,3 @@ public:
 };
 
 } // namespace watever
-
