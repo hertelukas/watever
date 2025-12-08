@@ -326,10 +326,19 @@ std::unique_ptr<WasmActions> BlockLowering::lower(Function &F) {
 
   if (const auto *Br = llvm::dyn_cast<llvm::BranchInst>(BB->getTerminator())) {
     if (Br->isConditional()) {
-      if (auto *Inst = llvm::dyn_cast<llvm::Instruction>(Br->getOperand(0))) {
+      if (auto *Inst = llvm::dyn_cast<llvm::Instruction>(Br->getCondition())) {
         ToHandle.push_back(Inst);
+      } else if (const auto *Const =
+                     llvm::dyn_cast<llvm::ConstantInt>(Br->getCondition())) {
+        if (Const->getBitWidth() == 1) {
+          Actions.Insts.push_back(
+              WasmInst(Opcode::I32Const, Const->getValue().getZExtValue()));
+        } else {
+          WATEVER_UNREACHABLE("illegal bit width in branch: {}",
+                              Const->getBitWidth());
+        }
       } else {
-        WATEVER_TODO(
+        WATEVER_UNREACHABLE(
             "put {} on top of the stack - required for conditional branch",
             llvmToString(*Br->getOperand(0)));
       }
@@ -378,8 +387,7 @@ std::unique_ptr<WasmActions> BlockLowering::lower(Function &F) {
           WATEVER_TODO("put double {} on top of the stack",
                        FConst->getValue().convertToDouble());
         }
-      }
-      else if (auto *Arg = llvm::dyn_cast<llvm::Argument>(Next)) {
+      } else if (auto *Arg = llvm::dyn_cast<llvm::Argument>(Next)) {
         Actions.Insts.push_back(WasmInst(Opcode::LocalGet, Arg->getArgNo()));
       } else {
         WATEVER_TODO("put {} on top of the stack", llvmToString(*Next));
