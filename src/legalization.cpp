@@ -80,6 +80,7 @@ FunctionLegalizer::FunctionLegalizer(llvm::Function *OldFunc,
     ValueMap[&OldBB] = NewBB;
   }
 
+  Int1Ty = llvm::Type::getInt1Ty(OldFunc->getContext());
   Int8Ty = llvm::Type::getInt8Ty(OldFunc->getContext());
   Int16Ty = llvm::Type::getInt16Ty(OldFunc->getContext());
   Int32Ty = llvm::Type::getInt32Ty(OldFunc->getContext());
@@ -131,6 +132,27 @@ void FunctionLegalizer::visitReturnInst(llvm::ReturnInst &RI) {
     Builder.CreateRet(LegalReturnValue[0]);
     return;
   }
+}
+
+void FunctionLegalizer::visitBranchInst(llvm::BranchInst &BI) {
+  auto GetMappedBlock = [&](unsigned SuccIdx) -> llvm::BasicBlock * {
+    auto Mapped = getMappedValue(BI.getSuccessor(SuccIdx));
+    return llvm::dyn_cast<llvm::BasicBlock>(Mapped[0]);
+  };
+
+  if (BI.isConditional()) {
+    auto *True = GetMappedBlock(0);
+    auto *False = GetMappedBlock(1);
+    auto *Cond = getMappedValue(BI.getCondition())[0];
+
+    Cond = Builder.CreateTrunc(Cond, Int1Ty);
+
+    ValueMap[&BI] = Builder.CreateCondBr(Cond, True, False);
+    return;
+  }
+
+  auto *NewSuccessor = GetMappedBlock(0);
+  ValueMap[&BI] = Builder.CreateBr(NewSuccessor);
 }
 
 //===----------------------------------------------------------------------===//
@@ -214,7 +236,8 @@ void FunctionLegalizer::visitBinaryOperator(llvm::BinaryOperator &BO) {
       WATEVER_UNIMPLEMENTED("Support frem");
     }
     case llvm::Instruction::Shl: {
-      // we don't care about upper bits in LHS, as they are shifted away anyway
+      // we don't care about upper bits in LHS, as they are shifted away
+      // anyway
       RHS = zeroExtend(RHS, BO.getOperand(1)->getType()->getIntegerBitWidth(),
                        RHS->getType()->getIntegerBitWidth());
       break;
@@ -387,7 +410,6 @@ void FunctionLegalizer::visitGetElementPtrInst(llvm::GetElementPtrInst &GI) {
 
 llvm::Function *LegalizationPass::createLegalFunction(llvm::Module &Mod,
                                                       llvm::Function *OldFunc) {
-
   llvm::Function *Fn = llvm::Function::Create(
       createLegalFunctionType(OldFunc->getFunctionType()),
       OldFunc->getLinkage(), OldFunc->getName(), Mod);
@@ -423,8 +445,8 @@ LegalizationPass::createLegalFunctionType(llvm::FunctionType *OldFuncTy) {
   llvm::Type *ResultTy = nullptr;
   llvm::SmallVector<llvm::Type *> Params;
   if (LegalResultTy.size() > 1) {
-    // TODO the spec uses multi value return types, however, LLVM still compiles
-    // with indirect types
+    // TODO the spec uses multi value return types, however, LLVM still
+    // compiles with indirect types
     WATEVER_LOG_DBG("Return type not supported, using indirect return");
     ResultTy = llvm::Type::getVoidTy(OldFuncTy->getContext());
     Params.push_back(llvm::PointerType::getUnqual(OldFuncTy->getContext()));
@@ -476,7 +498,6 @@ LegalType LegalizationPass::getLegalType(llvm::Type *Ty) {
 
 llvm::PreservedAnalyses LegalizationPass::run(llvm::Module &Mod,
                                               llvm::ModuleAnalysisManager &) {
-
   llvm::SmallVector<llvm::Function *> FuncsToLegalize;
   for (auto &F : Mod) {
     // TODO handle declarations

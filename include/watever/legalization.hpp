@@ -74,6 +74,7 @@ class FunctionLegalizer : public llvm::InstVisitor<FunctionLegalizer> {
   llvm::IRBuilder<> &Builder;
   const TargetConfig &Config;
 
+  llvm::Type *Int1Ty;
   llvm::Type *Int8Ty;
   llvm::Type *Int16Ty;
   llvm::Type *Int32Ty;
@@ -161,6 +162,7 @@ public:
 
   // Terminator Instructions
   void visitReturnInst(llvm::ReturnInst &RI);
+  void visitBranchInst(llvm::BranchInst &BI);
 
   // Unary Operations
   void visitUnaryOperator(llvm::UnaryOperator &UO);
