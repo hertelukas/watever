@@ -166,7 +166,7 @@ public:
 
   // Unary Operations
   void visitUnaryOperator(llvm::UnaryOperator &UO);
-  
+
   // Binary Operations
   void visitBinaryOperator(llvm::BinaryOperator &BO);
 
@@ -175,6 +175,7 @@ public:
   // Aggregatge Operations
 
   // Memory Access and Addressing Operations
+  void visitLoadInst(llvm::LoadInst &LI);
   void visitGetElementPtrInst(llvm::GetElementPtrInst &GI);
 
   // Conversion Operations

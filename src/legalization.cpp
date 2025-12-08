@@ -323,6 +323,121 @@ void FunctionLegalizer::visitBinaryOperator(llvm::BinaryOperator &BO) {
 // Memory Access and Addressing Operations
 //===----------------------------------------------------------------------===//
 
+void FunctionLegalizer::visitLoadInst(llvm::LoadInst &LI) {
+  auto *ResultType = LI.getType();
+  auto *Pointer = getMappedValue(LI.getPointerOperand())[0];
+
+  if (ResultType->isIntegerTy()) {
+    unsigned Width = ResultType->getIntegerBitWidth();
+
+    // We can just load the int
+    if (Width == 32 || Width == 64) {
+      ValueMap[&LI] =
+          Builder.CreateAlignedLoad(ResultType, Pointer, LI.getAlign());
+      return;
+    }
+    if (Width > 64) {
+      WATEVER_UNIMPLEMENTED("expanding load not supported");
+      return;
+    }
+
+    // In these cases, it's not possible to create multiple loads to
+    llvm::Type *TypeToLoad = nullptr;
+    llvm::Type *TargetType = nullptr;
+    if (Width <= 8) {
+      TypeToLoad = Int8Ty;
+      TargetType = Int32Ty;
+    } else if (Width <= 16) {
+      TypeToLoad = Int16Ty;
+      TargetType = Int32Ty;
+    } else if (16 + 8 < Width && Width < 32) {
+      TypeToLoad = Int32Ty;
+      TargetType = Int32Ty;
+    } else if (32 + 16 + 8 < Width) {
+      TypeToLoad = Int64Ty;
+      TargetType = Int64Ty;
+    }
+
+    if (TypeToLoad) {
+      llvm::Value *Result =
+          Builder.CreateAlignedLoad(TypeToLoad, Pointer, LI.getAlign());
+
+      if (TypeToLoad != TargetType) {
+        Result = Builder.CreateZExt(Result, TargetType);
+      }
+      ValueMap[&LI] = Result;
+      return;
+    }
+
+    // Use multiple loads as near around the requested width (E.g., a load i56
+    // is a load 32, load 16, load 8)
+    llvm::Value *Result;
+    // We want to build an i64 with the result
+    if (Width > 32) {
+      // TODO make sure to lower this to i64.load32_u
+      Result = Builder.CreateLoad(Int32Ty, Pointer);
+      Result = Builder.CreateZExt(Result, Int64Ty);
+      llvm::Value *PtrAsInt = Builder.CreatePtrToInt(Pointer, IntPtrTy);
+      llvm::Value *NextOffset = llvm::ConstantInt::get(IntPtrTy, 4);
+      llvm::Value *NewPtrAsInt = Builder.CreateAdd(PtrAsInt, NextOffset);
+      Width -= 32;
+      unsigned NextShift = 32;
+      if (Width > 8) {
+        llvm::Value *NewPtr = Builder.CreateIntToPtr(NewPtrAsInt, PtrTy);
+        llvm::Value *NextTwoBytes = Builder.CreateLoad(Int16Ty, NewPtr);
+        NextTwoBytes = Builder.CreateZExt(NextTwoBytes, Int64Ty);
+        llvm::Value *ShiftAmount = llvm::ConstantInt::get(Int64Ty, NextShift);
+        NextTwoBytes = Builder.CreateShl(NextTwoBytes, ShiftAmount);
+        Result = Builder.CreateOr(Result, NextTwoBytes);
+        NewPtrAsInt =
+            Builder.CreateAdd(NewPtrAsInt, llvm::ConstantInt::get(IntPtrTy, 2));
+        Width = (Width > 16) ? Width - 16 : 0;
+        NextShift += 16;
+      }
+      if (Width > 0) {
+        llvm::Value *NewPtr = Builder.CreateIntToPtr(NewPtrAsInt, PtrTy);
+        llvm::Value *NextByte = Builder.CreateLoad(Int8Ty, NewPtr);
+        NextByte = Builder.CreateZExt(NextByte, Int64Ty);
+        llvm::Value *ShiftAmount = llvm::ConstantInt::get(Int64Ty, NextShift);
+        NextByte = Builder.CreateShl(NextByte, ShiftAmount);
+        Result = Builder.CreateOr(Result, NextByte);
+      }
+    } else {
+      // Width is between 17 and 24
+      // Load the lowest 16 bit
+      Result = Builder.CreateLoad(Int16Ty, Pointer);
+      Result = Builder.CreateZExt(Result, Int32Ty);
+
+      // Load the next 8 bit; add two to the pointer
+      llvm::Value *NextOffset = llvm::ConstantInt::get(IntPtrTy, 2);
+      llvm::Value *PtrAsInt = Builder.CreatePtrToInt(Pointer, IntPtrTy);
+      llvm::Value *NewPtrAsInt = Builder.CreateAdd(PtrAsInt, NextOffset);
+      Pointer = Builder.CreateIntToPtr(NewPtrAsInt, PtrTy);
+
+      llvm::Value *NextByte = Builder.CreateLoad(Int8Ty, Pointer);
+      NextByte = Builder.CreateZExt(NextByte, Int32Ty);
+      NextByte = Builder.CreateShl(NextByte, 16);
+      Result = Builder.CreateOr(Result, NextByte);
+    }
+    ValueMap[&LI] = Result;
+    return;
+  }
+  if (ResultType->isFloatingPointTy()) {
+    if (ResultType->isDoubleTy() || ResultType->isFloatTy()) {
+      ValueMap[&LI] =
+          Builder.CreateAlignedLoad(ResultType, Pointer, LI.getAlign());
+      return;
+    }
+    WATEVER_UNIMPLEMENTED("handle load of unsupported floating point type",
+                          llvmToString(*ResultType));
+    return;
+  }
+  if (ResultType->isPointerTy()) {
+    ValueMap[&LI] = Builder.CreateAlignedLoad(PtrTy, Pointer, LI.getAlign());
+    return;
+  }
+}
+
 void FunctionLegalizer::visitGetElementPtrInst(llvm::GetElementPtrInst &GI) {
   const llvm::DataLayout &DL = GI.getModule()->getDataLayout();
 
