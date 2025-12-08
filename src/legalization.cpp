@@ -136,6 +136,24 @@ void FunctionLegalizer::visitReturnInst(llvm::ReturnInst &RI) {
 //===----------------------------------------------------------------------===//
 // Unary Operations
 //===----------------------------------------------------------------------===//
+void FunctionLegalizer::visitUnaryOperator(llvm::UnaryOperator &UO) {
+  // TODO support vectors
+  auto *LegalOperand = getMappedValue(UO.getOperand(0))[0];
+  switch (UO.getOpcode()) {
+  case llvm::Instruction::FNeg:
+    if (UO.getType()->isDoubleTy() || UO.getType()->isFloatTy()) {
+      ValueMap[&UO] = Builder.CreateFNeg(LegalOperand);
+      return;
+    }
+    WATEVER_TODO("handle fneg of type", llvmToString(*UO.getType()));
+    break;
+  default:
+    WATEVER_UNREACHABLE("Illegal unary opcode encountered: {}",
+                        UO.getOpcodeName());
+    break;
+  }
+}
+
 //===----------------------------------------------------------------------===//
 // Binary Operations
 //===----------------------------------------------------------------------===//

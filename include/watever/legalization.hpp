@@ -163,7 +163,8 @@ public:
   void visitReturnInst(llvm::ReturnInst &RI);
 
   // Unary Operations
-
+  void visitUnaryOperator(llvm::UnaryOperator &UO);
+  
   // Binary Operations
   void visitBinaryOperator(llvm::BinaryOperator &BO);
 
