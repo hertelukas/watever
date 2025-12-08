@@ -9,6 +9,7 @@
 
 #include <cassert>
 #include <format>
+#include <llvm/IR/DataLayout.h>
 #include <llvm/IR/Type.h>
 #include <string>
 #include <vector>
@@ -186,7 +187,7 @@ public:
     }
   }
 
-  static Type::Enum fromLLVMType(llvm::Type *T) {
+  static Type::Enum fromLLVMType(llvm::Type *T, const llvm::DataLayout &DL) {
     switch (T->getTypeID()) {
     case llvm::Type::IntegerTyID: {
       const unsigned Width = T->getIntegerBitWidth();
@@ -203,7 +204,9 @@ public:
     case llvm::Type::DoubleTyID:
       return Type::Enum::F64;
     case llvm::Type::PointerTyID: {
-      WATEVER_TODO("check if pointer is 32-bit or 64-bit");
+      if (DL.getPointerTypeSizeInBits(T) == 64) {
+        return Type::Enum::I64;
+      }
       return Type::Enum::I32;
     }
     default:
@@ -224,4 +227,3 @@ private:
   Index type_index_;
 };
 } // namespace watever
-

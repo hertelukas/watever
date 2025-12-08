@@ -416,7 +416,8 @@ std::unique_ptr<WasmActions> BlockLowering::lower(Function &F) {
       WATEVER_LOG_TRACE("... so we can just load it");
       Count[Next]--;
       // Generate a new local
-      const auto Local = F.getNewLocal(Type::fromLLVMType(Next->getType()));
+      const auto Local = F.getNewLocal(
+          Type::fromLLVMType(Next->getType(), BB->getDataLayout()));
       LocalMapping[Next] = Local;
       Actions.Insts.push_back(WasmInst(Opcode::LocalGet, Local));
     }
@@ -575,12 +576,13 @@ Module ModuleLowering::convert(llvm::Module &Mod,
 
     FuncType WasmFuncTy{};
     for (auto *ParamTy : FT->params()) {
-      auto WasmType = Type::fromLLVMType(ParamTy);
+      auto WasmType = Type::fromLLVMType(ParamTy, Mod.getDataLayout());
       WasmFuncTy.Args.push_back(WasmType);
     }
 
     if (!FT->getReturnType()->isVoidTy()) {
-      WasmFuncTy.Results.push_back(Type::fromLLVMType(FT->getReturnType()));
+      WasmFuncTy.Results.push_back(
+          Type::fromLLVMType(FT->getReturnType(), Mod.getDataLayout()));
     }
 
     SubType WasmTy(WasmFuncTy);
