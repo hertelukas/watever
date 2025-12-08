@@ -17,16 +17,15 @@
 
 using namespace watever;
 
-llvm::SmallVector<llvm::Value *> BlockLowering::getLiveOut() const {
-  llvm::SmallVector<llvm::Value *> Result;
+void BlockLowering::calculateLiveOut() {
 
   for (auto &Val : *BB) {
     if (Val.getOpcode() == llvm::Instruction::Store) {
-      Result.push_back(&Val);
+      WorkList.push_back(&Val);
       continue;
     }
     if (Val.getOpcode() == llvm::Instruction::Ret) {
-      Result.push_back(&Val);
+      WorkList.push_back(&Val);
       continue;
     }
     if (Val.getNumUses() == 0) {
@@ -36,13 +35,12 @@ llvm::SmallVector<llvm::Value *> BlockLowering::getLiveOut() const {
       if (auto *Inst = llvm::dyn_cast<llvm::Instruction>(User)) {
         // value is used outside of this basic block
         if (Inst->getParent() != BB) {
-          Result.push_back(&Val);
+          WorkList.push_back(&Val);
           break;
         }
       }
     }
   }
-  return Result;
 }
 
 llvm::DenseMap<llvm::Value *, int>
@@ -67,6 +65,8 @@ BlockLowering::getInternalUserCounts() const {
 // Unary Operations
 //===----------------------------------------------------------------------===//
 void BlockLowering::visitUnaryOperator(llvm::UnaryOperator &UO) {
+  addOperandsToWorklist(UO.operands());
+
   switch (UO.getOpcode()) {
   case llvm::Instruction::FNeg: {
     if (UO.getType()->isDoubleTy()) {
@@ -93,6 +93,8 @@ void BlockLowering::visitBinaryOperator(llvm::BinaryOperator &BO) {
   // TODO handle vectors
   const auto Width = Ty->getPrimitiveSizeInBits();
   bool Handled = true;
+
+  addOperandsToWorklist(BO.operands());
 
   auto Dispatch = [&](Opcode::Enum Op32, Opcode::Enum Op64) {
     if (Width == 32)
@@ -200,6 +202,8 @@ void BlockLowering::visitSExtInst(llvm::SExtInst &SI) {
   auto FromWidth = SI.getOperand(0)->getType()->getIntegerBitWidth();
   auto ToWidth = SI.getType()->getIntegerBitWidth();
 
+  addOperandsToWorklist(SI.operands());
+
   // TODO support --enable-sign-extension
   if (FromWidth != 32 || ToWidth != 64) {
     WATEVER_UNREACHABLE("Can not expand from {} to {}", FromWidth, ToWidth);
@@ -214,6 +218,8 @@ void BlockLowering::visitSExtInst(llvm::SExtInst &SI) {
 void BlockLowering::visitICmpInst(llvm::ICmpInst &II) {
   const unsigned Width = II.getOperand(0)->getType()->getIntegerBitWidth();
   bool Handled = true;
+
+  addOperandsToWorklist(II.operands());
 
   auto Dispatch = [&](Opcode::Enum Op32, Opcode::Enum Op64) {
     if (Width == 32)
@@ -278,6 +284,8 @@ void BlockLowering::visitFCmpInst(llvm::FCmpInst &FI) {
   const unsigned Width = FI.getOperand(0)->getType()->getScalarSizeInBits();
   bool Handled = true;
 
+  addOperandsToWorklist(FI.operands());
+
   auto Dispatch = [&](Opcode::Enum Op32, Opcode::Enum Op64) {
     if (Width == 32)
       Actions.Insts.emplace_back(Op32);
@@ -332,11 +340,11 @@ std::unique_ptr<WasmActions> BlockLowering::lower(Function &F) {
   WATEVER_LOG_TRACE("Lowering {}", BB->getName().str());
   // The last "live-out" value is handled first, ensuring that all live-out
   // values are emitted in the correct order - especially stores.
-  auto ToHandle = getLiveOut();
+  calculateLiveOut();
 
 #ifdef WATEVER_LOGGING
   WATEVER_LOG_TRACE("with live-out values:");
-  for (auto *I : ToHandle) {
+  for (auto *I : WorkList) {
     WATEVER_LOG_TRACE("{}", llvmToString(*I));
   }
 #endif // WATEVER_LOGGING
@@ -347,7 +355,7 @@ std::unique_ptr<WasmActions> BlockLowering::lower(Function &F) {
   if (const auto *Br = llvm::dyn_cast<llvm::BranchInst>(BB->getTerminator())) {
     if (Br->isConditional()) {
       if (auto *Inst = llvm::dyn_cast<llvm::Instruction>(Br->getCondition())) {
-        ToHandle.push_back(Inst);
+        WorkList.push_back(Inst);
       } else if (const auto *Const =
                      llvm::dyn_cast<llvm::ConstantInt>(Br->getCondition())) {
         if (Const->getBitWidth() == 1) {
@@ -365,9 +373,9 @@ std::unique_ptr<WasmActions> BlockLowering::lower(Function &F) {
     }
   }
 
-  while (!ToHandle.empty()) {
-    auto *Next = ToHandle.back();
-    ToHandle.pop_back();
+  while (!WorkList.empty()) {
+    auto *Next = WorkList.back();
+    WorkList.pop_back();
 
     WATEVER_LOG_TRACE("{} is needed by {} instruction(s), including ourselves",
                       llvmToString(*Next), Count[Next]);
@@ -380,12 +388,9 @@ std::unique_ptr<WasmActions> BlockLowering::lower(Function &F) {
             WasmInst(Opcode::LocalTee, LocalMapping.lookup(Next)));
       }
       // If next is an instruction, lower it, and push args on the
-      // ToHandle stack
+      // WorkList stack
       if (auto *Inst = llvm::dyn_cast<llvm::Instruction>(Next)) {
         visit(*Inst);
-        for (llvm::Value *Op : Inst->operands()) {
-          ToHandle.push_back(Op);
-        }
       }
       // Otherwise, we can just load constants/arguments
       else if (const auto *Const = llvm::dyn_cast<llvm::ConstantInt>(Next)) {

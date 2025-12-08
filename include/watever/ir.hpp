@@ -4,6 +4,7 @@
 #include "watever/utils.hpp"
 #include <llvm/ADT/DenseMap.h>
 #include <llvm/ADT/SmallVector.h>
+#include <llvm/ADT/iterator_range.h>
 #include <llvm/Analysis/LoopInfo.h>
 #include <llvm/IR/Analysis.h>
 #include <llvm/IR/BasicBlock.h>
@@ -226,16 +227,30 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
   friend class llvm::InstVisitor<BlockLowering>;
   llvm::BasicBlock *BB;
 
+  llvm::SmallVector<llvm::Value *> WorkList;
+
   WasmActions Actions;
   llvm::DenseMap<llvm::Value *, int> LocalMapping;
 
-  llvm::SmallVector<llvm::Value *> getLiveOut() const;
+  void calculateLiveOut();
   llvm::DenseMap<llvm::Value *, int> getInternalUserCounts() const;
+
+  void addOperandsToWorklist(llvm::iterator_range<llvm::Use *> Ops) {
+    for (llvm::Value *Op : Ops) {
+      WorkList.push_back(Op);
+    }
+  }
 
   // Terminator Instructions (should not be needed, as these are mapped to
   // blocks)
-  void visitReturnInst(llvm::ReturnInst &) {};
-  void visitBranchInst(llvm::BranchInst &) {};
+  void visitReturnInst(llvm::ReturnInst &RI) {
+    addOperandsToWorklist(RI.operands());
+  }
+
+  void visitBranchInst(llvm::BranchInst &BI) {
+    addOperandsToWorklist(BI.operands());
+  };
+
   // Unary Operations
   void visitUnaryOperator(llvm::UnaryOperator &UO);
   // Binary Operations
@@ -245,14 +260,19 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
   // Memory Access and Addressing Operations
   // Conversion Operations
   void visitSExtInst(llvm::SExtInst &SI);
-  void visitIntToPtrInst(llvm::IntToPtrInst &) {};
-  void visitPtrToIntInst(llvm::PtrToIntInst &) {};
+  void visitIntToPtrInst(llvm::IntToPtrInst &I) {
+    addOperandsToWorklist(I.operands());
+  };
+  void visitPtrToIntInst(llvm::PtrToIntInst &I) {
+    addOperandsToWorklist(I.operands());
+  };
 
   // Other Operations
   void visitFCmpInst(llvm::FCmpInst &FI);
   void visitICmpInst(llvm::ICmpInst &II);
 
   void visitInstruction(llvm::Instruction &I) {
+    addOperandsToWorklist(I.operands());
     // TODO set to UNIMPLEMENTED
     WATEVER_TODO("{} not (yet) supported", I.getOpcodeName());
   }
