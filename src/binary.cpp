@@ -156,7 +156,7 @@ void BinaryWriter::write() {
   // TODO respect bit width
   Imports.emplace_back(
       "env", "__linear_memory",
-      std::make_unique<MemType>(Limit{static_cast<uint64_t>(0)}));
+      std::make_unique<MemType>(Limit{static_cast<uint32_t>(0)}));
 
   writeImports(Imports);
   writeFunctions();

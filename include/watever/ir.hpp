@@ -2,6 +2,7 @@
 
 #include "watever/opcode.hpp"
 #include "watever/utils.hpp"
+#include <cstdint>
 #include <llvm/ADT/DenseMap.h>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/ADT/iterator_range.h>
@@ -22,6 +23,7 @@
 #include <llvm/Support/raw_ostream.h>
 #include <map>
 #include <memory>
+#include <string>
 #include <variant>
 
 namespace watever {
@@ -48,46 +50,90 @@ public:
   virtual void visit(WasmSeq &) = 0;
 };
 
+class InstArgument {
+public:
+  virtual void encode(llvm::raw_svector_ostream &) const = 0;
+  virtual std::string getString() const = 0;
+  virtual ~InstArgument() = default;
+};
+
+class MemArg : public InstArgument {
+  uint32_t Alignment{};
+  uint32_t MemIdx{};
+  uint64_t Offset{};
+
+public:
+  MemArg() = default;
+  MemArg(uint32_t Alignment, uint64_t Offset)
+      : Alignment(Alignment), Offset(Offset) {}
+
+  std::string getString() const override {
+    return llvm::formatv("align: {}, idx: {}, offset: {}", Alignment, MemIdx,
+                         Offset);
+  }
+
+  void encode(llvm::raw_svector_ostream &OS) const override {
+    if (Alignment >= 64) {
+      WATEVER_LOG_ERR("Alignment is too large: {}", Alignment);
+    }
+    uint32_t Flag = Alignment;
+
+    if (MemIdx != 0) {
+      Flag |= 64; // Signal that we have a MemIdx
+    }
+    llvm::encodeULEB128(Flag, OS);
+    if (MemIdx != 0) {
+      llvm::encodeULEB128(MemIdx, OS);
+    }
+    llvm::encodeULEB128(Offset, OS);
+  }
+};
+
 class WasmInst {
-  enum class Format : uint8_t { None, Inline, Complex };
-  Format Fmt;
-  union {
-    uint64_t Imm;
-    void *Data;
-  };
+  using Storage =
+      std::variant<std::monostate, uint64_t, std::unique_ptr<InstArgument>>;
+  Storage Data;
 
 public:
   Opcode::Enum Op;
 
-  WasmInst(Opcode::Enum O) : Fmt(Format::None), Imm(0), Op(O) {}
-  WasmInst(Opcode::Enum O, uint64_t Imm)
-      : Fmt(Format::Inline), Imm(Imm), Op(O) {}
+  WasmInst(Opcode::Enum O) : Data(std::monostate{}), Op(O) {}
+  WasmInst(Opcode::Enum O, uint64_t Imm) : Data(Imm), Op(O) {}
+  WasmInst(Opcode::Enum O, std::unique_ptr<InstArgument> Arg)
+      : Data(std::move(Arg)), Op(O) {}
 
+  WasmInst(WasmInst &&) = default;
+  WasmInst &operator=(WasmInst &&) = default;
+
+  WasmInst(const WasmInst &) = delete;
+  WasmInst &operator=(const WasmInst &) = delete;
+
+#ifdef WATEVER_LOGGING
   std::string getString() const {
     const char *Name = Opcode(Op).getName();
-    switch (Fmt) {
-    case Format::Inline:
-      return llvm::formatv("{0} {1}", Name, Imm).str();
-    case Format::Complex:
-      return std::string(Name) + " [complex]";
-    default:
-      return Name;
-    }
+
+    return std::visit(
+        Overloaded{
+            [&](std::monostate) { return std::string(Name); },
+            [&](uint64_t Imm) {
+              return llvm::formatv("{0} {1}", Name, Imm).str();
+            },
+            [&](const std::unique_ptr<InstArgument> &Arg) {
+              return llvm::formatv("{0} {1}", Name, Arg->getString()).str();
+            }},
+        Data);
   }
+#endif
 
-  void write(llvm::raw_svector_ostream &OS) {
+  void write(llvm::raw_svector_ostream &OS) const {
     Opcode(Op).writeBytes(OS);
-    switch (Fmt) {
 
-    case Format::None:
-      break;
-    case Format::Inline:
-      llvm::encodeULEB128(Imm, OS);
-      break;
-    case Format::Complex:
-      WATEVER_UNIMPLEMENTED("Handle complex parameters");
-      break;
-    }
+    std::visit(Overloaded{[&](std::monostate) {},
+                          [&](uint64_t Imm) { llvm::encodeULEB128(Imm, OS); },
+                          [&](const std::unique_ptr<InstArgument> &Arg) {
+                            Arg->encode(OS);
+                          }},
+               Data);
   }
 };
 
@@ -258,7 +304,9 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
   // Vector Operations
   // Aggregatge Operations
   // Memory Access and Addressing Operations
+  void visitLoadInst(llvm::LoadInst &LI);
   // Conversion Operations
+  void visitZExtInst(llvm::ZExtInst &ZI);
   void visitSExtInst(llvm::SExtInst &SI);
   void visitIntToPtrInst(llvm::IntToPtrInst &I) {
     addOperandsToWorklist(I.operands());

@@ -34,7 +34,6 @@ public:
       : Is64Bit(true), HasMax(true), Min(Min), Max(Max) {}
 
   void writePayload(llvm::raw_ostream &OS) const {
-    WATEVER_LOG_WARN("Preceeding flag is {}", getPrecedingFlag());
     OS << getPrecedingFlag();
     llvm::encodeULEB128(Min, OS);
     if (HasMax) {

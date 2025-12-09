@@ -51,7 +51,7 @@ public:
   }
 
   void visit(WasmActions &Actions) override {
-    for (auto Inst : Actions.Insts) {
+    for (const auto &Inst : Actions.Insts) {
       print(Inst.getString());
     }
   }

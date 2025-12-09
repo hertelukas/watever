@@ -2,16 +2,18 @@
 
 ; Uses i8
 define i7 @load_i7(ptr %a) {
-; CHECK-LABEL: @load_i7
+; CHECK-LABEL: i32 @load_i7
 ; CHECK: load i8
+; CHECK: zext i8 {{.*}} to i32
 entry:
   %1 = load i7, ptr %a
   ret i7 %1
 }
 
 define i8 @load_i8(ptr %a) {
-; CHECK-LABEL: @load_i8
+; CHECK-LABEL: i32 @load_i8
 ; CHECK: load i8
+; CHECK-NEXT: zext i8 {{.*}} to i32
 entry:
   %1 = load i8, ptr %a
   ret i8 %1
@@ -19,8 +21,9 @@ entry:
 
 ; Uses i16
 define i10 @load_i10(ptr %a) {
-; CHECK-LABEL: @load_i10
+; CHECK-LABEL: i32 @load_i10
 ; CHECK: load i16
+; CHECK-NEXT: zext i16 {{.*}} to i32
 entry:
   %1 = load i10, ptr %a
   ret i10 %1
@@ -28,8 +31,9 @@ entry:
 
 ; Uses i16
 define i16 @load_i16(ptr %a) {
-; CHECK-LABEL: @load_i16
+; CHECK-LABEL: i32 @load_i16
 ; CHECK: load i16
+; CHECK-NEXT: zext i16 {{.*}} to i32
 entry:
   %1 = load i16, ptr %a
   ret i16 %1
@@ -37,9 +41,11 @@ entry:
 
 ; Uses i16 + i8
 define i22 @load_i22(ptr %a) {
-; CHECK-LABEL: @load_i22
+; CHECK-LABEL: i32 @load_i22
 ; CHECK: load i16
+; CHECK-NEXT: zext i16 {{.*}} to i32
 ; CHECK: load i8
+; CHECK-NEXT: zext i8 {{.*}} to i32
 ; CHECK: or
 entry:
   %1 = load i22, ptr %a
@@ -67,9 +73,9 @@ entry:
 define i33 @load_i33(ptr %a) {
 ; CHECK-LABEL: i64 @load_i33
 ; CHECK: load i32
-; CHECK-NEXT: zext {{.*}} to i64
+; CHECK-NEXT: zext i32 {{.*}} to i64
 ; CHECK: load i8
-; CHECK-NEXT: zext {{.*}} to i64
+; CHECK-NEXT: zext i8 {{.*}} to i64
 entry:
   %1 = load i33, ptr %a
   ret i33 %1
@@ -79,7 +85,9 @@ entry:
 define i40 @load_i40(ptr %a) {
 ; CHECK-LABEL: i64 @load_i40
 ; CHECK: load i32
+; CHECK-NEXT: zext i32 {{.*}} to i64
 ; CHECK: load i8
+; CHECK-NEXT: zext i8 {{.*}} to i64
 ; CHECK: or
 entry:
   %1 = load i40, ptr %a
@@ -90,9 +98,9 @@ entry:
 define i44 @load_i44(ptr %a) {
 ; CHECK-LABEL: i64 @load_i44
 ; CHECK: load i32
-; CHECK-NEXT: zext {{.*}} to i64
+; CHECK-NEXT: zext i32 {{.*}} to i64
 ; CHECK: load i16
-; CHECK-NEXT: zext {{.*}} to i64
+; CHECK-NEXT: zext i16 {{.*}} to i64
 ; CHECK: or
 entry:
   %1 = load i44, ptr %a

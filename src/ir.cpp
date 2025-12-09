@@ -14,6 +14,7 @@
 #include <llvm/IR/Type.h>
 #include <llvm/Support/Casting.h>
 #include <memory>
+#include <type_traits>
 
 using namespace watever;
 
@@ -195,9 +196,98 @@ void BlockLowering::visitBinaryOperator(llvm::BinaryOperator &BO) {
 //===----------------------------------------------------------------------===//
 // Memory Access and Addressing Operations
 //===----------------------------------------------------------------------===//
+void BlockLowering::visitLoadInst(llvm::LoadInst &LI) {
+  // Loads should happen in sext or zext, if they need to get extended.
+  auto *LoadType = LI.getType();
+  // uint32_t Alignment = LI.getAlign().value();
+
+  // TODO inline offsets, use alignment
+  if (LoadType->isIntegerTy()) {
+    addOperandsToWorklist(LI.operands());
+    unsigned Width = LoadType->getIntegerBitWidth();
+
+    if (Width == 32) {
+      Actions.Insts.emplace_back(Opcode::I32Load, std::make_unique<MemArg>());
+      return;
+    }
+    if (Width == 64) {
+      Actions.Insts.emplace_back(Opcode::I64Load, std::make_unique<MemArg>());
+      return;
+    }
+    // i8 and i16 should be loaded over sext/zext
+    WATEVER_UNREACHABLE("Cannot load integer of width {}", Width);
+  }
+
+  if (LoadType->isFloatingPointTy()) {
+    addOperandsToWorklist(LI.operands());
+    if (LoadType->isDoubleTy()) {
+      Actions.Insts.emplace_back(Opcode::F64Load, std::make_unique<MemArg>());
+      return;
+    }
+    if (LoadType->isFloatTy()) {
+      Actions.Insts.emplace_back(Opcode::F32Load, std::make_unique<MemArg>());
+      return;
+    }
+    WATEVER_UNIMPLEMENTED("Unsupported floadting point type {} for load",
+                          llvmToString(*LoadType));
+  }
+
+  if (LoadType->isPointerTy()) {
+    addOperandsToWorklist(LI.operands());
+    Actions.Insts.emplace_back(Opcode::I32Load, std::make_unique<MemArg>());
+  }
+}
+
 //===----------------------------------------------------------------------===//
 // Conversion Operations
 //===----------------------------------------------------------------------===//
+void BlockLowering::visitZExtInst(llvm::ZExtInst &ZI) {
+  auto FromWidth = ZI.getOperand(0)->getType()->getIntegerBitWidth();
+  auto ToWidth = ZI.getType()->getIntegerBitWidth();
+
+  if (auto *LoadInst = llvm::dyn_cast<llvm::LoadInst>(ZI.getOperand(0))) {
+    // TODO inline offsets, use alignment
+    addOperandsToWorklist(LoadInst->operands());
+    auto *LoadType = LoadInst->getType();
+    // uint32_t Alignment = LoadInst->getAlign().value();
+    assert(LoadType->isIntegerTy());
+    if (ToWidth == 32) {
+      if (FromWidth == 8) {
+        Actions.Insts.emplace_back(Opcode::I32Load8U,
+                                   std::make_unique<MemArg>());
+        return;
+      }
+      if (FromWidth == 16) {
+        Actions.Insts.emplace_back(Opcode::I32Load16U,
+                                   std::make_unique<MemArg>());
+        return;
+      }
+    }
+    if (ToWidth == 64) {
+      if (FromWidth == 8) {
+        Actions.Insts.emplace_back(Opcode::I64Load8U,
+                                   std::make_unique<MemArg>());
+        return;
+      }
+      if (FromWidth == 16) {
+        Actions.Insts.emplace_back(Opcode::I64Load16U,
+                                   std::make_unique<MemArg>());
+        return;
+      }
+      if (FromWidth == 32) {
+        Actions.Insts.emplace_back(Opcode::I64Load32U,
+                                   std::make_unique<MemArg>());
+        return;
+      }
+    }
+    WATEVER_UNREACHABLE("unknown load from {} to {} bit", FromWidth, ToWidth);
+  }
+
+  if (FromWidth == 32 && ToWidth == 64) {
+    Actions.Insts.emplace_back(Opcode::I64ExtendI32U);
+  }
+}
+
 void BlockLowering::visitSExtInst(llvm::SExtInst &SI) {
   auto FromWidth = SI.getOperand(0)->getType()->getIntegerBitWidth();
   auto ToWidth = SI.getType()->getIntegerBitWidth();
@@ -209,7 +299,7 @@ void BlockLowering::visitSExtInst(llvm::SExtInst &SI) {
     WATEVER_UNREACHABLE("Can not expand from {} to {}", FromWidth, ToWidth);
   }
 
-  Actions.Insts.emplace_back(Opcode::I64Extend32S);
+  Actions.Insts.emplace_back(Opcode::I64ExtendI32S);
 }
 
 //===----------------------------------------------------------------------===//
@@ -429,7 +519,7 @@ std::unique_ptr<WasmActions> BlockLowering::lower(Function &F) {
   }
 
   std::reverse(Actions.Insts.begin(), Actions.Insts.end());
-  return std::make_unique<WasmActions>(Actions);
+  return std::make_unique<WasmActions>(std::move(Actions));
 }
 
 std::unique_ptr<Wasm> FunctionLowering::doBranch(const llvm::BasicBlock *Source,
