@@ -1,5 +1,6 @@
 #pragma once
 
+#include "watever/import.hpp"
 #include "watever/ir.hpp"
 #include "watever/linking.hpp"
 #include <cstdint>
@@ -83,6 +84,25 @@ class BinaryWriter {
     }
 
     OS << static_cast<uint8_t>(Section::Custom);
+    llvm::encodeULEB128(Content.size(), OS);
+    OS << ContentOS.str();
+  }
+
+  void writeImports(llvm::ArrayRef<Import> Imports) {
+    llvm::SmallVector<char> Content;
+    llvm::raw_svector_ostream ContentOS(Content);
+
+    llvm::encodeULEB128(Imports.size(), ContentOS);
+    for (const auto &Import : Imports) {
+      llvm::encodeULEB128(Import.Name1.size(), ContentOS);
+      ContentOS << Import.Name1;
+      llvm::encodeULEB128(Import.Name2.size(), ContentOS);
+      ContentOS << Import.Name2;
+      ContentOS << static_cast<uint8_t>(Import.Extern->getExternalType());
+      Import.Extern->writePayload(ContentOS);
+    }
+
+    OS << static_cast<uint8_t>(Section::Import);
     llvm::encodeULEB128(Content.size(), OS);
     OS << ContentOS.str();
   }

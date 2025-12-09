@@ -1,4 +1,5 @@
 #include "watever/binary.hpp"
+#include "watever/import.hpp"
 #include "watever/ir.hpp"
 #include "watever/linking.hpp"
 #include "watever/opcode.hpp"
@@ -148,6 +149,16 @@ void BinaryWriter::write() {
   writeVersion();
 
   writeTypes();
+
+  llvm::SmallVector<Import, 2> Imports;
+
+  // Add default memory
+  // TODO respect bit width
+  Imports.emplace_back(
+      "env", "__linear_memory",
+      std::make_unique<MemType>(Limit{static_cast<uint64_t>(0)}));
+
+  writeImports(Imports);
   writeFunctions();
   writeCode();
 
