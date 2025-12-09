@@ -424,6 +424,16 @@ void BlockLowering::visitFCmpInst(llvm::FCmpInst &FI) {
   }
 }
 
+void BlockLowering::visitCallInst(llvm::CallInst &CI) {
+  auto *Callee = CI.getCalledFunction();
+  addOperandsToWorklist(CI.args());
+
+  if (Callee) {
+    auto *Func = M.FunctionMap[Callee];
+    Actions.Insts.emplace_back(Opcode::Call, std::make_unique<CallArg>(Func));
+  }
+}
+
 std::unique_ptr<WasmActions> BlockLowering::lower(Function *F) {
   WATEVER_LOG_TRACE("Lowering {}", BB->getName().str());
   // The last "live-out" value is handled first, ensuring that all live-out
@@ -615,7 +625,7 @@ int FunctionLowering::index(const llvm::BasicBlock *BB, Context &Ctx) {
 
 std::unique_ptr<WasmActions>
 FunctionLowering::translateBB(llvm::BasicBlock *BB) const {
-  BlockLowering BL{BB};
+  BlockLowering BL{BB, M};
   return BL.lower(F);
 }
 
@@ -673,7 +683,7 @@ Module ModuleLowering::convert(llvm::Module &Mod,
     auto &DT = FAM.getResult<llvm::DominatorTreeAnalysis>(F);
     auto &LI = FAM.getResult<llvm::LoopAnalysis>(F);
 
-    FunctionLowering FL{WasmFunc, DT, LI};
+    FunctionLowering FL{WasmFunc, DT, LI, Res};
     FL.lower();
     dumpWasm(*WasmFunc->Body);
   }

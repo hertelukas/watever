@@ -282,6 +282,8 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
   void calculateLiveOut();
   llvm::DenseMap<llvm::Value *, int> getInternalUserCounts() const;
 
+  Module &M;
+
   void addOperandsToWorklist(llvm::iterator_range<llvm::Use *> Ops) {
     for (llvm::Value *Op : Ops) {
       WorkList.push_back(Op);
@@ -319,6 +321,7 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
   // Other Operations
   void visitFCmpInst(llvm::FCmpInst &FI);
   void visitICmpInst(llvm::ICmpInst &II);
+  void visitCallInst(llvm::CallInst &CI);
 
   void visitInstruction(llvm::Instruction &I) {
     addOperandsToWorklist(I.operands());
@@ -327,7 +330,7 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
   }
 
 public:
-  explicit BlockLowering(llvm::BasicBlock *BB) : BB(BB) {}
+  explicit BlockLowering(llvm::BasicBlock *BB, Module &M) : BB(BB), M(M) {}
 
   std::unique_ptr<WasmActions> lower(Function *F);
 };
@@ -364,6 +367,7 @@ class FunctionLowering {
 
   llvm::DominatorTree &DT;
   llvm::LoopInfo &LI;
+  Module &M;
 
   std::unique_ptr<Wasm> doBranch(const llvm::BasicBlock *SourceBlock,
                                  llvm::BasicBlock *TargetBlock, Context Ctx);
@@ -389,8 +393,9 @@ class FunctionLowering {
   }
 
 public:
-  FunctionLowering(Function *F, llvm::DominatorTree &DT, llvm::LoopInfo &LI)
-      : F(F), DT(DT), LI(LI) {}
+  FunctionLowering(Function *F, llvm::DominatorTree &DT, llvm::LoopInfo &LI,
+                   Module &M)
+      : F(F), DT(DT), LI(LI), M(M) {}
 
   void lower() {
     Context Ctx;
@@ -406,7 +411,7 @@ public:
 
 class CallArg final : public InstArgument {
   Function *F;
-  std::string getString() const override { return ""; }
+  std::string getString() const override { return F->Name.str(); }
   void encode(llvm::raw_svector_ostream &OS) const override {
     llvm::encodeULEB128(F->Index, OS);
   }
