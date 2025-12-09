@@ -57,7 +57,7 @@ public:
   virtual ~InstArgument() = default;
 };
 
-class MemArg : public InstArgument {
+class MemArg final : public InstArgument {
   uint32_t Alignment{};
   uint32_t MemIdx{};
   uint64_t Offset{};
@@ -255,7 +255,8 @@ class Module {
 public:
   // Canonical storage for types
   std::map<SubType, std::unique_ptr<SubType>> Types;
-  llvm::SmallVector<Function, 4> Functions;
+  llvm::SmallVector<std::unique_ptr<Function>, 4> Functions{};
+  llvm::DenseMap<llvm::Function *, Function *> FunctionMap{};
 
   const SubType *getOrAddType(const SubType &Temp) {
     auto It = Types.find(Temp);
@@ -328,7 +329,7 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
 public:
   explicit BlockLowering(llvm::BasicBlock *BB) : BB(BB) {}
 
-  std::unique_ptr<WasmActions> lower(Function &F);
+  std::unique_ptr<WasmActions> lower(Function *F);
 };
 
 class FunctionLowering {
@@ -358,7 +359,7 @@ class FunctionLowering {
     }
   };
 
-  Function &F;
+  Function *F;
   using Context = llvm::SmallVector<ContainingSyntax, 8>;
 
   llvm::DominatorTree &DT;
@@ -388,12 +389,12 @@ class FunctionLowering {
   }
 
 public:
-  FunctionLowering(Function &F, llvm::DominatorTree &DT, llvm::LoopInfo &LI)
+  FunctionLowering(Function *F, llvm::DominatorTree &DT, llvm::LoopInfo &LI)
       : F(F), DT(DT), LI(LI) {}
 
   void lower() {
     Context Ctx;
-    F.Body = doTree(DT.getRoot(), Ctx);
+    F->Body = doTree(DT.getRoot(), Ctx);
   }
 };
 
@@ -401,6 +402,17 @@ class ModuleLowering {
 
 public:
   static Module convert(llvm::Module &Mod, llvm::FunctionAnalysisManager &FAM);
+};
+
+class CallArg final : public InstArgument {
+  Function *F;
+  std::string getString() const override { return ""; }
+  void encode(llvm::raw_svector_ostream &OS) const override {
+    llvm::encodeULEB128(F->Index, OS);
+  }
+
+public:
+  explicit CallArg(Function *F) : F(F) {};
 };
 
 } // namespace watever

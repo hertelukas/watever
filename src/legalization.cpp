@@ -630,7 +630,6 @@ void FunctionLegalizer::visitGetElementPtrInst(llvm::GetElementPtrInst &GI) {
 // Other Operations
 //===----------------------------------------------------------------------===//
 void FunctionLegalizer::visitCallInst(llvm::CallInst &CI) {
-  WATEVER_LOG_TRACE("legalizing call {}", llvmToString(CI));
   auto *OldCalledFunc = CI.getCalledFunction();
   if (!OldCalledFunc) {
     WATEVER_UNIMPLEMENTED("indirect calls");

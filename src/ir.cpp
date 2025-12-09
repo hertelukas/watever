@@ -424,7 +424,7 @@ void BlockLowering::visitFCmpInst(llvm::FCmpInst &FI) {
   }
 }
 
-std::unique_ptr<WasmActions> BlockLowering::lower(Function &F) {
+std::unique_ptr<WasmActions> BlockLowering::lower(Function *F) {
   WATEVER_LOG_TRACE("Lowering {}", BB->getName().str());
   // The last "live-out" value is handled first, ensuring that all live-out
   // values are emitted in the correct order - especially stores.
@@ -488,7 +488,7 @@ std::unique_ptr<WasmActions> BlockLowering::lower(Function &F) {
       WATEVER_LOG_TRACE("... so we can just load it");
       Count[Next]--;
       // Generate a new local
-      const auto Local = F.getNewLocal(
+      const auto Local = F->getNewLocal(
           Type::fromLLVMType(Next->getType(), BB->getDataLayout()));
       LocalMapping[Next] = Local;
       Actions.Insts.push_back(WasmInst(Opcode::LocalGet, Local));
@@ -641,8 +641,6 @@ Module ModuleLowering::convert(llvm::Module &Mod,
       WATEVER_TODO("handle function declaration");
       continue;
     }
-    auto &DT = FAM.getResult<llvm::DominatorTreeAnalysis>(F);
-    auto &LI = FAM.getResult<llvm::LoopAnalysis>(F);
 
     auto *FT = F.getFunctionType();
 
@@ -660,13 +658,24 @@ Module ModuleLowering::convert(llvm::Module &Mod,
     SubType WasmTy(WasmFuncTy);
     const auto *WasmFuncTyPtr = Res.getOrAddType(WasmTy);
 
-    Function WasmFunction{WasmFuncTyPtr, static_cast<uint32_t>(F.arg_size()),
-                          F.getName()};
-    FunctionLowering FL{WasmFunction, DT, LI};
-    FL.lower();
+    auto FunctionPtr = std::make_unique<Function>(
+        WasmFuncTyPtr, static_cast<uint32_t>(F.arg_size()), F.getName());
+
+    auto *FunctionPtrPtr = FunctionPtr.get();
+    Res.Functions.push_back(std::move(FunctionPtr));
+
+    Res.FunctionMap[&F] = FunctionPtrPtr;
+  }
+
+  for (auto &F : Mod) {
+    auto *WasmFunc = Res.FunctionMap[&F];
     WATEVER_LOG_DBG("Lowered function {}", F.getName().str());
-    dumpWasm(*WasmFunction.Body);
-    Res.Functions.push_back(std::move(WasmFunction));
+    auto &DT = FAM.getResult<llvm::DominatorTreeAnalysis>(F);
+    auto &LI = FAM.getResult<llvm::LoopAnalysis>(F);
+
+    FunctionLowering FL{WasmFunc, DT, LI};
+    FL.lower();
+    dumpWasm(*WasmFunc->Body);
   }
   return Res;
 }

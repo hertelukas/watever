@@ -102,8 +102,8 @@ void BinaryWriter::writeFunctions() {
   // TODO handle imports
   llvm::encodeULEB128(Mod.Functions.size(), ContentOS);
   for (auto &Func : Mod.Functions) {
-    llvm::encodeULEB128(Func.TypePtr->Index, ContentOS);
-    Func.Index = CurrentIdx++;
+    llvm::encodeULEB128(Func->TypePtr->Index, ContentOS);
+    Func->Index = CurrentIdx++;
   }
 
   OS << static_cast<uint8_t>(Section::Function);
@@ -122,15 +122,15 @@ void BinaryWriter::writeCode() {
   llvm::raw_svector_ostream CodeOS(Code);
   for (const auto &F : Mod.Functions) {
     // list(locals)
-    llvm::encodeULEB128(F.Locals.size(), CodeOS);
+    llvm::encodeULEB128(F->Locals.size(), CodeOS);
     // Locals
-    for (const auto &[Ty, Amount] : F.Locals) {
+    for (const auto &[Ty, Amount] : F->Locals) {
       WATEVER_LOG_TRACE("{} appears {} times", Type(Ty).GetName(), Amount);
       llvm::encodeULEB128(Amount, CodeOS);
       CodeOS << Ty;
     }
     CodeWriter CW{CodeOS};
-    F.visit(CW);
+    F->visit(CW);
     Opcode(Opcode::Enum::End).writeBytes(CodeOS);
 
     // Write this functions code to content stream
@@ -170,8 +170,8 @@ void BinaryWriter::write() {
   for (const auto &F : Mod.Functions) {
     SymInfo SymInfo{};
     SymbolName SymName{};
-    SymName.Index = F.Index;
-    SymName.Name = F.Name.str();
+    SymName.Index = F->Index;
+    SymName.Name = F->Name.str();
     SymInfo.Kind = SymbolKind::SYMTAB_FUNCTION;
     SymInfo.Content = SymName;
     SymTab.Infos.push_back(SymInfo);
