@@ -73,6 +73,7 @@ class FunctionLegalizer : public llvm::InstVisitor<FunctionLegalizer> {
   llvm::DenseMap<llvm::Value *, LegalValue> ValueMap{};
   llvm::IRBuilder<> &Builder;
   const TargetConfig &Config;
+  const llvm::DenseMap<llvm::Function *, llvm::Function *> &FuncMap;
 
   llvm::Type *Int1Ty;
   llvm::Type *Int8Ty;
@@ -155,8 +156,10 @@ class FunctionLegalizer : public llvm::InstVisitor<FunctionLegalizer> {
 
 public:
   llvm::Function *NewFunc;
-  FunctionLegalizer(llvm::Function *OldFunc, llvm::Function *NewFunc,
-                    llvm::IRBuilder<> &B, const TargetConfig &Config);
+  FunctionLegalizer(
+      llvm::Function *OldFunc, llvm::Function *NewFunc, llvm::IRBuilder<> &B,
+      const TargetConfig &Config,
+      const llvm::DenseMap<llvm::Function *, llvm::Function *> &FuncMap);
 
   void visitBasicBlock(llvm::BasicBlock &BB);
 
@@ -182,6 +185,7 @@ public:
   // Conversion Operations
 
   // Other Operations
+  void visitCallInst(llvm::CallInst &CI);
 
   void visitInstruction(llvm::Instruction &I) {
     // TODO set to UNIMPLEMENTED

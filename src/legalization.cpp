@@ -1,5 +1,6 @@
 #include "watever/legalization.hpp"
 #include "watever/utils.hpp"
+#include <llvm/ADT/DenseMapInfo.h>
 #include <llvm/ADT/STLExtras.h>
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/DerivedTypes.h>
@@ -47,11 +48,11 @@ LegalValue FunctionLegalizer::legalizeConstant(llvm::Constant *C) {
   WATEVER_UNIMPLEMENTED("unsupported constant type {}", llvmToString(*C));
 }
 
-FunctionLegalizer::FunctionLegalizer(llvm::Function *OldFunc,
-                                     llvm::Function *NewFunc,
-                                     llvm::IRBuilder<> &B,
-                                     const TargetConfig &Config)
-    : Builder(B), Config(Config), NewFunc(NewFunc) {
+FunctionLegalizer::FunctionLegalizer(
+    llvm::Function *OldFunc, llvm::Function *NewFunc, llvm::IRBuilder<> &B,
+    const TargetConfig &Config,
+    const llvm::DenseMap<llvm::Function *, llvm::Function *> &FuncMap)
+    : Builder(B), Config(Config), FuncMap(FuncMap), NewFunc(NewFunc) {
 
   bool IndirectReturn =
       LegalizationPass::getLegalType(OldFunc->getReturnType()).size() > 1;
@@ -628,6 +629,39 @@ void FunctionLegalizer::visitGetElementPtrInst(llvm::GetElementPtrInst &GI) {
 //===----------------------------------------------------------------------===//
 // Other Operations
 //===----------------------------------------------------------------------===//
+void FunctionLegalizer::visitCallInst(llvm::CallInst &CI) {
+  WATEVER_LOG_TRACE("legalizing call {}", llvmToString(CI));
+  auto *OldCalledFunc = CI.getCalledFunction();
+  if (!OldCalledFunc) {
+    WATEVER_UNIMPLEMENTED("indirect calls");
+  }
+
+  // Default to old, in case of declaration
+  auto *NewCallee = OldCalledFunc;
+  if (auto It = FuncMap.find(OldCalledFunc); It != FuncMap.end()) {
+    NewCallee = It->second;
+  }
+
+  if (!LegalizationPass::getLegalType(OldCalledFunc->getReturnType())
+           .isScalar()) {
+    WATEVER_UNIMPLEMENTED("prepare indirect return value");
+  }
+
+  llvm::SmallVector<llvm::Value *> NewArgs;
+  for (auto &OldArg : CI.args()) {
+    LegalValue LegalArgs = getMappedValue(OldArg.get());
+    for (auto *Val : LegalArgs) {
+      NewArgs.push_back(Val);
+    }
+  }
+
+  assert(NewCallee->arg_size() == NewArgs.size() && "Argument count mismatch!");
+
+  auto *NewCall = Builder.CreateCall(NewCallee, NewArgs);
+  NewCall->setCallingConv(CI.getCallingConv());
+
+  ValueMap[&CI] = LegalValue{NewCall};
+}
 
 llvm::Function *LegalizationPass::createLegalFunction(llvm::Module &Mod,
                                                       llvm::Function *OldFunc) {
@@ -720,6 +754,9 @@ LegalType LegalizationPass::getLegalType(llvm::Type *Ty) {
 llvm::PreservedAnalyses LegalizationPass::run(llvm::Module &Mod,
                                               llvm::ModuleAnalysisManager &) {
   llvm::SmallVector<llvm::Function *> FuncsToLegalize;
+
+  // Old Funcs -> New Funcs
+  llvm::DenseMap<llvm::Function *, llvm::Function *> FuncMap;
   for (auto &F : Mod) {
     // TODO handle declarations
     if (F.isDeclaration()) {
@@ -728,14 +765,23 @@ llvm::PreservedAnalyses LegalizationPass::run(llvm::Module &Mod,
     FuncsToLegalize.push_back(&F);
   }
 
+  // Generate mapping, without bodies
+  for (auto *F : FuncsToLegalize) {
+    auto *NewFunc = LegalizationPass::createLegalFunction(Mod, F);
+    NewFunc->takeName(F);
+    FuncMap[F] = NewFunc;
+  }
+
+  llvm::IRBuilder<> Builder(Mod.getContext());
   for (auto *F : FuncsToLegalize) {
     WATEVER_LOG_DBG("Legalizing {}", F->getName().str());
-    auto *NewFunc = LegalizationPass::createLegalFunction(Mod, F);
-    llvm::IRBuilder<> Builder(Mod.getContext());
-    FunctionLegalizer FL{F, NewFunc, Builder, Config};
+    auto *NewFunc = FuncMap[F];
+    FunctionLegalizer FL{F, NewFunc, Builder, Config, FuncMap};
     FL.visit(F);
-    FL.NewFunc->takeName(F);
     WATEVER_LOG_DBG("Legalized Function:\n {}", llvmToString(*FL.NewFunc));
+  }
+
+  for (auto *F : FuncsToLegalize) {
     F->eraseFromParent();
   }
 
