@@ -91,14 +91,14 @@ public:
 
 class WasmInst {
   using Storage =
-      std::variant<std::monostate, uint64_t, std::unique_ptr<InstArgument>>;
+      std::variant<std::monostate, int64_t, std::unique_ptr<InstArgument>>;
   Storage Data;
 
 public:
   Opcode::Enum Op;
 
   WasmInst(Opcode::Enum O) : Data(std::monostate{}), Op(O) {}
-  WasmInst(Opcode::Enum O, uint64_t Imm) : Data(Imm), Op(O) {}
+  WasmInst(Opcode::Enum O, int64_t Imm) : Data(Imm), Op(O) {}
   WasmInst(Opcode::Enum O, std::unique_ptr<InstArgument> Arg)
       : Data(std::move(Arg)), Op(O) {}
 
@@ -129,7 +129,7 @@ public:
     Opcode(Op).writeBytes(OS);
 
     std::visit(Overloaded{[&](std::monostate) {},
-                          [&](uint64_t Imm) { llvm::encodeULEB128(Imm, OS); },
+                          [&](int64_t Imm) { llvm::encodeSLEB128(Imm, OS); },
                           [&](const std::unique_ptr<InstArgument> &Arg) {
                             Arg->encode(OS);
                           }},
