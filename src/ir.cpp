@@ -14,18 +14,16 @@
 #include <llvm/IR/Type.h>
 #include <llvm/Support/Casting.h>
 #include <memory>
-#include <type_traits>
 
 using namespace watever;
 
 void BlockLowering::calculateLiveOut() {
-
   for (auto &Val : *BB) {
-    if (Val.getOpcode() == llvm::Instruction::Store) {
+    if (Val.isTerminator()) {
       WorkList.push_back(&Val);
       continue;
     }
-    if (Val.getOpcode() == llvm::Instruction::Ret) {
+    if (Val.mayHaveSideEffects()) {
       WorkList.push_back(&Val);
       continue;
     }
@@ -441,27 +439,6 @@ std::unique_ptr<WasmActions> BlockLowering::lower(Function &F) {
 
   auto Count = getInternalUserCounts();
   const auto OriginalCount = Count;
-
-  if (const auto *Br = llvm::dyn_cast<llvm::BranchInst>(BB->getTerminator())) {
-    if (Br->isConditional()) {
-      if (auto *Inst = llvm::dyn_cast<llvm::Instruction>(Br->getCondition())) {
-        WorkList.push_back(Inst);
-      } else if (const auto *Const =
-                     llvm::dyn_cast<llvm::ConstantInt>(Br->getCondition())) {
-        if (Const->getBitWidth() == 1) {
-          Actions.Insts.push_back(
-              WasmInst(Opcode::I32Const, Const->getValue().getZExtValue()));
-        } else {
-          WATEVER_UNREACHABLE("illegal bit width in branch: {}",
-                              Const->getBitWidth());
-        }
-      } else {
-        WATEVER_UNREACHABLE(
-            "put {} on top of the stack - required for conditional branch",
-            llvmToString(*Br->getOperand(0)));
-      }
-    }
-  }
 
   while (!WorkList.empty()) {
     auto *Next = WorkList.back();
