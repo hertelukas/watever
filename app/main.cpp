@@ -121,8 +121,7 @@ int main(int argc, char *argv[]) {
 
   llvm::ModulePassManager MPM;
 
-  watever::TargetConfig Config{
-      .Is64Bit = Mod->getDataLayout().getPointerSizeInBits() == 64};
+  watever::TargetConfig Config{};
 
   MPM.addPass(watever::LegalizationPass(Config));
 

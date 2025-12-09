@@ -374,7 +374,6 @@ void FunctionLegalizer::visitLoadInst(llvm::LoadInst &LI) {
     llvm::Value *Result;
     // We want to build an i64 with the result
     if (Width > 32) {
-      // TODO make sure to lower this to i64.load32_u
       Result = Builder.CreateLoad(Int32Ty, Pointer);
       Result = Builder.CreateZExt(Result, Int64Ty);
       llvm::Value *PtrAsInt = Builder.CreatePtrToInt(Pointer, IntPtrTy);
