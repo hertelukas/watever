@@ -194,6 +194,31 @@ void BlockLowering::visitBinaryOperator(llvm::BinaryOperator &BO) {
 //===----------------------------------------------------------------------===//
 // Memory Access and Addressing Operations
 //===----------------------------------------------------------------------===//
+
+void BlockLowering::doGreedyLoad(llvm::LoadInst &LI, Opcode::Enum Op) {
+  if (auto *IntToPtr =
+          llvm::dyn_cast<llvm::IntToPtrInst>(LI.getPointerOperand())) {
+    if (auto *BinOp =
+            llvm::dyn_cast<llvm::BinaryOperator>(IntToPtr->getOperand(0))) {
+      // If we are the only user, and it's an addition, we can inline
+      if (BinOp->getNumUses() <= 1 &&
+          BinOp->getOpcode() == llvm::Instruction::Add) {
+        if (auto *Offset =
+                llvm::dyn_cast<llvm::ConstantInt>(BinOp->getOperand(1))) {
+          WATEVER_LOG_TRACE("inlining offset");
+          Actions.Insts.emplace_back(
+              Op, std::make_unique<MemArg>(0, Offset->getZExtValue()));
+          // We need the pointer (without the offset) on top of the stack
+          WorkList.push_back(BinOp->getOperand(0));
+          return;
+        }
+      }
+    }
+  }
+  Actions.Insts.emplace_back(Op, std::make_unique<MemArg>());
+  addOperandsToWorklist(LI.operands());
+}
+
 void BlockLowering::visitLoadInst(llvm::LoadInst &LI) {
   // Loads should happen in sext or zext, if they need to get extended.
   auto *LoadType = LI.getType();
@@ -201,15 +226,14 @@ void BlockLowering::visitLoadInst(llvm::LoadInst &LI) {
 
   // TODO inline offsets, use alignment
   if (LoadType->isIntegerTy()) {
-    addOperandsToWorklist(LI.operands());
     unsigned Width = LoadType->getIntegerBitWidth();
 
     if (Width == 32) {
-      Actions.Insts.emplace_back(Opcode::I32Load, std::make_unique<MemArg>());
+      doGreedyLoad(LI, Opcode::I32Load);
       return;
     }
     if (Width == 64) {
-      Actions.Insts.emplace_back(Opcode::I64Load, std::make_unique<MemArg>());
+      doGreedyLoad(LI, Opcode::I64Load);
       return;
     }
     // i8 and i16 should be loaded over sext/zext
@@ -217,13 +241,12 @@ void BlockLowering::visitLoadInst(llvm::LoadInst &LI) {
   }
 
   if (LoadType->isFloatingPointTy()) {
-    addOperandsToWorklist(LI.operands());
     if (LoadType->isDoubleTy()) {
-      Actions.Insts.emplace_back(Opcode::F64Load, std::make_unique<MemArg>());
+      doGreedyLoad(LI, Opcode::F64Load);
       return;
     }
     if (LoadType->isFloatTy()) {
-      Actions.Insts.emplace_back(Opcode::F32Load, std::make_unique<MemArg>());
+      doGreedyLoad(LI, Opcode::F32Load);
       return;
     }
     WATEVER_UNIMPLEMENTED("Unsupported floadting point type {} for load",
@@ -231,8 +254,12 @@ void BlockLowering::visitLoadInst(llvm::LoadInst &LI) {
   }
 
   if (LoadType->isPointerTy()) {
-    addOperandsToWorklist(LI.operands());
-    Actions.Insts.emplace_back(Opcode::I32Load, std::make_unique<MemArg>());
+    if (LI.getModule()->getDataLayout().getPointerSizeInBits() == 64) {
+      doGreedyLoad(LI, Opcode::I64Load);
+    } else {
+      doGreedyLoad(LI, Opcode::I32Load);
+    }
+    return;
   }
 }
 
@@ -243,38 +270,32 @@ void BlockLowering::visitZExtInst(llvm::ZExtInst &ZI) {
   auto FromWidth = ZI.getOperand(0)->getType()->getIntegerBitWidth();
   auto ToWidth = ZI.getType()->getIntegerBitWidth();
 
-  if (auto *LoadInst = llvm::dyn_cast<llvm::LoadInst>(ZI.getOperand(0))) {
+  if (auto *LI = llvm::dyn_cast<llvm::LoadInst>(ZI.getOperand(0))) {
     // TODO inline offsets, use alignment
-    addOperandsToWorklist(LoadInst->operands());
-    auto *LoadType = LoadInst->getType();
+    auto *LoadType = LI->getType();
     // uint32_t Alignment = LoadInst->getAlign().value();
     assert(LoadType->isIntegerTy());
     if (ToWidth == 32) {
       if (FromWidth == 8) {
-        Actions.Insts.emplace_back(Opcode::I32Load8U,
-                                   std::make_unique<MemArg>());
+        doGreedyLoad(*LI, Opcode::I32Load8U);
         return;
       }
       if (FromWidth == 16) {
-        Actions.Insts.emplace_back(Opcode::I32Load16U,
-                                   std::make_unique<MemArg>());
+        doGreedyLoad(*LI, Opcode::I32Load16U);
         return;
       }
     }
     if (ToWidth == 64) {
       if (FromWidth == 8) {
-        Actions.Insts.emplace_back(Opcode::I64Load8U,
-                                   std::make_unique<MemArg>());
+        doGreedyLoad(*LI, Opcode::I64Load8U);
         return;
       }
       if (FromWidth == 16) {
-        Actions.Insts.emplace_back(Opcode::I64Load16U,
-                                   std::make_unique<MemArg>());
+        doGreedyLoad(*LI, Opcode::I64Load16U);
         return;
       }
       if (FromWidth == 32) {
-        Actions.Insts.emplace_back(Opcode::I64Load32U,
-                                   std::make_unique<MemArg>());
+        doGreedyLoad(*LI, Opcode::I64Load32U);
         return;
       }
     }
@@ -679,12 +700,12 @@ Module ModuleLowering::convert(llvm::Module &Mod,
 
   for (auto &F : Mod) {
     auto *WasmFunc = Res.FunctionMap[&F];
-    WATEVER_LOG_DBG("Lowered function {}", F.getName().str());
     auto &DT = FAM.getResult<llvm::DominatorTreeAnalysis>(F);
     auto &LI = FAM.getResult<llvm::LoopAnalysis>(F);
 
     FunctionLowering FL{WasmFunc, DT, LI, Res};
     FL.lower();
+    WATEVER_LOG_DBG("Lowered function {}", F.getName().str());
     dumpWasm(*WasmFunc->Body);
   }
   return Res;
