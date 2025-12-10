@@ -243,7 +243,7 @@ public:
   explicit Function(const SubType *Type, uint32_t Args, llvm::StringRef Name)
       : TotalLocals(Args), Name(Name), TypePtr(Type) {}
 
-  int getNewLocal(Type::Enum Ty) {
+  uint32_t getNewLocal(Type::Enum Ty) {
     Locals[Ty]++;
     return TotalLocals++;
   }

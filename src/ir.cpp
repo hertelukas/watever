@@ -469,7 +469,6 @@ std::unique_ptr<WasmActions> BlockLowering::lower(Function *F) {
 #endif // WATEVER_LOGGING
 
   auto Count = getInternalUserCounts();
-  const auto OriginalCount = Count;
 
   while (!WorkList.empty()) {
     auto *Next = WorkList.back();
@@ -479,11 +478,10 @@ std::unique_ptr<WasmActions> BlockLowering::lower(Function *F) {
                       llvmToString(*Next), Count[Next]);
 
     if (Count.lookup(Next) <= 1) {
-      WATEVER_LOG_TRACE("materializing...");
+      WATEVER_LOG_TRACE("...materializing");
       // Check, if someone already gets this value. If so, we tee it
-      if (OriginalCount.lookup(Next) > 1) {
-        Actions.Insts.push_back(
-            WasmInst(Opcode::LocalTee, LocalMapping.lookup(Next)));
+      if (auto It = LocalMapping.find(Next); It != LocalMapping.end()) {
+        Actions.Insts.push_back(WasmInst(Opcode::LocalTee, It->second));
       }
       // If next is an instruction, lower it, and push args on the
       // WorkList stack
@@ -518,9 +516,15 @@ std::unique_ptr<WasmActions> BlockLowering::lower(Function *F) {
     } else {
       WATEVER_LOG_TRACE("... so we can just load it");
       Count[Next]--;
-      // Generate a new local
-      const auto Local = F->getNewLocal(
-          Type::fromLLVMType(Next->getType(), BB->getDataLayout()));
+      uint32_t Local;
+      // Check if someone else is already getting it
+      if (auto It = LocalMapping.find(Next); It != LocalMapping.end()) {
+        Local = It->second;
+      } else {
+        // If not, we create it
+        Local = F->getNewLocal(
+            Type::fromLLVMType(Next->getType(), BB->getDataLayout()));
+      }
       LocalMapping[Next] = Local;
       Actions.Insts.push_back(WasmInst(Opcode::LocalGet, Local));
     }
