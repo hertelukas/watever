@@ -195,9 +195,13 @@ void BlockLowering::visitBinaryOperator(llvm::BinaryOperator &BO) {
 // Memory Access and Addressing Operations
 //===----------------------------------------------------------------------===//
 
-void BlockLowering::doGreedyLoad(llvm::LoadInst &LI, Opcode::Enum Op) {
-  if (auto *IntToPtr =
-          llvm::dyn_cast<llvm::IntToPtrInst>(LI.getPointerOperand())) {
+void BlockLowering::doGreedyMemOp(llvm::Instruction &I, Opcode::Enum Op) {
+  llvm::Value *Ptr = llvm::getLoadStorePointerOperand(&I);
+  if (!Ptr) {
+    WATEVER_UNREACHABLE("could not get pointer from memory operation");
+  }
+
+  if (auto *IntToPtr = llvm::dyn_cast<llvm::IntToPtrInst>(Ptr)) {
     if (auto *BinOp =
             llvm::dyn_cast<llvm::BinaryOperator>(IntToPtr->getOperand(0))) {
       // If we are the only user, and it's an addition, we can inline
@@ -216,7 +220,7 @@ void BlockLowering::doGreedyLoad(llvm::LoadInst &LI, Opcode::Enum Op) {
     }
   }
   Actions.Insts.emplace_back(Op, std::make_unique<MemArg>());
-  addOperandsToWorklist(LI.operands());
+  WorkList.push_back(Ptr);
 }
 
 void BlockLowering::visitLoadInst(llvm::LoadInst &LI) {
@@ -224,16 +228,16 @@ void BlockLowering::visitLoadInst(llvm::LoadInst &LI) {
   auto *LoadType = LI.getType();
   // uint32_t Alignment = LI.getAlign().value();
 
-  // TODO inline offsets, use alignment
+  // TODO use alignment
   if (LoadType->isIntegerTy()) {
-    unsigned Width = LoadType->getIntegerBitWidth();
+    const unsigned Width = LoadType->getIntegerBitWidth();
 
     if (Width == 32) {
-      doGreedyLoad(LI, Opcode::I32Load);
+      doGreedyMemOp(LI, Opcode::I32Load);
       return;
     }
     if (Width == 64) {
-      doGreedyLoad(LI, Opcode::I64Load);
+      doGreedyMemOp(LI, Opcode::I64Load);
       return;
     }
     // i8 and i16 should be loaded over sext/zext
@@ -242,25 +246,109 @@ void BlockLowering::visitLoadInst(llvm::LoadInst &LI) {
 
   if (LoadType->isFloatingPointTy()) {
     if (LoadType->isDoubleTy()) {
-      doGreedyLoad(LI, Opcode::F64Load);
+      doGreedyMemOp(LI, Opcode::F64Load);
       return;
     }
     if (LoadType->isFloatTy()) {
-      doGreedyLoad(LI, Opcode::F32Load);
+      doGreedyMemOp(LI, Opcode::F32Load);
       return;
     }
-    WATEVER_UNIMPLEMENTED("Unsupported floadting point type {} for load",
+    WATEVER_UNIMPLEMENTED("Unsupported floating point type {} for load",
                           llvmToString(*LoadType));
   }
 
   if (LoadType->isPointerTy()) {
     if (LI.getModule()->getDataLayout().getPointerSizeInBits() == 64) {
-      doGreedyLoad(LI, Opcode::I64Load);
+      doGreedyMemOp(LI, Opcode::I64Load);
     } else {
-      doGreedyLoad(LI, Opcode::I32Load);
+      doGreedyMemOp(LI, Opcode::I32Load);
     }
     return;
   }
+
+  WATEVER_UNREACHABLE("Unsupported load type {}", llvmToString(*LoadType));
+}
+
+void BlockLowering::visitStoreInst(llvm::StoreInst &SI) {
+  auto *StoreType = SI.getOperand(0)->getType();
+
+  // TODO schedule value
+  if (StoreType->isIntegerTy()) {
+    if (auto *TruncInst = llvm::dyn_cast<llvm::TruncInst>(SI.getOperand(0))) {
+      auto FromWidth =
+          TruncInst->getOperand(0)->getType()->getIntegerBitWidth();
+      auto ToWidth = TruncInst->getType()->getIntegerBitWidth();
+
+      if (FromWidth == 64) {
+        if (ToWidth == 8) {
+          doGreedyMemOp(SI, Opcode::I64Store8);
+          WorkList.push_back(TruncInst->getOperand(0));
+          return;
+        }
+        if (ToWidth == 16) {
+          doGreedyMemOp(SI, Opcode::I64Store16);
+          WorkList.push_back(TruncInst->getOperand(0));
+          return;
+        }
+        if (ToWidth == 32) {
+          doGreedyMemOp(SI, Opcode::I64Store32);
+          WorkList.push_back(TruncInst->getOperand(0));
+          return;
+        }
+      }
+      if (FromWidth == 32) {
+        if (ToWidth == 8) {
+          doGreedyMemOp(SI, Opcode::I32Store8);
+          WorkList.push_back(TruncInst->getOperand(0));
+          return;
+        }
+        if (ToWidth == 16) {
+          doGreedyMemOp(SI, Opcode::I32Store16);
+          WorkList.push_back(TruncInst->getOperand(0));
+          return;
+        }
+      }
+    }
+
+    const unsigned Width = StoreType->getIntegerBitWidth();
+    if (Width == 32) {
+      doGreedyMemOp(SI, Opcode::I32Store);
+      WorkList.push_back(SI.getValueOperand());
+      return;
+    }
+    if (Width == 64) {
+      doGreedyMemOp(SI, Opcode::I64Store);
+      WorkList.push_back(SI.getValueOperand());
+      return;
+    }
+    WATEVER_UNREACHABLE("Cannot store integer of width {}", Width);
+  }
+
+  if (StoreType->isFloatingPointTy()) {
+    if (StoreType->isDoubleTy()) {
+      doGreedyMemOp(SI, Opcode::F64Store);
+      WorkList.push_back(SI.getValueOperand());
+      return;
+    }
+    if (StoreType->isFloatTy()) {
+      doGreedyMemOp(SI, Opcode::F32Store);
+      WorkList.push_back(SI.getValueOperand());
+      return;
+    }
+    WATEVER_UNIMPLEMENTED("Unsupported floating point type {} for store",
+                          llvmToString(*StoreType));
+  }
+
+  if (StoreType->isPointerTy()) {
+    if (SI.getModule()->getDataLayout().getPointerSizeInBits() == 64) {
+      doGreedyMemOp(SI, Opcode::I64Store);
+    } else {
+      doGreedyMemOp(SI, Opcode::I32Store);
+    }
+    WorkList.push_back(SI.getValueOperand());
+    return;
+  }
+  WATEVER_UNREACHABLE("Unsupported store type {}", llvmToString(*StoreType));
 }
 
 //===----------------------------------------------------------------------===//
@@ -271,31 +359,31 @@ void BlockLowering::visitZExtInst(llvm::ZExtInst &ZI) {
   auto ToWidth = ZI.getType()->getIntegerBitWidth();
 
   if (auto *LI = llvm::dyn_cast<llvm::LoadInst>(ZI.getOperand(0))) {
-    // TODO inline offsets, use alignment
+    // TODO use alignment
     auto *LoadType = LI->getType();
     // uint32_t Alignment = LoadInst->getAlign().value();
     assert(LoadType->isIntegerTy());
     if (ToWidth == 32) {
       if (FromWidth == 8) {
-        doGreedyLoad(*LI, Opcode::I32Load8U);
+        doGreedyMemOp(*LI, Opcode::I32Load8U);
         return;
       }
       if (FromWidth == 16) {
-        doGreedyLoad(*LI, Opcode::I32Load16U);
+        doGreedyMemOp(*LI, Opcode::I32Load16U);
         return;
       }
     }
     if (ToWidth == 64) {
       if (FromWidth == 8) {
-        doGreedyLoad(*LI, Opcode::I64Load8U);
+        doGreedyMemOp(*LI, Opcode::I64Load8U);
         return;
       }
       if (FromWidth == 16) {
-        doGreedyLoad(*LI, Opcode::I64Load16U);
+        doGreedyMemOp(*LI, Opcode::I64Load16U);
         return;
       }
       if (FromWidth == 32) {
-        doGreedyLoad(*LI, Opcode::I64Load32U);
+        doGreedyMemOp(*LI, Opcode::I64Load32U);
         return;
       }
     }

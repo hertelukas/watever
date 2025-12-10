@@ -328,10 +328,11 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
   // Vector Operations
   // Aggregatge Operations
   // Memory Access and Addressing Operations
-  //
-  /// Load with \p Op. Tries to coalesce the offset into the load instruction.
-  void doGreedyLoad(llvm::LoadInst &LI, Opcode::Enum Op);
+  /// Memory instruction with \p Op. Tries to coalesce the offset into the
+  /// instruction.
+  void doGreedyMemOp(llvm::Instruction &I, Opcode::Enum Op);
   void visitLoadInst(llvm::LoadInst &LI);
+  void visitStoreInst(llvm::StoreInst &SI);
   // Conversion Operations
   void visitZExtInst(llvm::ZExtInst &ZI);
   void visitSExtInst(llvm::SExtInst &SI);
