@@ -89,9 +89,21 @@ public:
   }
 };
 
+class LocalArg final : public InstArgument {
+public:
+  uint32_t Index;
+  explicit LocalArg(uint32_t Index) : Index(Index) {}
+  std::string getString() const override { return llvm::formatv("{}", Index); }
+  void encode(llvm::raw_svector_ostream &OS) const override {
+    llvm::encodeULEB128(Index, OS);
+  }
+};
+
 class WasmInst {
-  using Storage =
-      std::variant<std::monostate, int64_t, std::unique_ptr<InstArgument>>;
+  // TODO remove last option; create one consistent, non-owning InstArgument
+  // pointer. See Issue #4
+  using Storage = std::variant<std::monostate, int64_t,
+                               std::unique_ptr<InstArgument>, LocalArg *>;
   Storage Data;
 
 public:
@@ -101,6 +113,8 @@ public:
   WasmInst(Opcode::Enum O, int64_t Imm) : Data(Imm), Op(O) {}
   WasmInst(Opcode::Enum O, std::unique_ptr<InstArgument> Arg)
       : Data(std::move(Arg)), Op(O) {}
+  // FIXME this should be deleted, and united with the above constructor
+  WasmInst(Opcode::Enum O, LocalArg *Arg) : Data(Arg), Op(O) {}
 
   WasmInst(WasmInst &&) = default;
   WasmInst &operator=(WasmInst &&) = default;
@@ -120,7 +134,8 @@ public:
             },
             [&](const std::unique_ptr<InstArgument> &Arg) {
               return llvm::formatv("{0} {1}", Name, Arg->getString()).str();
-            }},
+            },
+            [&](LocalArg *Local) { return Local->getString(); }},
         Data);
   }
 #endif
@@ -132,7 +147,8 @@ public:
                           [&](int64_t Imm) { llvm::encodeSLEB128(Imm, OS); },
                           [&](const std::unique_ptr<InstArgument> &Arg) {
                             Arg->encode(OS);
-                          }},
+                          },
+                          [&](LocalArg *Local) { Local->encode(OS); }},
                Data);
   }
 };
@@ -234,18 +250,23 @@ class Function {
   uint32_t TotalLocals{};
 
 public:
+  const uint32_t Args{};
   llvm::StringRef Name;
   std::unique_ptr<Wasm> Body{};
-  llvm::DenseMap<Type::Enum, uint32_t> Locals{};
+  llvm::DenseMap<Type::Enum, llvm::SmallVector<std::unique_ptr<LocalArg>>>
+      Locals{};
   const SubType *TypePtr{};
   uint32_t Index;
 
   explicit Function(const SubType *Type, uint32_t Args, llvm::StringRef Name)
-      : TotalLocals(Args), Name(Name), TypePtr(Type) {}
+      : TotalLocals(Args), Args(Args), Name(Name), TypePtr(Type) {}
 
-  uint32_t getNewLocal(Type::Enum Ty) {
-    Locals[Ty]++;
-    return TotalLocals++;
+  LocalArg *getNewLocal(Type::Enum Ty) {
+    auto NewLocal = std::make_unique<LocalArg>(TotalLocals++);
+    auto *Result = NewLocal.get();
+    Locals[Ty].push_back(std::move(NewLocal));
+    // Assign temporary local for debugging
+    return Result;
   }
 
   void visit(WasmVisitor &V) const { Body->accept(V); }
@@ -277,7 +298,7 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
   llvm::SmallVector<llvm::Value *> WorkList;
 
   WasmActions Actions;
-  llvm::DenseMap<llvm::Value *, int> LocalMapping;
+  llvm::DenseMap<llvm::Value *, LocalArg *> LocalMapping;
 
   void calculateLiveOut();
   llvm::DenseMap<llvm::Value *, int> getInternalUserCounts() const;

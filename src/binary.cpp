@@ -123,10 +123,14 @@ void BinaryWriter::writeCode() {
   for (const auto &F : Mod.Functions) {
     // list(locals)
     llvm::encodeULEB128(F->Locals.size(), CodeOS);
+    uint32_t CurrentLocal = F->Args;
     // Locals
-    for (const auto &[Ty, Amount] : F->Locals) {
-      WATEVER_LOG_TRACE("{} appears {} times", Type(Ty).GetName(), Amount);
-      llvm::encodeULEB128(Amount, CodeOS);
+    for (const auto &[Ty, LocalList] : F->Locals) {
+      // Assign new locals, based on type
+      for (auto &Local : LocalList) {
+        Local->Index = CurrentLocal++;
+      }
+      llvm::encodeULEB128(LocalList.size(), CodeOS);
       CodeOS << Ty;
     }
     CodeWriter CW{CodeOS};

@@ -516,7 +516,7 @@ std::unique_ptr<WasmActions> BlockLowering::lower(Function *F) {
     } else {
       WATEVER_LOG_TRACE("... so we can just load it");
       Count[Next]--;
-      uint32_t Local;
+      LocalArg *Local;
       // Check if someone else is already getting it
       if (auto It = LocalMapping.find(Next); It != LocalMapping.end()) {
         Local = It->second;
