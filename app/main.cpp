@@ -1,4 +1,3 @@
-#include "watever/target.hpp"
 #include <llvm/Analysis/CGSCCPassManager.h>
 #include <llvm/Analysis/LoopAnalysisManager.h>
 #include <llvm/IR/LLVMContext.h>
@@ -9,6 +8,7 @@
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/SourceMgr.h>
+#include <llvm/Transforms/Scalar/ADCE.h>
 
 #define ARGS_NOEXCEPT
 #include "args/args.hxx"
@@ -16,6 +16,7 @@
 #include "watever/binary.hpp"
 #include "watever/ir.hpp"
 #include "watever/legalization.hpp"
+#include "watever/target.hpp"
 #include "watever/utils.hpp"
 
 int main(int argc, char *argv[]) {
@@ -119,13 +120,13 @@ int main(int argc, char *argv[]) {
   PB.registerLoopAnalyses(LAM);
   PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
 
-  llvm::ModulePassManager MPM;
+  llvm::ModulePassManager LegalizeMPM;
 
   watever::TargetConfig Config{};
 
-  MPM.addPass(watever::LegalizationPass(Config));
+  LegalizeMPM.addPass(watever::LegalizationPass(Config));
 
-  MPM.run(*Mod, MAM);
+  LegalizeMPM.run(*Mod, MAM);
 
 #ifdef WATEVER_LOGGING
   if (llvm::verifyModule(*Mod, &llvm::errs())) {
@@ -134,11 +135,17 @@ int main(int argc, char *argv[]) {
   }
   WATEVER_LOG_INFO("Legalization returned a legal module.");
 #endif
-
   if (LegalOnly) {
     Mod->print(*OS, nullptr);
     return 0;
   }
+
+  llvm::ModulePassManager OptimizePM;
+  llvm::FunctionPassManager FPM;
+  FPM.addPass(llvm::ADCEPass());
+
+  OptimizePM.addPass(llvm::createModuleToFunctionPassAdaptor(std::move(FPM)));
+  OptimizePM.run(*Mod, MAM);
 
   watever::ModuleLowering LoweringContext{};
   auto LoweredModule = LoweringContext.convert(*Mod, FAM);
