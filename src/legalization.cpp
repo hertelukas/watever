@@ -329,7 +329,7 @@ void FunctionLegalizer::visitLoadInst(llvm::LoadInst &LI) {
   auto *Pointer = getMappedValue(LI.getPointerOperand())[0];
 
   if (ResultType->isIntegerTy()) {
-    unsigned Width = ResultType->getIntegerBitWidth();
+    const unsigned Width = ResultType->getIntegerBitWidth();
 
     // We can just load the int
     if (Width == 32 || Width == 64) {
@@ -377,28 +377,32 @@ void FunctionLegalizer::visitLoadInst(llvm::LoadInst &LI) {
     if (Width > 32) {
       Result = Builder.CreateLoad(Int32Ty, Pointer);
       Result = Builder.CreateZExt(Result, Int64Ty);
-      llvm::Value *PtrAsInt = Builder.CreatePtrToInt(Pointer, IntPtrTy);
-      llvm::Value *NextOffset = llvm::ConstantInt::get(IntPtrTy, 4);
-      llvm::Value *NewPtrAsInt = Builder.CreateAdd(PtrAsInt, NextOffset);
-      Width -= 32;
-      unsigned NextShift = 32;
-      if (Width > 8) {
+      auto *PtrAsInt = Builder.CreatePtrToInt(Pointer, IntPtrTy);
+      unsigned BytesLoaded = 4;
+      // For (40, 56]
+      if (Width > 40) {
+        llvm::Value *NewPtrAsInt = Builder.CreateAdd(
+            PtrAsInt, llvm::ConstantInt::get(IntPtrTy, BytesLoaded));
         llvm::Value *NewPtr = Builder.CreateIntToPtr(NewPtrAsInt, PtrTy);
         llvm::Value *NextTwoBytes = Builder.CreateLoad(Int16Ty, NewPtr);
         NextTwoBytes = Builder.CreateZExt(NextTwoBytes, Int64Ty);
-        llvm::Value *ShiftAmount = llvm::ConstantInt::get(Int64Ty, NextShift);
+        llvm::Value *ShiftAmount =
+            llvm::ConstantInt::get(Int64Ty, BytesLoaded * 8);
         NextTwoBytes = Builder.CreateShl(NextTwoBytes, ShiftAmount);
         Result = Builder.CreateOr(Result, NextTwoBytes);
         NewPtrAsInt =
             Builder.CreateAdd(NewPtrAsInt, llvm::ConstantInt::get(IntPtrTy, 2));
-        Width = (Width > 16) ? Width - 16 : 0;
-        NextShift += 16;
+        BytesLoaded += 2;
       }
-      if (Width > 0) {
+      // For (32, 40], and (48, 56]
+      if (Width <= 40 || Width > 48) {
+        llvm::Value *NewPtrAsInt = Builder.CreateAdd(
+            PtrAsInt, llvm::ConstantInt::get(IntPtrTy, BytesLoaded));
         llvm::Value *NewPtr = Builder.CreateIntToPtr(NewPtrAsInt, PtrTy);
         llvm::Value *NextByte = Builder.CreateLoad(Int8Ty, NewPtr);
         NextByte = Builder.CreateZExt(NextByte, Int64Ty);
-        llvm::Value *ShiftAmount = llvm::ConstantInt::get(Int64Ty, NextShift);
+        llvm::Value *ShiftAmount =
+            llvm::ConstantInt::get(Int64Ty, BytesLoaded * 8);
         NextByte = Builder.CreateShl(NextByte, ShiftAmount);
         Result = Builder.CreateOr(Result, NextByte);
       }
@@ -482,26 +486,25 @@ void FunctionLegalizer::visitStoreInst(llvm::StoreInst &SI) {
       Builder.CreateStore(LowestBytes, Pointer);
 
       llvm::Value *PtrAsInt = Builder.CreatePtrToInt(Pointer, IntPtrTy);
-      llvm::Value *NextOffset = llvm::ConstantInt::get(IntPtrTy, 4);
-      llvm::Value *NewPtrAsInt = Builder.CreateAdd(PtrAsInt, NextOffset);
 
-      unsigned NextShift = 32;
+      unsigned BytesStored = 4;
       // The number is wide enough to require a 16-bit store
       if (Width > 32 + 8) {
+        llvm::Value *NewPtrAsInt = Builder.CreateAdd(
+            PtrAsInt, llvm::ConstantInt::get(IntPtrTy, BytesStored));
         llvm::Value *NewPtr = Builder.CreateIntToPtr(NewPtrAsInt, PtrTy);
-        llvm::Value *NextBytes = Builder.CreateLShr(ToStore, NextShift);
+        llvm::Value *NextBytes = Builder.CreateLShr(ToStore, BytesStored * 8);
         NextBytes = Builder.CreateTrunc(NextBytes, Int16Ty);
         Res = Builder.CreateStore(NextBytes, NewPtr);
-
-        NextOffset = llvm::ConstantInt::get(IntPtrTy, 2);
-        NewPtrAsInt = Builder.CreateAdd(NewPtrAsInt, NextOffset);
-        NextShift += 16;
+        BytesStored += 2;
       }
       // If it wasn't wide enough (e.g., [33, 40]), we only need a 8-bit store
       // Or if it is still not fully stored (e.g., [49, 56])
       if (Width <= 32 + 8 || Width > 32 + 16) {
+        llvm::Value *NewPtrAsInt = Builder.CreateAdd(
+            PtrAsInt, llvm::ConstantInt::get(IntPtrTy, BytesStored));
         llvm::Value *NewPtr = Builder.CreateIntToPtr(NewPtrAsInt, PtrTy);
-        llvm::Value *NextByte = Builder.CreateLShr(ToStore, NextShift);
+        llvm::Value *NextByte = Builder.CreateLShr(ToStore, BytesStored * 8);
         NextByte = Builder.CreateTrunc(NextByte, Int8Ty);
         Res = Builder.CreateStore(NextByte, NewPtr);
       }

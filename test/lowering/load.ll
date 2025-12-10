@@ -51,7 +51,7 @@ entry:
 define i22 @load_i22(ptr %a) {
 ; CHECK-LABEL:   $load_i22
 ; CHECK:         i32.load16_u
-; CHECK:         i32.load8_u
+; CHECK:         i32.load8_u offset=2
 ; CHECK-NOT:     load
 entry:
   %1 = load i22, ptr %a
@@ -83,7 +83,7 @@ entry:
 define i33 @load_i33(ptr %a) {
 ; CHECK-LABEL:   $load_i33
 ; CHECK:         i64.load32_u
-; CHECK:         i64.load8_u
+; CHECK:         i64.load8_u offset=4
 ; CHECK-NOT:     load
 entry:
   %1 = load i33, ptr %a
@@ -94,7 +94,7 @@ entry:
 define i40 @load_i40(ptr %a) {
 ; CHECK-LABEL:   $load_i40 
 ; CHECK:         i64.load32_u
-; CHECK:         i64.load8_u
+; CHECK:         i64.load8_u offset=4
 ; CHECK-NOT:     load
 entry:
   %1 = load i40, ptr %a
@@ -105,7 +105,7 @@ entry:
 define i44 @load_i44(ptr %a) {
 ; CHECK-LABEL:   $load_i44 
 ; CHECK:         i64.load32_u
-; CHECK:         i64.load16_u
+; CHECK:         i64.load16_u offset=4
 ; CHECK-NOT:     load
 entry:
   %1 = load i44, ptr %a
@@ -116,7 +116,7 @@ entry:
 define i48 @load_i48(ptr %a) {
 ; CHECK-LABEL:   $load_i48 
 ; CHECK:         i64.load32_u
-; CHECK:         i64.load16_u
+; CHECK:         i64.load16_u offset=4
 ; CHECK-NOT:     load
 entry:
   %1 = load i48, ptr %a
@@ -127,8 +127,8 @@ entry:
 define i49 @load_i49(ptr %a) {
 ; CHECK-LABEL:   $load_i49 
 ; CHECK:         i64.load32_u
-; CHECK:         i64.load16_u
-; CHECK:         i64.load8_u
+; CHECK:         i64.load16_u offset=4
+; CHECK:         i64.load8_u offset=6
 ; CHECK-NOT:     load
 entry:
   %1 = load i49, ptr %a
