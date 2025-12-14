@@ -345,8 +345,9 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
   };
 
   // Other Operations
-  void visitFCmpInst(llvm::FCmpInst &FI);
   void visitICmpInst(llvm::ICmpInst &II);
+  void visitFCmpInst(llvm::FCmpInst &FI);
+  void visitSelectInst(llvm::SelectInst &SI);
   void visitCallInst(llvm::CallInst &CI);
 
   void visitInstruction(llvm::Instruction &I) {

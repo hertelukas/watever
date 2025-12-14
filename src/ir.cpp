@@ -546,6 +546,13 @@ void BlockLowering::visitFCmpInst(llvm::FCmpInst &FI) {
   }
 }
 
+void BlockLowering::visitSelectInst(llvm::SelectInst &SI) {
+  Actions.Insts.push_back(Opcode::Select);
+  WorkList.push_back(SI.getTrueValue());
+  WorkList.push_back(SI.getFalseValue());
+  WorkList.push_back(SI.getCondition());
+}
+
 void BlockLowering::visitCallInst(llvm::CallInst &CI) {
   auto *Callee = CI.getCalledFunction();
   addOperandsToWorklist(CI.args());
