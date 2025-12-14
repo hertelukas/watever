@@ -641,6 +641,7 @@ void FunctionLegalizer::visitSelectInst(llvm::SelectInst &SI) {
 
   // This will be optimized away, however, we have to ensure that the upper bits
   // are zeroed, as the i32 Condition might contain dirty bits
+  Condition = Builder.CreateAnd(Condition, 1);
   Condition = Builder.CreateTrunc(Condition, Int1Ty);
 
   if (True.isScalar()) {
