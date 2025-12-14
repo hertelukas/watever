@@ -354,6 +354,19 @@ void BlockLowering::visitStoreInst(llvm::StoreInst &SI) {
 //===----------------------------------------------------------------------===//
 // Conversion Operations
 //===----------------------------------------------------------------------===//
+void BlockLowering::visitTruncInst(llvm::TruncInst &TI) {
+  auto FromWidth = TI.getOperand(0)->getType()->getIntegerBitWidth();
+  auto ToWidth = TI.getType()->getIntegerBitWidth();
+
+  WorkList.push_back(TI.getOperand(0));
+  if (FromWidth > 32 && ToWidth <= 32) {
+    Actions.Insts.push_back(Opcode::I32WrapI64);
+    return;
+  }
+
+  // Otherwise, truncation is a no-op
+}
+
 void BlockLowering::visitZExtInst(llvm::ZExtInst &ZI) {
   auto FromWidth = ZI.getOperand(0)->getType()->getIntegerBitWidth();
   auto ToWidth = ZI.getType()->getIntegerBitWidth();

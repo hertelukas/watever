@@ -191,7 +191,7 @@ public:
     switch (T->getTypeID()) {
     case llvm::Type::IntegerTyID: {
       const unsigned Width = T->getIntegerBitWidth();
-      if (Width == 32) {
+      if (Width <= 32) {
         return Type::Enum::I32;
       }
       if (Width == 64) {

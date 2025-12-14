@@ -334,6 +334,7 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
   void visitLoadInst(llvm::LoadInst &LI);
   void visitStoreInst(llvm::StoreInst &SI);
   // Conversion Operations
+  void visitTruncInst(llvm::TruncInst &TI);
   void visitZExtInst(llvm::ZExtInst &ZI);
   void visitSExtInst(llvm::SExtInst &SI);
   void visitIntToPtrInst(llvm::IntToPtrInst &I) {
