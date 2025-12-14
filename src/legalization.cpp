@@ -632,6 +632,30 @@ void FunctionLegalizer::visitGetElementPtrInst(llvm::GetElementPtrInst &GI) {
 //===----------------------------------------------------------------------===//
 // Other Operations
 //===----------------------------------------------------------------------===//
+
+void FunctionLegalizer::visitSelectInst(llvm::SelectInst &SI) {
+  auto *Condition = getMappedValue(SI.getCondition())[0];
+
+  auto True = getMappedValue(SI.getTrueValue());
+  auto False = getMappedValue(SI.getFalseValue());
+
+  // This will be optimized away, however, we have to ensure that the upper bits
+  // are zeroed, as the i32 Condition might contain dirty bits
+  Condition = Builder.CreateTrunc(Condition, Int1Ty);
+
+  if (True.isScalar()) {
+    ValueMap[&SI] = Builder.CreateSelect(Condition, True[0], False[0]);
+    return;
+  }
+
+  llvm::SmallVector<llvm::Value *, 2> Vs;
+
+  for (auto [T, F] : llvm::zip_equal(True, False)) {
+    Vs.push_back(Builder.CreateSelect(Condition, T, F));
+  }
+  ValueMap[&SI] = LegalValue(Vs);
+}
+
 void FunctionLegalizer::visitCallInst(llvm::CallInst &CI) {
   auto *OldCalledFunc = CI.getCalledFunction();
   if (!OldCalledFunc) {

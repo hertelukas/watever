@@ -185,6 +185,7 @@ public:
   // Conversion Operations
 
   // Other Operations
+  void visitSelectInst(llvm::SelectInst &SI);
   void visitCallInst(llvm::CallInst &CI);
 
   void visitInstruction(llvm::Instruction &I) {
