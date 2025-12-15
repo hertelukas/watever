@@ -46,3 +46,27 @@ body:
 exit:
   ret void
 }
+
+define i32 @live_across_blocks(i32 %a, i32 %b, i1 %cond) {
+; CHECK-LABEL: live_across_blocks
+; CHECK: local.get
+; CHECK: local.get
+; CHECK: i32.add
+; CHECK: local.set
+; CHECK: if
+; CHECK: else
+; CHECK: end
+; CHECK-NOT: i32.add
+entry:
+    %x = add i32 %a, %b
+    br i1 %cond, label %if, label %else
+if:
+    call void @foo()
+    br label %exit
+else:
+    call void @bar()
+    br label %exit
+exit:
+    %y = sub i32 %x, %b
+    ret i32 %y
+}

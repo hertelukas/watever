@@ -253,6 +253,7 @@ public:
   const uint32_t Args{};
   llvm::StringRef Name;
   std::unique_ptr<Wasm> Body{};
+  llvm::DenseMap<llvm::Value *, LocalArg *> LocalMapping;
   llvm::DenseMap<Type::Enum, llvm::SmallVector<std::unique_ptr<LocalArg>>>
       Locals{};
   const SubType *TypePtr{};
@@ -298,12 +299,12 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
   llvm::SmallVector<llvm::Value *> WorkList;
 
   WasmActions Actions;
-  llvm::DenseMap<llvm::Value *, LocalArg *> LocalMapping;
 
   void calculateLiveOut();
   llvm::DenseMap<llvm::Value *, int> getInternalUserCounts() const;
 
   Module &M;
+  Function *Parent;
 
   void addOperandsToWorklist(llvm::iterator_range<llvm::Use *> Ops) {
     for (llvm::Value *Op : Ops) {
@@ -357,9 +358,10 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
   }
 
 public:
-  explicit BlockLowering(llvm::BasicBlock *BB, Module &M) : BB(BB), M(M) {}
+  explicit BlockLowering(llvm::BasicBlock *BB, Module &M, Function *F)
+      : BB(BB), M(M), Parent(F) {}
 
-  std::unique_ptr<WasmActions> lower(Function *F);
+  std::unique_ptr<WasmActions> lower();
 };
 
 class FunctionLowering {

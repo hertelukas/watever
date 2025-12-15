@@ -34,6 +34,9 @@ void BlockLowering::calculateLiveOut() {
       if (auto *Inst = llvm::dyn_cast<llvm::Instruction>(User)) {
         // value is used outside of this basic block
         if (Inst->getParent() != BB) {
+          // Require a local
+          Parent->LocalMapping[&Val] = Parent->getNewLocal(
+              Type::fromLLVMType(Val.getType(), BB->getDataLayout()));
           WorkList.push_back(&Val);
           break;
         }
@@ -563,7 +566,7 @@ void BlockLowering::visitCallInst(llvm::CallInst &CI) {
   }
 }
 
-std::unique_ptr<WasmActions> BlockLowering::lower(Function *F) {
+std::unique_ptr<WasmActions> BlockLowering::lower() {
   WATEVER_LOG_TRACE("Lowering {}", BB->getName().str());
   // The last "live-out" value is handled first, ensuring that all live-out
   // values are emitted in the correct order - especially stores.
@@ -579,19 +582,35 @@ std::unique_ptr<WasmActions> BlockLowering::lower(Function *F) {
   auto Count = getInternalUserCounts();
 
   while (!WorkList.empty()) {
-    auto *Next = WorkList.back();
-    WorkList.pop_back();
+    auto *Next = WorkList.pop_back_val();
 
     WATEVER_LOG_TRACE("{} is needed by {} instruction(s), including ourselves",
                       llvmToString(*Next), Count[Next]);
 
     if (Count.lookup(Next) <= 1) {
       WATEVER_LOG_TRACE("...materializing");
-      // Check, if someone already gets this value. If so, we tee it
-      if (auto It = LocalMapping.find(Next); It != LocalMapping.end()) {
-        Actions.Insts.push_back(WasmInst(Opcode::LocalTee, It->second));
+      // Check, if this value is already mapped to a local
+      if (auto It = Parent->LocalMapping.find(Next);
+          It != Parent->LocalMapping.end()) {
+        // This value is defined in another BB, so we only get it
+        if (auto *Inst = llvm::dyn_cast<llvm::Instruction>(Next);
+            Inst && Inst->getParent() != BB) {
+          WATEVER_LOG_TRACE("is defined in other basic block, so just load it");
+          Actions.Insts.push_back(WasmInst(Opcode::LocalGet, It->second));
+          continue;
+        }
+
+        if (Count.lookup(Next) == 0) {
+          // Only used in a different block
+	  WATEVER_LOG_TRACE("is used only in a different block, so just set it");
+          Actions.Insts.push_back(WasmInst(Opcode::LocalSet, It->second));
+        } else {
+          // Still used in our block
+	  WATEVER_LOG_TRACE("is used in this block, so tee it");
+          Actions.Insts.push_back(WasmInst(Opcode::LocalTee, It->second));
+        }
       }
-      // If next is an instruction, lower it, and push args on the
+      // If
       // WorkList stack
       if (auto *Inst = llvm::dyn_cast<llvm::Instruction>(Next)) {
         visit(*Inst);
@@ -626,14 +645,15 @@ std::unique_ptr<WasmActions> BlockLowering::lower(Function *F) {
       Count[Next]--;
       LocalArg *Local;
       // Check if someone else is already getting it
-      if (auto It = LocalMapping.find(Next); It != LocalMapping.end()) {
+      if (auto It = Parent->LocalMapping.find(Next);
+          It != Parent->LocalMapping.end()) {
         Local = It->second;
       } else {
         // If not, we create it
-        Local = F->getNewLocal(
+        Local = Parent->getNewLocal(
             Type::fromLLVMType(Next->getType(), BB->getDataLayout()));
       }
-      LocalMapping[Next] = Local;
+      Parent->LocalMapping[Next] = Local;
       Actions.Insts.push_back(WasmInst(Opcode::LocalGet, Local));
     }
   }
@@ -758,8 +778,8 @@ int FunctionLowering::index(const llvm::BasicBlock *BB, Context &Ctx) {
 
 std::unique_ptr<WasmActions>
 FunctionLowering::translateBB(llvm::BasicBlock *BB) const {
-  BlockLowering BL{BB, M};
-  return BL.lower(F);
+  BlockLowering BL{BB, M, F};
+  return BL.lower();
 }
 
 void FunctionLowering::getMergeChildren(
