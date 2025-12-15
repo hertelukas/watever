@@ -19,17 +19,14 @@ using namespace watever;
 
 void BlockLowering::calculateLiveOut() {
   for (auto &Val : *BB) {
+    // Terminals always have to be materialized
     if (Val.isTerminator()) {
       WorkList.push_back(&Val);
       continue;
     }
-    if (Val.mayHaveSideEffects()) {
-      WorkList.push_back(&Val);
-      continue;
-    }
-    if (Val.getNumUses() == 0) {
-      continue;
-    }
+    // Every value, that has a user outside of the block, needs a local and has
+    // to be calculated
+    bool Added = false;
     for (auto *User : Val.users()) {
       if (auto *Inst = llvm::dyn_cast<llvm::Instruction>(User)) {
         // value is used outside of this basic block
@@ -38,9 +35,17 @@ void BlockLowering::calculateLiveOut() {
           Parent->LocalMapping[&Val] = Parent->getNewLocal(
               Type::fromLLVMType(Val.getType(), BB->getDataLayout()));
           WorkList.push_back(&Val);
+          Added = true;
           break;
         }
       }
+    }
+    if (Added)
+      continue;
+    // We might have side effects, but are not needed in another block
+    if (Val.mayHaveSideEffects()) {
+      WorkList.push_back(&Val);
+      continue;
     }
   }
 }
