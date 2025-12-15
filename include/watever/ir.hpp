@@ -319,7 +319,9 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
   }
 
   void visitBranchInst(llvm::BranchInst &BI) {
-    addOperandsToWorklist(BI.operands());
+    if (BI.isConditional()) {
+      WorkList.push_back(BI.getCondition());
+    }
   };
 
   // Unary Operations
@@ -348,6 +350,7 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
   // Other Operations
   void visitICmpInst(llvm::ICmpInst &II);
   void visitFCmpInst(llvm::FCmpInst &FI);
+  void visitPHINode(llvm::PHINode &PN);
   void visitSelectInst(llvm::SelectInst &SI);
   void visitCallInst(llvm::CallInst &CI);
 
