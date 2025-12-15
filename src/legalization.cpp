@@ -163,6 +163,7 @@ void FunctionLegalizer::visitBranchInst(llvm::BranchInst &BI) {
     auto *False = GetMappedBlock(1);
     auto *Cond = getMappedValue(BI.getCondition())[0];
 
+    Cond = Builder.CreateAnd(Cond, 1);
     Cond = Builder.CreateTrunc(Cond, Int1Ty);
 
     ValueMap[&BI] = Builder.CreateCondBr(Cond, True, False);
@@ -836,8 +837,8 @@ llvm::PreservedAnalyses LegalizationPass::run(llvm::Module &Mod,
     auto *NewFunc = FuncMap[F];
     FunctionLegalizer FL{F, NewFunc, Builder, Config, FuncMap};
     FL.visit(F);
-    WATEVER_LOG_DBG("Legalized Function:\n {}", llvmToString(*FL.NewFunc));
     FL.fixupPHIs();
+    WATEVER_LOG_DBG("Legalized Function:\n {}", llvmToString(*FL.NewFunc));
   }
 
   for (auto *F : FuncsToLegalize) {

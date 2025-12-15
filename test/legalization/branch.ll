@@ -2,7 +2,7 @@
 
 define void @if_else(i1 %a) {
 ; CHECK-LABEL: @if_else
-; CHECK: trunc i32 %a
+; CHECK: trunc i32 
 ; CHECK-NEXT: br i1
 entry:
   br i1 %a, label %then, label %else
@@ -16,7 +16,7 @@ merge:
 
 define void @loop(i1 %a) {
 ; CHECK-LABEL: @loop
-; CHECK: trunc i32 %a
+; CHECK: trunc i32
 ; CHECK-NEXT: br
 entry:
   br label %header

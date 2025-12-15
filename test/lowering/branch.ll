@@ -11,6 +11,8 @@ define void @bar() {
 define void @if_else(i1 %a) {
 ; CHECK-LABEL:   (func $if_else {{.*}} (param i32)
 ; CHECK: local.get 0
+; CHECK-NEXT: i32.const 1
+; CHECK-NEXT: i32.and
 ; CHECK-NEXT: if
 ; CHECK-NEXT: call $bar
 ; CHECK-NEXT: br 0
@@ -33,6 +35,8 @@ define void @loop(i1 %a) {
 ; CHECK-LABEL:   (func $loop {{.*}} (param i32)
 ; CHECK: loop
 ; CHECK-NEXT: local.get 0
+; CHECK-NEXT: i32.const
+; CHECK-NEXT: i32.and
 ; CHECK-NEXT: if
 ; CHECK-NEXT: return
 ; CHECK-NEXT: else

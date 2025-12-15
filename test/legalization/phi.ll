@@ -10,7 +10,7 @@ define i32 @bar() {
 
 define i32 @phi_i32(i1 %cond) {
 ; CHECK-LABEL: @phi_i32
-; CHECK: phi i32 [ %1, %if ], [ %2, %else ]
+; CHECK: phi i32 [ {{.*}}, %if ], [ {{.*}}, %else ]
 entry:
     br i1 %cond, label %if, label %else
 if:
