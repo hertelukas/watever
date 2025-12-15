@@ -74,6 +74,7 @@ class FunctionLegalizer : public llvm::InstVisitor<FunctionLegalizer> {
   llvm::IRBuilder<> &Builder;
   const TargetConfig &Config;
   const llvm::DenseMap<llvm::Function *, llvm::Function *> &FuncMap;
+  llvm::SmallVector<llvm::PHINode *> PHIsToFix;
 
   llvm::Type *Int1Ty;
   llvm::Type *Int8Ty;
@@ -161,6 +162,8 @@ public:
       const TargetConfig &Config,
       const llvm::DenseMap<llvm::Function *, llvm::Function *> &FuncMap);
 
+  void fixupPHIs();
+
   void visitBasicBlock(llvm::BasicBlock &BB);
 
   // Terminator Instructions
@@ -185,6 +188,7 @@ public:
   // Conversion Operations
 
   // Other Operations
+  void visitPHINode(llvm::PHINode &PN);
   void visitSelectInst(llvm::SelectInst &SI);
   void visitCallInst(llvm::CallInst &CI);
 

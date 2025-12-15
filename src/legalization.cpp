@@ -48,6 +48,23 @@ LegalValue FunctionLegalizer::legalizeConstant(llvm::Constant *C) {
   WATEVER_UNIMPLEMENTED("unsupported constant type {}", llvmToString(*C));
 }
 
+void FunctionLegalizer::fixupPHIs() {
+  for (auto *OldPN : PHIsToFix) {
+    LegalValue NewPNs = ValueMap[OldPN];
+
+    for (auto [value, block] :
+         llvm::zip_equal(OldPN->incoming_values(), OldPN->blocks())) {
+      LegalValue NewIncomingVal = getMappedValue(value);
+      auto *NewIncomingBB = llvm::cast<llvm::BasicBlock>(ValueMap[block][0]);
+      for (auto [NewPHIValPart, NewIncomingValPart] :
+           llvm::zip_equal(NewPNs, NewIncomingVal)) {
+        auto *NewPHI = llvm::cast<llvm::PHINode>(NewPHIValPart);
+        NewPHI->addIncoming(NewIncomingValPart, NewIncomingBB);
+      }
+    }
+  }
+}
+
 FunctionLegalizer::FunctionLegalizer(
     llvm::Function *OldFunc, llvm::Function *NewFunc, llvm::IRBuilder<> &B,
     const TargetConfig &Config,
@@ -633,6 +650,20 @@ void FunctionLegalizer::visitGetElementPtrInst(llvm::GetElementPtrInst &GI) {
 // Other Operations
 //===----------------------------------------------------------------------===//
 
+void FunctionLegalizer::visitPHINode(llvm::PHINode &PN) {
+  auto LegalTy = LegalizationPass::getLegalType(PN.getType());
+  unsigned NumIncoming = PN.getNumIncomingValues();
+  llvm::SmallVector<llvm::Value *, 2> NewPHIs;
+  for (llvm::Type *PartTy : LegalTy) {
+    auto *NewPHI = Builder.CreatePHI(PartTy, NumIncoming);
+    NewPHIs.push_back(NewPHI);
+  }
+  ValueMap[&PN] = LegalValue(NewPHIs);
+  // Needed, as we might not have all incoming values (e.g., if this is a loop
+  // header)
+  PHIsToFix.push_back(&PN);
+}
+
 void FunctionLegalizer::visitSelectInst(llvm::SelectInst &SI) {
   auto *Condition = getMappedValue(SI.getCondition())[0];
 
@@ -806,6 +837,7 @@ llvm::PreservedAnalyses LegalizationPass::run(llvm::Module &Mod,
     FunctionLegalizer FL{F, NewFunc, Builder, Config, FuncMap};
     FL.visit(F);
     WATEVER_LOG_DBG("Legalized Function:\n {}", llvmToString(*FL.NewFunc));
+    FL.fixupPHIs();
   }
 
   for (auto *F : FuncsToLegalize) {
