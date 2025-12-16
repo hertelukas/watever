@@ -103,13 +103,13 @@ void BlockLowering::visitUnaryOperator(llvm::UnaryOperator &UO) {
 void BlockLowering::visitBinaryOperator(llvm::BinaryOperator &BO) {
   const auto *Ty = BO.getType();
   // TODO handle vectors
-  const auto Width = Ty->getPrimitiveSizeInBits();
+  const unsigned Width = Ty->getPrimitiveSizeInBits();
   bool Handled = true;
 
   addOperandsToWorklist(BO.operands());
 
   auto Dispatch = [&](Opcode::Enum Op32, Opcode::Enum Op64) {
-    if (Width == 32)
+    if (Width == 32 || Width == 1)
       Actions.Insts.emplace_back(Op32);
     else if (Width == 64)
       Actions.Insts.emplace_back(Op64);
@@ -195,7 +195,7 @@ void BlockLowering::visitBinaryOperator(llvm::BinaryOperator &BO) {
     break;
   }
   if (!Handled) {
-    WATEVER_TODO("lowering of {}", BO.getOpcodeName());
+    WATEVER_TODO("lowering of {}-bit {}", Width, BO.getOpcodeName());
   }
 }
 //===----------------------------------------------------------------------===//
@@ -648,7 +648,7 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
       }
       // Otherwise, we can just load constants/arguments
       else if (const auto *Const = llvm::dyn_cast<llvm::ConstantInt>(Next)) {
-        if (Const->getBitWidth() == 32) {
+        if (Const->getBitWidth() == 32 || Const->getBitWidth() == 1) {
           Actions.Insts.push_back(
               WasmInst(Opcode::I32Const, Const->getValue().getZExtValue()));
         } else if (Const->getBitWidth() == 64) {
