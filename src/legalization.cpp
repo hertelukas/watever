@@ -3,6 +3,7 @@
 #include <llvm/ADT/DenseMapInfo.h>
 #include <llvm/ADT/STLExtras.h>
 #include <llvm/IR/BasicBlock.h>
+#include <llvm/IR/Constants.h>
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/IRBuilder.h>
@@ -42,6 +43,14 @@ LegalValue FunctionLegalizer::legalizeConstant(llvm::Constant *C) {
   }
 
   if (C->getType()->isFloatTy() || C->getType()->isDoubleTy()) {
+    return C;
+  }
+
+  if (C->getType()->isPointerTy()) {
+    return C;
+  }
+
+  if (llvm::isa<llvm::PoisonValue>(C) || llvm::isa<llvm::UndefValue>(C)) {
     return C;
   }
 
