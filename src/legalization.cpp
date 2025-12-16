@@ -317,8 +317,9 @@ void FunctionLegalizer::visitBinaryOperator(llvm::BinaryOperator &BO) {
       llvm::Value *SumFinal = Builder.CreateAdd(Sum1, Carry);
       llvm::Value *Carry2 = Builder.CreateICmpULT(SumFinal, Sum1);
       // TODO could be skipped in last round
-      llvm::Value *CarryBit = Builder.CreateOr(Carry1, Carry2);
-      Carry = Builder.CreateZExt(CarryBit, Int64Ty);
+      Carry1 = Builder.CreateZExt(Carry1, Int64Ty);
+      Carry2 = Builder.CreateZExt(Carry2, Int64Ty);
+      Carry = Builder.CreateOr(Carry1, Carry2);
       Result.push_back(SumFinal);
     }
     ValueMap[&BO] = LegalValue{Result};
