@@ -507,7 +507,11 @@ void BlockLowering::visitFCmpInst(llvm::FCmpInst &FI) {
   const unsigned Width = FI.getOperand(0)->getType()->getScalarSizeInBits();
   bool Handled = true;
 
-  addOperandsToWorklist(FI.operands());
+  auto Pred = FI.getPredicate();
+
+  if (Pred != llvm::CmpInst::FCMP_TRUE && Pred != llvm::CmpInst::FCMP_FALSE) {
+    addOperandsToWorklist(FI.operands());
+  }
 
   auto Dispatch = [&](Opcode::Enum Op32, Opcode::Enum Op64) {
     if (Width == 32)
@@ -519,6 +523,10 @@ void BlockLowering::visitFCmpInst(llvm::FCmpInst &FI) {
   };
 
   switch (FI.getPredicate()) {
+  case llvm::CmpInst::FCMP_FALSE: {
+    Actions.Insts.emplace_back(Opcode::I32Const, 0);
+    break;
+  }
   case llvm::CmpInst::FCMP_OEQ: {
     Dispatch(Opcode::F32Eq, Opcode::F64Eq);
     break;
@@ -541,6 +549,10 @@ void BlockLowering::visitFCmpInst(llvm::FCmpInst &FI) {
   }
   case llvm::CmpInst::FCMP_UNE: {
     Dispatch(Opcode::F32Ne, Opcode::F64Ne);
+    break;
+  }
+  case llvm::CmpInst::FCMP_TRUE: {
+    Actions.Insts.emplace_back(Opcode::I32Const, 1);
     break;
   }
   case llvm::CmpInst::FCMP_ORD: {

@@ -156,6 +156,12 @@ void FunctionLegalizer::visitReturnInst(llvm::ReturnInst &RI) {
   }
 
   if (LegalReturnValue.isScalar()) {
+    // This might happen if we return the result of a comparison
+    if (LegalReturnValue[0]->getType()->isIntegerTy(1)) {
+      auto *ReturnValue = Builder.CreateZExt(LegalReturnValue[0], Int32Ty);
+      Builder.CreateRet(ReturnValue);
+      return;
+    }
     Builder.CreateRet(LegalReturnValue[0]);
     return;
   }
@@ -679,12 +685,14 @@ void FunctionLegalizer::visitFCmpInst(llvm::FCmpInst &FCI) {
   if (LHS.isScalar()) {
     switch (FCI.getPredicate()) {
     // These are natively supported
+    case llvm::CmpInst::FCMP_FALSE:
     case llvm::CmpInst::FCMP_OEQ:
     case llvm::CmpInst::FCMP_OGT:
     case llvm::CmpInst::FCMP_OGE:
     case llvm::CmpInst::FCMP_OLT:
     case llvm::CmpInst::FCMP_OLE:
     case llvm::CmpInst::FCMP_UNE:
+    case llvm::CmpInst::FCMP_TRUE:
       ValueMap[&FCI] = Builder.CreateFCmp(FCI.getPredicate(), LHS[0], RHS[0]);
       break;
     // These are not
