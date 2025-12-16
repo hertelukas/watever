@@ -930,6 +930,8 @@ llvm::PreservedAnalyses LegalizationPass::run(llvm::Module &Mod,
     FL.visit(F);
     FL.fixupPHIs();
     WATEVER_LOG_DBG("Legalized Function:\n {}", llvmToString(*FL.NewFunc));
+
+    F->replaceAllUsesWith(NewFunc);
   }
 
   for (auto *F : FuncsToLegalize) {
