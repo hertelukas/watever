@@ -651,6 +651,88 @@ void FunctionLegalizer::visitGetElementPtrInst(llvm::GetElementPtrInst &GI) {
 // Other Operations
 //===----------------------------------------------------------------------===//
 
+void FunctionLegalizer::visitICmpInst(llvm::ICmpInst &ICI) {
+  auto LHS = getMappedValue(ICI.getOperand(0));
+  auto RHS = getMappedValue(ICI.getOperand(1));
+
+  if (LHS.isScalar()) {
+    ValueMap[&ICI] = Builder.CreateICmp(ICI.getPredicate(), LHS[0], RHS[0]);
+    return;
+  }
+
+  WATEVER_UNIMPLEMENTED("icmp over 64-bit");
+}
+
+void FunctionLegalizer::visitFCmpInst(llvm::FCmpInst &FCI) {
+  auto LHS = getMappedValue(FCI.getOperand(0));
+  auto RHS = getMappedValue(FCI.getOperand(1));
+
+  if (LHS.isScalar()) {
+    switch (FCI.getPredicate()) {
+    // These are natively supported
+    case llvm::CmpInst::FCMP_OEQ:
+    case llvm::CmpInst::FCMP_OGT:
+    case llvm::CmpInst::FCMP_OGE:
+    case llvm::CmpInst::FCMP_OLT:
+    case llvm::CmpInst::FCMP_OLE:
+    case llvm::CmpInst::FCMP_UNE:
+      ValueMap[&FCI] = Builder.CreateFCmp(FCI.getPredicate(), LHS[0], RHS[0]);
+      break;
+    // These are not
+    case llvm::CmpInst::FCMP_ONE: {
+      auto *GT = Builder.CreateFCmpOGT(LHS[0], RHS[0]);
+      auto *LT = Builder.CreateFCmpOLT(LHS[0], RHS[0]);
+      ValueMap[&FCI] = Builder.CreateOr(GT, LT);
+      break;
+    }
+    case llvm::CmpInst::FCMP_ORD: {
+      auto *FirstEQ = Builder.CreateFCmpOEQ(LHS[0], LHS[0]);
+      auto *SecondEQ = Builder.CreateFCmpOEQ(RHS[0], RHS[0]);
+      ValueMap[&FCI] = Builder.CreateAnd(FirstEQ, SecondEQ);
+      break;
+    }
+    case llvm::CmpInst::FCMP_UNO: {
+      auto *FirstNE = Builder.CreateFCmpUNE(LHS[0], LHS[0]);
+      auto *SecondNE = Builder.CreateFCmpUNE(RHS[0], RHS[0]);
+      ValueMap[&FCI] = Builder.CreateOr(FirstNE, SecondNE);
+      break;
+    }
+    case llvm::CmpInst::FCMP_UEQ: {
+      auto *GT = Builder.CreateFCmpOGT(LHS[0], RHS[0]);
+      auto *LT = Builder.CreateFCmpOLT(LHS[0], RHS[0]);
+      auto *LTorGT = Builder.CreateOr(GT, LT);
+      ValueMap[&FCI] = Builder.CreateXor(LTorGT, 1);
+      break;
+    }
+    case llvm::CmpInst::FCMP_UGT: {
+      auto *LE = Builder.CreateFCmpOLE(LHS[0], RHS[0]);
+      ValueMap[&FCI] = Builder.CreateXor(LE, 1);
+      break;
+    }
+    case llvm::CmpInst::FCMP_UGE: {
+      auto *LT = Builder.CreateFCmpOLT(LHS[0], RHS[0]);
+      ValueMap[&FCI] = Builder.CreateXor(LT, 1);
+      break;
+    }
+    case llvm::CmpInst::FCMP_ULT: {
+      auto *GE = Builder.CreateFCmpOGE(LHS[0], RHS[0]);
+      ValueMap[&FCI] = Builder.CreateXor(GE, 1);
+      break;
+    }
+    case llvm::CmpInst::FCMP_ULE: {
+      auto *GT = Builder.CreateFCmpOGT(LHS[0], RHS[0]);
+      ValueMap[&FCI] = Builder.CreateXor(GT, 1);
+      break;
+    }
+    default:
+      WATEVER_UNREACHABLE("Illegal float comparison");
+    }
+    return;
+  }
+
+  WATEVER_UNIMPLEMENTED("vector fcmp");
+}
+
 void FunctionLegalizer::visitPHINode(llvm::PHINode &PN) {
   auto LegalTy = LegalizationPass::getLegalType(PN.getType());
   unsigned NumIncoming = PN.getNumIncomingValues();

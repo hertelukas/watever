@@ -188,6 +188,8 @@ public:
   // Conversion Operations
 
   // Other Operations
+  void visitICmpInst(llvm::ICmpInst &ICI);
+  void visitFCmpInst(llvm::FCmpInst &FCI);
   void visitPHINode(llvm::PHINode &PN);
   void visitSelectInst(llvm::SelectInst &SI);
   void visitCallInst(llvm::CallInst &CI);

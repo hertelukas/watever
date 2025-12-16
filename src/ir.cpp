@@ -539,7 +539,7 @@ void BlockLowering::visitFCmpInst(llvm::FCmpInst &FI) {
     Dispatch(Opcode::F32Le, Opcode::F64Le);
     break;
   }
-  case llvm::CmpInst::FCMP_ONE: {
+  case llvm::CmpInst::FCMP_UNE: {
     Dispatch(Opcode::F32Ne, Opcode::F64Ne);
     break;
   }
@@ -552,7 +552,7 @@ void BlockLowering::visitFCmpInst(llvm::FCmpInst &FI) {
   case llvm::CmpInst::FCMP_UGE:
   case llvm::CmpInst::FCMP_ULT:
   case llvm::CmpInst::FCMP_ULE:
-  case llvm::CmpInst::FCMP_UNE:
+  case llvm::CmpInst::FCMP_ONE:
     WATEVER_UNREACHABLE("Unordered float comparisons are not supported");
   default:
     WATEVER_UNREACHABLE("Illegal float comparison");
