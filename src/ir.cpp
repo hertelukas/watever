@@ -416,9 +416,10 @@ void BlockLowering::visitZExtInst(llvm::ZExtInst &ZI) {
     WATEVER_UNREACHABLE("unknown load from {} to {} bit", FromWidth, ToWidth);
   }
 
-  if (FromWidth == 32 && ToWidth == 64) {
+  if (FromWidth <= 32 && ToWidth > 32 && ToWidth <= 64) {
     Actions.Insts.emplace_back(Opcode::I64ExtendI32U);
   }
+  WorkList.push_back(ZI.getOperand(0));
 }
 
 void BlockLowering::visitSExtInst(llvm::SExtInst &SI) {
