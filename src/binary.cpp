@@ -46,7 +46,7 @@ void CodeWriter::visit(WasmSeq &Seq) {
 }
 void CodeWriter::visit(WasmActions &Actions) {
   for (auto &Inst : Actions.Insts) {
-    Inst.write(OS);
+    Inst.write(OS, Reloc);
   }
 }
 void CodeWriter::visit(WasmBr &Br) {
@@ -55,6 +55,7 @@ void CodeWriter::visit(WasmBr &Br) {
 }
 
 void BinaryWriter::writeTypes() {
+  CurrentSection++;
   // Prepare the content of the section
   llvm::SmallVector<char> Content;
   llvm::raw_svector_ostream ContentOS(Content);
@@ -71,6 +72,7 @@ void BinaryWriter::writeTypes() {
 }
 
 void BinaryWriter::writeFunctions() {
+  CurrentSection++;
   llvm::SmallVector<char> Content;
   llvm::raw_svector_ostream ContentOS(Content);
 
@@ -92,10 +94,13 @@ void BinaryWriter::writeCode() {
   llvm::SmallVector<char> Content;
   llvm::raw_svector_ostream ContentOS(Content);
 
+  Relocation CodeRelocation(CurrentSection++, "CODE");
+
   llvm::encodeULEB128(Mod.Functions.size(), ContentOS);
   llvm::SmallVector<char> Code;
   llvm::raw_svector_ostream CodeOS(Code);
   for (const auto &F : Mod.Functions) {
+    size_t RelocationStart = CodeRelocation.Entries.size();
     // list(locals)
     llvm::encodeULEB128(F->Locals.size(), CodeOS);
     uint32_t CurrentLocal = F->Args;
@@ -108,14 +113,26 @@ void BinaryWriter::writeCode() {
       llvm::encodeULEB128(LocalList.size(), CodeOS);
       CodeOS << static_cast<uint8_t>(Ty);
     }
-    CodeWriter CW{CodeOS};
+    CodeWriter CW{CodeOS, CodeRelocation};
     F->visit(CW);
     Opcode(Opcode::Enum::End).writeBytes(CodeOS);
 
-    // Write this functions code to content stream
+    // Write this functions code size to content stream
     llvm::encodeULEB128(Code.size(), ContentOS);
+
+    // All relocations have been written from the start of this function, needs
+    // correction.
+    for (size_t I = RelocationStart; I < CodeRelocation.Entries.size(); ++I) {
+      CodeRelocation.Entries[I].Offset += ContentOS.tell();
+    }
+
+    // Now we can write the actual code
     ContentOS << CodeOS.str();
     Code.clear();
+  }
+
+  if (!CodeRelocation.Entries.empty()) {
+    Relocations.push_back(std::move(CodeRelocation));
   }
 
   OS << static_cast<uint8_t>(Section::Code);
@@ -152,19 +169,40 @@ void BinaryWriter::write() {
   SymbolTable SymTab{};
   // TODO this is very inefficient, use constructors, don't copy everything
   // everywhere
+  for (const auto &F : Mod.Imports) {
+    SymInfo SymInfo{};
+    SymbolName SymName{};
+    SymName.Index = F->FunctionIndex;
+    // TODO Not needed for imports, as we store the name in the import
+    SymName.IsImport = true;
+    SymInfo.Kind = SymbolKind::SYMTAB_FUNCTION;
+    SymInfo.Content = SymName;
+    // TODO use actual flags, and set correct ones when declaring function
+    SymInfo.Flags = static_cast<uint32_t>(SymbolFlag::WASM_SYM_UNDEFINED);
+    SymTab.Infos.push_back(SymInfo);
+  }
   for (const auto &F : Mod.Functions) {
     SymInfo SymInfo{};
     SymbolName SymName{};
     SymName.Index = F->FunctionIndex;
+    // Not needed for imports, as we store the name in the import
+    SymName.IsImport = false;
     SymName.Name = F->Name;
     SymInfo.Kind = SymbolKind::SYMTAB_FUNCTION;
     SymInfo.Content = SymName;
+    // TODO use actual flags, and set correct ones when declaring function
+    SymInfo.Flags =
+        static_cast<uint32_t>(SymbolFlag::WASM_SYM_VISIBILITY_HIDDEN);
     SymTab.Infos.push_back(SymInfo);
   }
 
   Link.Subsections.push_back(std::make_unique<SymbolTable>(SymTab));
 
   writeLinking(Link);
+
+  for (const auto &Reloc : Relocations) {
+    writeRelocation(Reloc);
+  }
 }
 
 } /* namespace watever */

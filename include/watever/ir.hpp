@@ -1,5 +1,6 @@
 #pragma once
 
+#include "watever/linking.hpp"
 #include "watever/opcode.hpp"
 #include "watever/type.hpp"
 #include "watever/utils.hpp"
@@ -54,6 +55,7 @@ public:
 class InstArgument {
 public:
   virtual void encode(llvm::raw_ostream &) const = 0;
+  virtual void addRelocation(llvm::raw_ostream &, Relocation &) {};
   virtual std::string getString() const = 0;
   virtual ~InstArgument() = default;
 };
@@ -100,6 +102,26 @@ public:
   }
 };
 
+class RelocatableFuncArg final : public InstArgument {
+public:
+  uint32_t FunctionIndex;
+  explicit RelocatableFuncArg(uint32_t Index) : FunctionIndex(Index) {}
+  std::string getString() const override {
+    return llvm::formatv("{}", FunctionIndex);
+  }
+  void encode(llvm::raw_ostream &OS) const override {
+    // Must be padded to 5 bytes, so it can be patched by the linker
+    llvm::encodeULEB128(FunctionIndex, OS, 5);
+  }
+
+  // TODO using the functionIndex is not generally correct, it should be the
+  // symbol table index
+  void addRelocation(llvm::raw_ostream &OS, Relocation &Reloc) override {
+    Reloc.Entries.emplace_back(RelocationType::R_WASM_FUNCTION_INDEX_LEB,
+                               OS.tell(), FunctionIndex);
+  }
+};
+
 class WasmInst {
   // TODO remove last option; create one consistent, non-owning InstArgument
   // pointer. See Issue #4
@@ -136,17 +158,20 @@ public:
             [&](const std::unique_ptr<InstArgument> &Arg) {
               return llvm::formatv("{0} {1}", Name, Arg->getString()).str();
             },
-            [&](LocalArg *Local) { return Local->getString(); }},
+            [&](LocalArg *Local) {
+              return llvm::formatv("{0} {1}", Name, Local->getString()).str();
+            }},
         Data);
   }
 #endif
 
-  void write(llvm::raw_svector_ostream &OS) const {
+  void write(llvm::raw_ostream &OS, Relocation &Reloc) const {
     Opcode(Op).writeBytes(OS);
 
     std::visit(Overloaded{[&](std::monostate) {},
                           [&](int64_t Imm) { llvm::encodeSLEB128(Imm, OS); },
                           [&](const std::unique_ptr<InstArgument> &Arg) {
+                            Arg->addRelocation(OS, Reloc);
                             Arg->encode(OS);
                           },
                           [&](LocalArg *Local) { Local->encode(OS); }},
@@ -216,6 +241,7 @@ public:
 };
 
 struct Function {
+  uint32_t LinkerFlags{};
   std::string Name;
   uint32_t TypeIndex;
   uint32_t FunctionIndex;
@@ -223,16 +249,26 @@ struct Function {
   Function(uint32_t TypeIdx, uint32_t FuncIdx, std::string Nm)
       : Name(std::move(Nm)), TypeIndex(TypeIdx), FunctionIndex(FuncIdx) {}
 
+  void setFlag(SymbolFlag Flag) { LinkerFlags |= static_cast<uint32_t>(Flag); }
+  bool isSet(SymbolFlag Flag) {
+    return (LinkerFlags & static_cast<uint32_t>(Flag)) != 0;
+  }
+
+  // Needed to decide if we have to write out the SymbolName in the relocation
+  virtual bool isImport() = 0;
+
   virtual ~Function() = default;
 };
 
-struct ImportedFunc : public Function {
+struct ImportedFunc final : public Function {
   explicit ImportedFunc(uint32_t TypeIdx, uint32_t FuncIdx,
                         llvm::StringRef Name)
       : Function(TypeIdx, FuncIdx, Name.str()) {}
+
+  bool isImport() { return true; }
 };
 
-class DefinedFunc : public Function {
+class DefinedFunc final : public Function {
   friend class FunctionLowering;
   uint32_t TotalLocals{};
 
@@ -255,6 +291,7 @@ public:
     return Result;
   }
 
+  bool isImport() { return false; }
   void visit(WasmVisitor &V) const { Body->accept(V); }
 };
 

@@ -590,7 +590,9 @@ void BlockLowering::visitCallInst(llvm::CallInst &CI) {
 
   if (Callee) {
     auto *Func = M.FunctionMap[Callee];
-    Actions.Insts.emplace_back(Opcode::Call, Func->FunctionIndex);
+    Actions.Insts.emplace_back(
+        Opcode::Call,
+        std::make_unique<RelocatableFuncArg>(Func->FunctionIndex));
   }
 }
 

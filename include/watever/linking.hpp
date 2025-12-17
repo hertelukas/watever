@@ -42,6 +42,9 @@ struct RelocationEntry {
   // the index of the symbol used (or, for R_WASM_TYPE_INDEX_LEB relocations,
   // the index of the type)
   uint32_t Index;
+
+  RelocationEntry(RelocationType Ty, uint32_t Offset, uint32_t Idx)
+      : Type(Ty), Offset(Offset), Index(Idx) {}
 };
 
 /// https://github.com/WebAssembly/tool-conventions/blob/main/Linking.md#relocation-sections
@@ -49,6 +52,12 @@ struct Relocation {
   // Index of target section (varuint32)
   uint32_t Section;
   std::vector<RelocationEntry> Entries;
+
+  // Used for reloc.<SectionName>
+  std::string SectionName;
+
+  explicit Relocation(uint32_t Idx, std::string Name)
+      : Section(Idx), SectionName(std::move(Name)) {}
 };
 
 enum class SectionType : uint8_t {
@@ -215,12 +224,15 @@ enum class SymbolFlag : uint32_t {
 struct SymbolName {
   uint32_t Index;
   std::string Name;
+  bool IsImport;
 
   uint32_t getLen() const {
     uint32_t Len{};
     Len += llvm::getULEB128Size(Index);
-    Len += llvm::getULEB128Size(Name.size());
-    Len += Name.size();
+    if (!IsImport) {
+      Len += llvm::getULEB128Size(Name.size());
+      Len += Name.size();
+    }
     return Len;
   }
 };
@@ -253,7 +265,7 @@ struct SymbolSection {
 
 struct SymInfo {
   SymbolKind Kind;
-  uint32_t Flags;
+  uint32_t Flags{};
 
   std::variant<SymbolName, SymbolData, SymbolSection> Content;
 
@@ -287,8 +299,10 @@ struct SymbolTable final : Subsection {
       llvm::encodeULEB128(S.Flags, OS);
       std::visit(Overloaded{[&](const SymbolName &SymName) {
                               llvm::encodeULEB128(SymName.Index, OS);
-                              llvm::encodeULEB128(SymName.Name.size(), OS);
-                              OS << SymName.Name;
+                              if (!SymName.IsImport) {
+                                llvm::encodeULEB128(SymName.Name.size(), OS);
+                                OS << SymName.Name;
+                              }
                             },
                             [&](const SymbolData &SymData) {
                               llvm::encodeULEB128(SymData.Name.size(), OS);

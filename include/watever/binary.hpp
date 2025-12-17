@@ -14,10 +14,11 @@ static constexpr uint32_t WateverBinaryMagic = 0x6d736100;
 static constexpr uint32_t Version = 0x1;
 
 class CodeWriter final : public WasmVisitor {
-  llvm::raw_svector_ostream &OS;
+  Relocation &Reloc;
+  llvm::raw_ostream &OS;
 
 public:
-  CodeWriter(llvm::raw_svector_ostream &OS) : OS(OS) {}
+  CodeWriter(llvm::raw_ostream &OS, Relocation &Reloc) : Reloc(Reloc), OS(OS) {}
   void visit(WasmBlock &Block) override;
   void visit(WasmLoop &Loop) override;
   void visit(WasmIf &IfElse) override;
@@ -48,6 +49,13 @@ class BinaryWriter {
   llvm::raw_ostream &OS;
   Module &Mod;
 
+  // This is needed for relocations, so they can index into the correct section
+  // by index, not by section ID. (For example, if we only have a type and a
+  // code section, the code section will have index  1)
+  uint32_t CurrentSection;
+
+  llvm::SmallVector<Relocation> Relocations;
+
   void writeMagic() { writeIntegral(WateverBinaryMagic, OS); }
   void writeVersion() { writeIntegral(Version, OS); }
 
@@ -59,14 +67,24 @@ class BinaryWriter {
   // TODO figure out if this is a custom section or part of linking custom
   // section
   void writeRelocation(const Relocation &Rel) {
-    llvm::encodeULEB128(Rel.Section, OS);
-    llvm::encodeULEB128(Rel.Entries.size(), OS);
+    llvm::SmallVector<char> Content;
+    llvm::raw_svector_ostream ContentOS(Content);
+
+    llvm::encodeULEB128(Rel.SectionName.length() + 6, ContentOS);
+    ContentOS << "reloc.";
+    ContentOS << Rel.SectionName;
+    llvm::encodeULEB128(Rel.Section, ContentOS);
+    llvm::encodeULEB128(Rel.Entries.size(), ContentOS);
 
     for (auto &Entry : Rel.Entries) {
-      OS << static_cast<uint8_t>(Entry.Type);
-      llvm::encodeULEB128(Entry.Offset, OS);
-      llvm::encodeULEB128(Entry.Index, OS);
+      ContentOS << static_cast<uint8_t>(Entry.Type);
+      llvm::encodeULEB128(Entry.Offset, ContentOS);
+      llvm::encodeULEB128(Entry.Index, ContentOS);
     }
+
+    OS << static_cast<uint8_t>(Section::Custom);
+    llvm::encodeULEB128(Content.size(), OS);
+    OS << ContentOS.str();
   }
 
   void writeLinking(const Linking &Link) {
@@ -89,6 +107,10 @@ class BinaryWriter {
   }
 
   void writeImports(llvm::ArrayRef<Import> Imports) {
+    if (Imports.empty()) {
+      return;
+    }
+    CurrentSection++;
     llvm::SmallVector<char> Content;
     llvm::raw_svector_ostream ContentOS(Content);
 
