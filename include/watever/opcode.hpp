@@ -47,26 +47,18 @@ struct Opcode {
   const char *getDecomp() const {
     return *getInfo().Decomp ? getInfo().Decomp : getInfo().Name;
   }
-  Type getResultType() const { return getInfo().ResultType; }
-  Type getParamType1() const { return getInfo().ParamTypes[0]; }
-  Type getParamType2() const { return getInfo().ParamTypes[1]; }
-  Type getParamType3() const { return getInfo().ParamTypes[2]; }
-  Type getParamType(int N) const { return getInfo().ParamTypes[N - 1]; }
-  Address getMemorySize() const { return getInfo().MemorySize; }
+  ValType getResultType() const { return getInfo().ResultType; }
+  ValType getParamType1() const { return getInfo().ParamTypes[0]; }
+  ValType getParamType2() const { return getInfo().ParamTypes[1]; }
+  ValType getParamType3() const { return getInfo().ParamTypes[2]; }
+  ValType getParamType(int N) const { return getInfo().ParamTypes[N - 1]; }
 
   // Write the opcode to OS
-  void writeBytes(llvm::raw_svector_ostream &OS) const;
+  void writeBytes(llvm::raw_ostream &OS) const;
 
   // Get the lane count of an extract/replace simd op.
   uint32_t getSimdLaneCount() const;
 
-  // Return 1 if |alignment| matches the alignment of |opcode|, or if
-  // |alignment| is WABT_USE_NATURAL_ALIGNMENT.
-  bool isNaturallyAligned(Address Alignment) const;
-
-  // If |alignment| is WABT_USE_NATURAL_ALIGNMENT, return the alignment of
-  // |opcode|, else return |alignment|.
-  Address getAlignment(Address Alignment) const;
 
   static bool isPrefixByte(uint8_t Byte) {
     return Byte == KMathPrefix || Byte == KThreadsPrefix || Byte == KSimdPrefix;
@@ -83,9 +75,9 @@ private:
   struct Info {
     const char *Name;
     const char *Decomp;
-    Type ResultType;
-    Type ParamTypes[3];
-    Address MemorySize;
+    ValType ResultType;
+    ValType ParamTypes[3];
+    uint64_t MemorySize;
     uint8_t Prefix;
     uint32_t Code;
     uint32_t PrefixCode; // See PrefixCode below. Used for fast lookup.

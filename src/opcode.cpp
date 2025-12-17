@@ -13,15 +13,17 @@ namespace watever {
 Opcode::Info Opcode::Infos[] = {
 #define WATEVER_OPCODE(rtype, type1, type2, type3, mem_size, prefix, code,     \
                        Name, text, decomp)                                     \
-  {text,     decomp, Type::rtype, {Type::type1, Type::type2, Type::type3},     \
-   mem_size, prefix, code,        prefixCode(prefix, code)},
+  {text,           decomp,                                                     \
+   ValType::rtype, {ValType::type1, ValType::type2, ValType::type3},           \
+   mem_size,       prefix,                                                     \
+   code,           prefixCode(prefix, code)},
 #include "watever/opcode.def"
 #undef WATEVER_OPCODE
 
     {"<invalid>",
      "",
-     Type::Void,
-     {Type::Void, Type::Void, Type::Void},
+     ValType::Void,
+     {ValType::Void, ValType::Void, ValType::Void},
      0,
      0,
      0,
@@ -43,18 +45,6 @@ Opcode::Info Opcode::getInfo() const {
   decodeInvalidOpcode(E, &InvalidInfo.Prefix, &InvalidInfo.Code);
   InvalidInfo.PrefixCode = prefixCode(InvalidInfo.Prefix, InvalidInfo.Code);
   return InvalidInfo;
-}
-
-bool Opcode::isNaturallyAligned(Address Alignment) const {
-  Address OpcodeAlign = getMemorySize();
-  return Alignment == WATEVER_USE_NATURAL_ALIGNMENT || Alignment == OpcodeAlign;
-}
-
-Address Opcode::getAlignment(Address Alignment) const {
-  if (Alignment == WATEVER_USE_NATURAL_ALIGNMENT) {
-    return getMemorySize();
-  }
-  return Alignment;
 }
 
 bool Opcode::isEnabled(const Features &Fs) const {
@@ -425,7 +415,7 @@ uint32_t Opcode::getSimdLaneCount() const {
 // return Result;
 // }
 
-void Opcode::writeBytes(llvm::raw_svector_ostream &OS) const {
+void Opcode::writeBytes(llvm::raw_ostream &OS) const {
   if (hasPrefix()) {
     WATEVER_TODO("writeout prefix");
   }

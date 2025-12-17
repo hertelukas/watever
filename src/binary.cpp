@@ -3,7 +3,6 @@
 #include "watever/ir.hpp"
 #include "watever/linking.hpp"
 #include "watever/opcode.hpp"
-#include "watever/utils.hpp"
 #include <cstdint>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/Support/LEB128.h>
@@ -62,30 +61,8 @@ void BinaryWriter::writeTypes() {
   // list(type)
   llvm::encodeULEB128(Mod.Types.size(), ContentOS);
 
-  uint32_t TypeIndex{};
-  for (auto &[_, value] : Mod.Types) {
-    value->Index = TypeIndex++;
-
-    std::visit(
-        Overloaded{[&](StructType &) { WATEVER_TODO("encode structype"); },
-                   [&](ArrayType &) { WATEVER_TODO("encode array type"); },
-                   [&](FuncType &FT) {
-                     ContentOS << Type::Enum::Func;
-                     // Encode args
-                     llvm::encodeULEB128(FT.Args.size(), ContentOS);
-                     for (const auto &Arg : FT.Args) {
-                       ContentOS << Arg;
-                     }
-                     // Encode results
-                     llvm::encodeULEB128(FT.Results.size(), ContentOS);
-                     for (const auto &Res : FT.Results) {
-                       ContentOS << Res;
-                     }
-                   }
-
-        },
-        value->Composite);
-    // TODO support rec types
+  for (auto &FT : Mod.Types) {
+    FT.encode(ContentOS);
   }
 
   OS << static_cast<uint8_t>(Section::Type);
@@ -102,7 +79,7 @@ void BinaryWriter::writeFunctions() {
   // TODO handle imports
   llvm::encodeULEB128(Mod.Functions.size(), ContentOS);
   for (auto &Func : Mod.Functions) {
-    llvm::encodeULEB128(Func->TypePtr->Index, ContentOS);
+    llvm::encodeULEB128(Func->TypeIndex, ContentOS);
     Func->Index = CurrentIdx++;
   }
 
@@ -131,7 +108,7 @@ void BinaryWriter::writeCode() {
         Local->Index = CurrentLocal++;
       }
       llvm::encodeULEB128(LocalList.size(), CodeOS);
-      CodeOS << Ty;
+      CodeOS << static_cast<uint8_t>(Ty);
     }
     CodeWriter CW{CodeOS};
     F->visit(CW);

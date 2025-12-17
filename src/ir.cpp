@@ -37,7 +37,7 @@ void BlockLowering::calculateLiveOut() {
           // PHI node
           if (Parent->LocalMapping.find(&Val) == Parent->LocalMapping.end()) {
             Parent->LocalMapping[&Val] = Parent->getNewLocal(
-                Type::fromLLVMType(Val.getType(), BB->getDataLayout()));
+                fromLLVMType(Val.getType(), BB->getDataLayout()));
           }
           WorkList.push_back(&Val);
           Added = true;
@@ -682,7 +682,7 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
       } else {
         // If not, we create it
         Local = Parent->getNewLocal(
-            Type::fromLLVMType(Next->getType(), BB->getDataLayout()));
+            fromLLVMType(Next->getType(), BB->getDataLayout()));
       }
       Parent->LocalMapping[Next] = Local;
       Actions.Insts.push_back(WasmInst(Opcode::LocalGet, Local));
@@ -718,8 +718,8 @@ std::unique_ptr<Wasm> FunctionLowering::doBranch(const llvm::BasicBlock *Source,
       } else {
         // Or maybe it has not been emitted yet, so register a new local for it
         // (e.g., loop header
-        SourceLocal = F->getNewLocal(Type::fromLLVMType(
-            IncomingVal->getType(), Source->getDataLayout()));
+        SourceLocal = F->getNewLocal(
+            fromLLVMType(IncomingVal->getType(), Source->getDataLayout()));
         F->LocalMapping[IncomingVal] = SourceLocal;
       }
       PhiActions.Insts.push_back(WasmInst(Opcode::LocalGet, SourceLocal));
@@ -729,8 +729,8 @@ std::unique_ptr<Wasm> FunctionLowering::doBranch(const llvm::BasicBlock *Source,
     if (auto It = F->LocalMapping.find(&Phi); It != F->LocalMapping.end()) {
       DestLocal = It->second;
     } else {
-      DestLocal = F->getNewLocal(
-          Type::fromLLVMType(Phi.getType(), Target->getDataLayout()));
+      DestLocal =
+          F->getNewLocal(fromLLVMType(Phi.getType(), Target->getDataLayout()));
       F->LocalMapping[&Phi] = DestLocal;
     }
 
@@ -891,20 +891,19 @@ Module ModuleLowering::convert(llvm::Module &Mod,
 
     FuncType WasmFuncTy{};
     for (auto *ParamTy : FT->params()) {
-      auto WasmType = Type::fromLLVMType(ParamTy, Mod.getDataLayout());
-      WasmFuncTy.Args.push_back(WasmType);
+      auto WasmType = fromLLVMType(ParamTy, Mod.getDataLayout());
+      WasmFuncTy.Params.push_back(WasmType);
     }
 
     if (!FT->getReturnType()->isVoidTy()) {
       WasmFuncTy.Results.push_back(
-          Type::fromLLVMType(FT->getReturnType(), Mod.getDataLayout()));
+          fromLLVMType(FT->getReturnType(), Mod.getDataLayout()));
     }
 
-    SubType WasmTy(WasmFuncTy);
-    const auto *WasmFuncTyPtr = Res.getOrAddType(WasmTy);
+    const uint32_t FuncTypeIndex = Res.getOrAddType(WasmFuncTy);
 
     auto FunctionPtr = std::make_unique<Function>(
-        WasmFuncTyPtr, static_cast<uint32_t>(F.arg_size()), F.getName());
+        FuncTypeIndex, static_cast<uint32_t>(F.arg_size()), F.getName());
 
     auto *FunctionPtrPtr = FunctionPtr.get();
     Res.Functions.push_back(std::move(FunctionPtr));

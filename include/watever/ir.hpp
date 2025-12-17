@@ -1,6 +1,7 @@
 #pragma once
 
 #include "watever/opcode.hpp"
+#include "watever/type.hpp"
 #include "watever/utils.hpp"
 #include <cstdint>
 #include <llvm/ADT/DenseMap.h>
@@ -52,7 +53,7 @@ public:
 
 class InstArgument {
 public:
-  virtual void encode(llvm::raw_svector_ostream &) const = 0;
+  virtual void encode(llvm::raw_ostream &) const = 0;
   virtual std::string getString() const = 0;
   virtual ~InstArgument() = default;
 };
@@ -72,7 +73,7 @@ public:
                          Offset);
   }
 
-  void encode(llvm::raw_svector_ostream &OS) const override {
+  void encode(llvm::raw_ostream &OS) const override {
     if (Alignment >= 64) {
       WATEVER_LOG_ERR("Alignment is too large: {}", Alignment);
     }
@@ -94,7 +95,7 @@ public:
   uint32_t Index;
   explicit LocalArg(uint32_t Index) : Index(Index) {}
   std::string getString() const override { return llvm::formatv("{}", Index); }
-  void encode(llvm::raw_svector_ostream &OS) const override {
+  void encode(llvm::raw_ostream &OS) const override {
     llvm::encodeULEB128(Index, OS);
   }
 };
@@ -214,37 +215,6 @@ public:
   void accept(WasmVisitor &V) override { V.visit(*this); }
 };
 
-// TODO
-struct StructType {
-  auto operator<=>(const StructType &) const = default;
-};
-
-// TODO
-struct ArrayType {
-  auto operator<=>(const ArrayType &) const = default;
-};
-
-struct FuncType {
-  // TODO not sure if "Type" is correct here (should be valtype)
-  std::vector<Type::Enum> Args;
-  std::vector<Type::Enum> Results;
-
-  auto operator<=>(const FuncType &) const = default;
-};
-
-// TODO support typeuse
-struct SubType {
-  bool IsFinal;
-  std::variant<FuncType, StructType, ArrayType> Composite;
-  uint32_t Index;
-
-  auto operator<=>(const SubType &) const = default;
-
-  SubType(FuncType FT) : Composite(FT) {}
-  SubType(StructType ST) : Composite(ST) {}
-  SubType(ArrayType AT) : Composite(AT) {}
-};
-
 class Function {
   friend class FunctionLowering;
   uint32_t TotalLocals{};
@@ -254,15 +224,15 @@ public:
   llvm::StringRef Name;
   std::unique_ptr<Wasm> Body{};
   llvm::DenseMap<llvm::Value *, LocalArg *> LocalMapping;
-  llvm::DenseMap<Type::Enum, llvm::SmallVector<std::unique_ptr<LocalArg>>>
+  llvm::DenseMap<ValType, llvm::SmallVector<std::unique_ptr<LocalArg>>>
       Locals{};
-  const SubType *TypePtr{};
+  uint32_t TypeIndex;
   uint32_t Index;
 
-  explicit Function(const SubType *Type, uint32_t Args, llvm::StringRef Name)
-      : TotalLocals(Args), Args(Args), Name(Name), TypePtr(Type) {}
+  explicit Function(uint32_t TypeIndex, uint32_t Args, llvm::StringRef Name)
+      : TotalLocals(Args), Args(Args), Name(Name), TypeIndex(TypeIndex) {}
 
-  LocalArg *getNewLocal(Type::Enum Ty) {
+  LocalArg *getNewLocal(ValType Ty) {
     auto NewLocal = std::make_unique<LocalArg>(TotalLocals++);
     auto *Result = NewLocal.get();
     Locals[Ty].push_back(std::move(NewLocal));
@@ -275,20 +245,21 @@ public:
 
 class Module {
 public:
-  // Canonical storage for types
-  std::map<SubType, std::unique_ptr<SubType>> Types;
+  std::vector<FuncType> Types;
+  // Deduplication lookup table
+  std::map<FuncType, uint32_t> TypeLookup;
   llvm::SmallVector<std::unique_ptr<Function>, 4> Functions{};
   llvm::DenseMap<llvm::Function *, Function *> FunctionMap{};
 
-  const SubType *getOrAddType(const SubType &Temp) {
-    auto It = Types.find(Temp);
-    if (It != Types.end())
-      return It->second.get();
-
-    auto NewType = std::make_unique<SubType>(Temp);
-    const SubType *Ptr = NewType.get();
-    Types.emplace(Temp, std::move(NewType));
-    return Ptr;
+  uint32_t getOrAddType(const FuncType &Signature) {
+    if (auto It = TypeLookup.find(Signature); It != TypeLookup.end()) {
+      return It->second;
+    }
+    // Type doesn't yet exist
+    uint32_t NewIndex = static_cast<uint32_t>(Types.size());
+    Types.push_back(Signature);
+    TypeLookup.insert({Signature, NewIndex});
+    return NewIndex;
   }
 };
 
@@ -444,7 +415,7 @@ public:
 class CallArg final : public InstArgument {
   Function *F;
   std::string getString() const override { return F->Name.str(); }
-  void encode(llvm::raw_svector_ostream &OS) const override {
+  void encode(llvm::raw_ostream &OS) const override {
     llvm::encodeULEB128(F->Index, OS);
   }
 
