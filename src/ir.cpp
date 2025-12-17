@@ -3,6 +3,7 @@
 #include "watever/printer.hpp"
 #include "watever/utils.hpp"
 #include <algorithm>
+#include <cstdint>
 #include <llvm/ADT/DenseMap.h>
 #include <llvm/Analysis/LoopNestAnalysis.h>
 #include <llvm/IR/Argument.h>
@@ -589,7 +590,7 @@ void BlockLowering::visitCallInst(llvm::CallInst &CI) {
 
   if (Callee) {
     auto *Func = M.FunctionMap[Callee];
-    Actions.Insts.emplace_back(Opcode::Call, std::make_unique<CallArg>(Func));
+    Actions.Insts.emplace_back(Opcode::Call, Func->FunctionIndex);
   }
 }
 
@@ -881,9 +882,35 @@ void FunctionLowering::getMergeChildren(
 Module ModuleLowering::convert(llvm::Module &Mod,
                                llvm::FunctionAnalysisManager &FAM) {
   Module Res{};
+
+  uint32_t FunctionIndexCounter = 0;
+
+  // Imported functions must be defined first
+  for (auto &F : Mod) {
+    if (!F.isDeclaration()) {
+      continue;
+    }
+    auto *FT = F.getFunctionType();
+    FuncType WasmFuncTy{};
+    for (auto *ParamTy : FT->params()) {
+      auto WasmType = fromLLVMType(ParamTy, Mod.getDataLayout());
+      WasmFuncTy.Params.push_back(WasmType);
+    }
+
+    if (!FT->getReturnType()->isVoidTy()) {
+      WasmFuncTy.Results.push_back(
+          fromLLVMType(FT->getReturnType(), Mod.getDataLayout()));
+    }
+
+    const uint32_t FuncTypeIndex = Res.getOrAddType(WasmFuncTy);
+    auto Import = std::make_unique<ImportedFunc>(
+        FuncTypeIndex, FunctionIndexCounter++, F.getName().str());
+    Res.FunctionMap[&F] = Import.get();
+    Res.Imports.push_back(std::move(Import));
+  }
+
   for (auto &F : Mod) {
     if (F.isDeclaration()) {
-      WATEVER_TODO("handle function declaration");
       continue;
     }
 
@@ -902,8 +929,9 @@ Module ModuleLowering::convert(llvm::Module &Mod,
 
     const uint32_t FuncTypeIndex = Res.getOrAddType(WasmFuncTy);
 
-    auto FunctionPtr = std::make_unique<Function>(
-        FuncTypeIndex, static_cast<uint32_t>(F.arg_size()), F.getName());
+    auto FunctionPtr = std::make_unique<DefinedFunc>(
+        FuncTypeIndex, FunctionIndexCounter++,
+        static_cast<uint32_t>(F.arg_size()), F.getName());
 
     auto *FunctionPtrPtr = FunctionPtr.get();
     Res.Functions.push_back(std::move(FunctionPtr));
@@ -912,7 +940,10 @@ Module ModuleLowering::convert(llvm::Module &Mod,
   }
 
   for (auto &F : Mod) {
-    auto *WasmFunc = Res.FunctionMap[&F];
+    if (F.isDeclaration()) {
+      continue;
+    }
+    auto *WasmFunc = static_cast<DefinedFunc *>(Res.FunctionMap[&F]);
     auto &DT = FAM.getResult<llvm::DominatorTreeAnalysis>(F);
     auto &LI = FAM.getResult<llvm::LoopAnalysis>(F);
 

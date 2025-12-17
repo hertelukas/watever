@@ -215,22 +215,37 @@ public:
   void accept(WasmVisitor &V) override { V.visit(*this); }
 };
 
-class Function {
+struct Function {
+  std::string Name;
+  uint32_t TypeIndex;
+  uint32_t FunctionIndex;
+
+  Function(uint32_t TypeIdx, uint32_t FuncIdx, std::string Nm)
+      : Name(std::move(Nm)), TypeIndex(TypeIdx), FunctionIndex(FuncIdx) {}
+
+  virtual ~Function() = default;
+};
+
+struct ImportedFunc : public Function {
+  explicit ImportedFunc(uint32_t TypeIdx, uint32_t FuncIdx,
+                        llvm::StringRef Name)
+      : Function(TypeIdx, FuncIdx, Name.str()) {}
+};
+
+class DefinedFunc : public Function {
   friend class FunctionLowering;
   uint32_t TotalLocals{};
 
 public:
-  const uint32_t Args{};
-  llvm::StringRef Name;
+  uint32_t Args{};
   std::unique_ptr<Wasm> Body{};
   llvm::DenseMap<llvm::Value *, LocalArg *> LocalMapping;
   llvm::DenseMap<ValType, llvm::SmallVector<std::unique_ptr<LocalArg>>>
       Locals{};
-  uint32_t TypeIndex;
-  uint32_t Index;
 
-  explicit Function(uint32_t TypeIndex, uint32_t Args, llvm::StringRef Name)
-      : TotalLocals(Args), Args(Args), Name(Name), TypeIndex(TypeIndex) {}
+  explicit DefinedFunc(uint32_t TypeIdx, uint32_t FuncIdx, uint32_t Args,
+                       llvm::StringRef Name)
+      : Function(TypeIdx, FuncIdx, Name.str()), Args(Args) {}
 
   LocalArg *getNewLocal(ValType Ty) {
     auto NewLocal = std::make_unique<LocalArg>(TotalLocals++);
@@ -245,10 +260,11 @@ public:
 
 class Module {
 public:
-  std::vector<FuncType> Types;
+  llvm::SmallVector<FuncType> Types;
   // Deduplication lookup table
   std::map<FuncType, uint32_t> TypeLookup;
-  llvm::SmallVector<std::unique_ptr<Function>, 4> Functions{};
+  llvm::SmallVector<std::unique_ptr<ImportedFunc>> Imports{};
+  llvm::SmallVector<std::unique_ptr<DefinedFunc>, 4> Functions{};
   llvm::DenseMap<llvm::Function *, Function *> FunctionMap{};
 
   uint32_t getOrAddType(const FuncType &Signature) {
@@ -275,7 +291,7 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
   llvm::DenseMap<llvm::Value *, int> getInternalUserCounts() const;
 
   Module &M;
-  Function *Parent;
+  DefinedFunc *Parent;
 
   void addOperandsToWorklist(llvm::iterator_range<llvm::Use *> Ops) {
     for (llvm::Value *Op : Ops) {
@@ -332,7 +348,7 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
   }
 
 public:
-  explicit BlockLowering(llvm::BasicBlock *BB, Module &M, Function *F)
+  explicit BlockLowering(llvm::BasicBlock *BB, Module &M, DefinedFunc *F)
       : BB(BB), M(M), Parent(F) {}
 
   std::unique_ptr<WasmActions> lower();
@@ -365,7 +381,7 @@ class FunctionLowering {
     }
   };
 
-  Function *F;
+  DefinedFunc *F;
   using Context = llvm::SmallVector<ContainingSyntax, 8>;
 
   llvm::DominatorTree &DT;
@@ -396,7 +412,7 @@ class FunctionLowering {
   }
 
 public:
-  FunctionLowering(Function *F, llvm::DominatorTree &DT, llvm::LoopInfo &LI,
+  FunctionLowering(DefinedFunc *F, llvm::DominatorTree &DT, llvm::LoopInfo &LI,
                    Module &M)
       : F(F), DT(DT), LI(LI), M(M) {}
 
@@ -411,16 +427,4 @@ class ModuleLowering {
 public:
   static Module convert(llvm::Module &Mod, llvm::FunctionAnalysisManager &FAM);
 };
-
-class CallArg final : public InstArgument {
-  Function *F;
-  std::string getString() const override { return F->Name.str(); }
-  void encode(llvm::raw_ostream &OS) const override {
-    llvm::encodeULEB128(F->Index, OS);
-  }
-
-public:
-  explicit CallArg(Function *F) : F(F) {};
-};
-
 } // namespace watever

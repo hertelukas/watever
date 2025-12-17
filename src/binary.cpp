@@ -74,13 +74,11 @@ void BinaryWriter::writeFunctions() {
   llvm::SmallVector<char> Content;
   llvm::raw_svector_ostream ContentOS(Content);
 
-  uint32_t CurrentIdx{};
   // list(typeidx)
   // TODO handle imports
   llvm::encodeULEB128(Mod.Functions.size(), ContentOS);
   for (auto &Func : Mod.Functions) {
     llvm::encodeULEB128(Func->TypeIndex, ContentOS);
-    Func->Index = CurrentIdx++;
   }
 
   OS << static_cast<uint8_t>(Section::Function);
@@ -139,6 +137,12 @@ void BinaryWriter::write() {
       "env", "__linear_memory",
       std::make_unique<MemType>(Limit{static_cast<uint32_t>(0)}));
 
+  for (const auto &F : Mod.Imports) {
+    Imports.emplace_back(
+        "env", F->Name,
+        std::make_unique<FuncExternType>(FuncExternType{F->TypeIndex}));
+  }
+
   writeImports(Imports);
   writeFunctions();
   writeCode();
@@ -151,8 +155,8 @@ void BinaryWriter::write() {
   for (const auto &F : Mod.Functions) {
     SymInfo SymInfo{};
     SymbolName SymName{};
-    SymName.Index = F->Index;
-    SymName.Name = F->Name.str();
+    SymName.Index = F->FunctionIndex;
+    SymName.Name = F->Name;
     SymInfo.Kind = SymbolKind::SYMTAB_FUNCTION;
     SymInfo.Content = SymName;
     SymTab.Infos.push_back(SymInfo);

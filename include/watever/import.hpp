@@ -63,6 +63,21 @@ public:
   }
 };
 
+class FuncExternType final : public ExternType {
+  uint32_t TypeIndex;
+
+public:
+  explicit FuncExternType(uint32_t TypeIdx) : TypeIndex(TypeIdx) {}
+
+  virtual void writePayload(llvm::raw_ostream &OS) const override {
+    llvm::encodeULEB128(TypeIndex, OS);
+  }
+
+  ExternalType getExternalType() const override {
+    return ExternalType::FuncType;
+  }
+};
+
 struct Import {
   std::string Name1;
   std::string Name2;
