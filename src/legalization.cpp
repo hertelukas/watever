@@ -358,6 +358,11 @@ void FunctionLegalizer::visitBinaryOperator(llvm::BinaryOperator &BO) {
 // Memory Access and Addressing Operations
 //===----------------------------------------------------------------------===//
 
+void FunctionLegalizer::visitAllocaInst(llvm::AllocaInst &AI) {
+  ValueMap[&AI] = Builder.CreateAlloca(AI.getAllocatedType(),
+                                       AI.getAddressSpace(), AI.getArraySize());
+}
+
 void FunctionLegalizer::visitLoadInst(llvm::LoadInst &LI) {
   auto *ResultType = LI.getType();
   auto *Pointer = getMappedValue(LI.getPointerOperand())[0];

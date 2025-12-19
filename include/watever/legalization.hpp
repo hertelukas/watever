@@ -181,6 +181,7 @@ public:
   // Aggregatge Operations
 
   // Memory Access and Addressing Operations
+  void visitAllocaInst(llvm::AllocaInst &AI);
   void visitLoadInst(llvm::LoadInst &LI);
   void visitStoreInst(llvm::StoreInst &SI);
   void visitGetElementPtrInst(llvm::GetElementPtrInst &GI);
