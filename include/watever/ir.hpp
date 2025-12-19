@@ -125,9 +125,17 @@ public:
 class RelocatableGlobalArg final : public InstArgument {
 public:
   uint32_t GlobalIndex;
-  explicit RelocatableGlobalArg(uint32_t Index) : GlobalIndex(Index) {}
+  ValType Ty;
+  std::string ModuleName;
+  std::string EntityName;
+  bool Mutable;
+
+  explicit RelocatableGlobalArg(uint32_t Index, ValType Ty, std::string MN,
+                                std::string EN)
+      : GlobalIndex(Index), Ty(Ty), ModuleName(std::move(MN)),
+        EntityName(std::move(EN)) {}
   std::string getString() const override {
-    return llvm::formatv("{}", GlobalIndex);
+    return llvm::formatv("{} ({}::{})", GlobalIndex, ModuleName, EntityName);
   }
   void encode(llvm::raw_ostream &OS) const override {
     llvm::encodeULEB128(GlobalIndex, OS, 5);
@@ -334,9 +342,7 @@ public:
   llvm::SmallVector<std::unique_ptr<DefinedFunc>, 4> Functions{};
   llvm::DenseMap<llvm::Function *, Function *> FunctionMap{};
 
-  llvm::DenseMap<ValType,
-                 llvm::SmallVector<std::unique_ptr<RelocatableGlobalArg>>>
-      ImportedGlobals{};
+  llvm::SmallVector<std::unique_ptr<RelocatableGlobalArg>> ImportedGlobals{};
   llvm::DenseMap<llvm::Value *, RelocatableGlobalArg *> GlobalMapping;
   RelocatableGlobalArg *StackPointer;
 
@@ -355,10 +361,10 @@ public:
   /// exist yet.
   RelocatableGlobalArg *getStackPointer(ValType PtrTy) {
     if (!StackPointer) {
-      auto NewStackPointer =
-          std::make_unique<RelocatableGlobalArg>(TotalGlobals++);
+      auto NewStackPointer = std::make_unique<RelocatableGlobalArg>(
+          TotalGlobals++, PtrTy, "env", "__stack_pointer");
       StackPointer = NewStackPointer.get();
-      ImportedGlobals[PtrTy].push_back(std::move(NewStackPointer));
+      ImportedGlobals.push_back(std::move(NewStackPointer));
     }
     return StackPointer;
   }

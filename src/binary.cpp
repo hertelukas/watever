@@ -160,6 +160,11 @@ void BinaryWriter::write() {
         std::make_unique<FuncExternType>(FuncExternType{F->TypeIndex}));
   }
 
+  for (const auto &G : Mod.ImportedGlobals) {
+    Imports.emplace_back(G->ModuleName, G->EntityName,
+                         std::make_unique<GlobalType>(G->Ty, G->Mutable));
+  }
+
   writeImports(Imports);
   writeFunctions();
   writeCode();

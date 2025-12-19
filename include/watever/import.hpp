@@ -1,5 +1,6 @@
 #pragma once
 
+#include "watever/type.hpp"
 #include "watever/utils.hpp"
 #include <cstdint>
 #include <llvm/Support/LEB128.h>
@@ -78,14 +79,28 @@ public:
   }
 };
 
+class GlobalType final : public ExternType {
+  ValType Type;
+  bool Mutable;
+
+public:
+  explicit GlobalType(ValType Ty, bool Mut) : Type(Ty), Mutable(Mut) {}
+  void writePayload(llvm::raw_ostream &OS) const override {
+    OS << static_cast<uint8_t>(Type);
+    OS << (Mutable ? '\01' : '\00');
+  }
+  ExternalType getExternalType() const override {
+    return ExternalType::GlobalType;
+  }
+};
+
 struct Import {
-  std::string Name1;
-  std::string Name2;
+  std::string ModuleName;
+  std::string EntityName;
 
   std::unique_ptr<ExternType> Extern;
-  Import(std::string Name1, std::string Name2,
-         std::unique_ptr<ExternType> Extern)
-      : Name1(std::move(Name1)), Name2(std::move(Name2)),
+  Import(std::string MN, std::string EN, std::unique_ptr<ExternType> Extern)
+      : ModuleName(std::move(MN)), EntityName(std::move(EN)),
         Extern(std::move(Extern)) {}
 };
 } // namespace watever
