@@ -122,11 +122,30 @@ public:
   }
 };
 
+class RelocatableGlobalArg final : public InstArgument {
+public:
+  uint32_t GlobalIndex;
+  explicit RelocatableGlobalArg(uint32_t Index) : GlobalIndex(Index) {}
+  std::string getString() const override {
+    return llvm::formatv("{}", GlobalIndex);
+  }
+  void encode(llvm::raw_ostream &OS) const override {
+    llvm::encodeULEB128(GlobalIndex, OS, 5);
+  }
+
+  // TODO using the globalIndex is wrong
+  void addRelocation(llvm::raw_ostream &OS, Relocation &Reloc) override {
+    Reloc.Entries.emplace_back(RelocationType::R_WASM_GLOBAL_INDEX_LEB,
+                               OS.tell(), GlobalIndex);
+  }
+};
+
 class WasmInst {
-  // TODO remove last option; create one consistent, non-owning InstArgument
+  // TODO remove last options; create one consistent, non-owning InstArgument
   // pointer. See Issue #4
-  using Storage = std::variant<std::monostate, int64_t,
-                               std::unique_ptr<InstArgument>, LocalArg *>;
+  using Storage =
+      std::variant<std::monostate, int64_t, std::unique_ptr<InstArgument>,
+                   LocalArg *, RelocatableGlobalArg *>;
   Storage Data;
 
 public:
@@ -138,6 +157,7 @@ public:
       : Data(std::move(Arg)), Op(O) {}
   // FIXME this should be deleted, and united with the above constructor
   WasmInst(Opcode::Enum O, LocalArg *Arg) : Data(Arg), Op(O) {}
+  WasmInst(Opcode::Enum O, RelocatableGlobalArg *Arg) : Data(Arg), Op(O) {}
 
   WasmInst(WasmInst &&) = default;
   WasmInst &operator=(WasmInst &&) = default;
@@ -160,6 +180,9 @@ public:
             },
             [&](LocalArg *Local) {
               return llvm::formatv("{0} {1}", Name, Local->getString()).str();
+            },
+            [&](RelocatableGlobalArg *Global) {
+              return llvm::formatv("{0} {1}", Name, Global->getString()).str();
             }},
         Data);
   }
@@ -168,14 +191,16 @@ public:
   void write(llvm::raw_ostream &OS, Relocation &Reloc) const {
     Opcode(Op).writeBytes(OS);
 
-    std::visit(Overloaded{[&](std::monostate) {},
-                          [&](int64_t Imm) { llvm::encodeSLEB128(Imm, OS); },
-                          [&](const std::unique_ptr<InstArgument> &Arg) {
-                            Arg->addRelocation(OS, Reloc);
-                            Arg->encode(OS);
-                          },
-                          [&](LocalArg *Local) { Local->encode(OS); }},
-               Data);
+    std::visit(
+        Overloaded{[&](std::monostate) {},
+                   [&](int64_t Imm) { llvm::encodeSLEB128(Imm, OS); },
+                   [&](const std::unique_ptr<InstArgument> &Arg) {
+                     Arg->addRelocation(OS, Reloc);
+                     Arg->encode(OS);
+                   },
+                   [&](LocalArg *Local) { Local->encode(OS); },
+                   [&](RelocatableGlobalArg *Global) { Global->encode(OS); }},
+        Data);
   }
 };
 
@@ -279,6 +304,7 @@ public:
   llvm::DenseMap<ValType, llvm::SmallVector<std::unique_ptr<LocalArg>>>
       Locals{};
 
+  LocalArg *SavedSP{};
   explicit DefinedFunc(uint32_t TypeIdx, uint32_t FuncIdx, uint32_t Args,
                        llvm::StringRef Name)
       : Function(TypeIdx, FuncIdx, Name.str()), Args(Args) {}
@@ -296,6 +322,8 @@ public:
 };
 
 class Module {
+  uint32_t TotalGlobals{};
+
 public:
   llvm::SmallVector<FuncType> Types;
   // Deduplication lookup table
@@ -303,6 +331,12 @@ public:
   llvm::SmallVector<std::unique_ptr<ImportedFunc>> Imports{};
   llvm::SmallVector<std::unique_ptr<DefinedFunc>, 4> Functions{};
   llvm::DenseMap<llvm::Function *, Function *> FunctionMap{};
+
+  llvm::DenseMap<ValType,
+                 llvm::SmallVector<std::unique_ptr<RelocatableGlobalArg>>>
+      ImportedGlobals{};
+  llvm::DenseMap<llvm::Value *, RelocatableGlobalArg *> GlobalMapping;
+  RelocatableGlobalArg *StackPointer;
 
   uint32_t getOrAddType(const FuncType &Signature) {
     if (auto It = TypeLookup.find(Signature); It != TypeLookup.end()) {
@@ -313,6 +347,18 @@ public:
     Types.push_back(Signature);
     TypeLookup.insert({Signature, NewIndex});
     return NewIndex;
+  }
+
+  /// Returns a pointer to the stack pointer global - creates one, if it doesn't
+  /// exist yet.
+  RelocatableGlobalArg *getStackPointer(ValType PtrTy) {
+    if (!StackPointer) {
+      auto NewStackPointer =
+          std::make_unique<RelocatableGlobalArg>(TotalGlobals++);
+      StackPointer = NewStackPointer.get();
+      ImportedGlobals[PtrTy].push_back(std::move(NewStackPointer));
+    }
+    return StackPointer;
   }
 };
 
@@ -339,6 +385,20 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
   // Terminator Instructions (should not be needed, as these are mapped to
   // blocks)
   void visitReturnInst(llvm::ReturnInst &RI) {
+    // Load saved stack pointer if needed. All potential allocas for this return
+    // dominate us
+    if (Parent->SavedSP) {
+      RelocatableGlobalArg *StackPointer;
+      ValType PointerType;
+      if (RI.getModule()->getDataLayout().getPointerSizeInBits() == 64) {
+        PointerType = ValType::I64;
+      } else {
+        PointerType = ValType::I32;
+      }
+      StackPointer = M.getStackPointer(PointerType);
+      Actions.Insts.emplace_back(Opcode::GlobalSet, StackPointer);
+      Actions.Insts.emplace_back(Opcode::LocalGet, Parent->SavedSP);
+    }
     addOperandsToWorklist(RI.operands());
   }
 
@@ -355,6 +415,7 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
   // Vector Operations
   // Aggregatge Operations
   // Memory Access and Addressing Operations
+  void visitAllocaInst(llvm::AllocaInst &AI);
   /// Memory instruction with \p Op. Tries to coalesce the offset into the
   /// instruction.
   void doGreedyMemOp(llvm::Instruction &I, Opcode::Enum Op);
@@ -460,8 +521,8 @@ public:
 };
 
 class ModuleLowering {
-
 public:
   static Module convert(llvm::Module &Mod, llvm::FunctionAnalysisManager &FAM);
 };
+
 } // namespace watever

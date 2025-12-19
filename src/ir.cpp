@@ -1,6 +1,7 @@
 #include "watever/ir.hpp"
 #include "watever/opcode.hpp"
 #include "watever/printer.hpp"
+#include "watever/type.hpp"
 #include "watever/utils.hpp"
 #include <algorithm>
 #include <cstdint>
@@ -208,6 +209,41 @@ void BlockLowering::visitBinaryOperator(llvm::BinaryOperator &BO) {
 //===----------------------------------------------------------------------===//
 // Memory Access and Addressing Operations
 //===----------------------------------------------------------------------===//
+
+void BlockLowering::visitAllocaInst(llvm::AllocaInst &AI) {
+  auto *AllocatedType = AI.getAllocatedType();
+  const uint32_t Size =
+      AI.getModule()->getDataLayout().getTypeAllocSize(AllocatedType);
+
+  RelocatableGlobalArg *StackPointer;
+  auto PointerType =
+      AI.getModule()->getDataLayout().getPointerSizeInBits() == 64
+          ? ValType::I64
+          : ValType::I32;
+  StackPointer = M.getStackPointer(PointerType);
+
+  if (Size == 0) {
+    Actions.Insts.emplace_back(Opcode::GlobalGet, StackPointer);
+    return;
+  }
+
+  // Note that the instructions are evaluated in reverse order
+
+  // We need the modified stack pointer on top of the stack, there  is no
+  // global tee
+  Actions.Insts.emplace_back(Opcode::GlobalGet, StackPointer);
+  Actions.Insts.emplace_back(Opcode::GlobalSet, StackPointer);
+
+  // Subtract the stack pointer
+  if (PointerType == ValType::I64) {
+    Actions.Insts.emplace_back(Opcode::I64Sub);
+    Actions.Insts.emplace_back(Opcode::I64Const, Size);
+  } else {
+    Actions.Insts.emplace_back(Opcode::I32Sub);
+    Actions.Insts.emplace_back(Opcode::I32Const, Size);
+  }
+  Actions.Insts.emplace_back(Opcode::GlobalGet, StackPointer);
+}
 
 void BlockLowering::doGreedyMemOp(llvm::Instruction &I, Opcode::Enum Op) {
   llvm::Value *Ptr = llvm::getLoadStorePointerOperand(&I);
@@ -864,6 +900,23 @@ int FunctionLowering::index(const llvm::BasicBlock *BB, Context &Ctx) {
 std::unique_ptr<WasmActions>
 FunctionLowering::translateBB(llvm::BasicBlock *BB) const {
   BlockLowering BL{BB, M, F};
+  // Just create a local, so return instructions know where to find it. Prolog
+  // will be patched in, after the function has been handled
+  if (!F->SavedSP) {
+    bool HasAlloca =
+        std::any_of(BB->begin(), BB->end(), [](const llvm::Instruction &I) {
+          return llvm::isa<llvm::AllocaInst>(I);
+        });
+    if (HasAlloca) {
+      auto PointerType =
+          BB->getModule()->getDataLayout().getPointerSizeInBits() == 64
+              ? ValType::I64
+              : ValType::I32;
+
+      F->SavedSP = F->getNewLocal(PointerType);
+    }
+  }
+
   return BL.lower();
 }
 
@@ -951,6 +1004,22 @@ Module ModuleLowering::convert(llvm::Module &Mod,
 
     FunctionLowering FL{WasmFunc, DT, LI, Res};
     FL.lower();
+
+    if (WasmFunc->SavedSP) {
+      // Insert prolog to save SP
+      auto Prolog = std::make_unique<WasmActions>();
+      if (!Res.StackPointer) {
+        WATEVER_LOG_WARN("Unset SP");
+      }
+      if (!WasmFunc->SavedSP) {
+        WATEVER_LOG_WARN("Unsset SavedSP");
+      }
+      Prolog->Insts.emplace_back(Opcode::GlobalGet, Res.StackPointer);
+      Prolog->Insts.emplace_back(Opcode::LocalSet, WasmFunc->SavedSP);
+      WasmFunc->Body = std::make_unique<WasmSeq>(std::move(Prolog),
+                                                 std::move(WasmFunc->Body));
+    }
+
     WATEVER_LOG_DBG("Lowered function {}", F.getName().str());
     dumpWasm(*WasmFunc->Body);
   }
