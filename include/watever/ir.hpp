@@ -191,16 +191,18 @@ public:
   void write(llvm::raw_ostream &OS, Relocation &Reloc) const {
     Opcode(Op).writeBytes(OS);
 
-    std::visit(
-        Overloaded{[&](std::monostate) {},
-                   [&](int64_t Imm) { llvm::encodeSLEB128(Imm, OS); },
-                   [&](const std::unique_ptr<InstArgument> &Arg) {
-                     Arg->addRelocation(OS, Reloc);
-                     Arg->encode(OS);
-                   },
-                   [&](LocalArg *Local) { Local->encode(OS); },
-                   [&](RelocatableGlobalArg *Global) { Global->encode(OS); }},
-        Data);
+    std::visit(Overloaded{[&](std::monostate) {},
+                          [&](int64_t Imm) { llvm::encodeSLEB128(Imm, OS); },
+                          [&](const std::unique_ptr<InstArgument> &Arg) {
+                            Arg->addRelocation(OS, Reloc);
+                            Arg->encode(OS);
+                          },
+                          [&](LocalArg *Local) { Local->encode(OS); },
+                          [&](RelocatableGlobalArg *Global) {
+                            Global->addRelocation(OS, Reloc);
+                            Global->encode(OS);
+                          }},
+               Data);
   }
 };
 
