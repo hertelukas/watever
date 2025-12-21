@@ -60,7 +60,7 @@ struct Function : public Symbol {
   // Needed to decide if we have to write out the SymbolName in the relocation
   virtual bool isImport() = 0;
 
-  virtual ~Function() = default;
+  ~Function() override = default;
 };
 
 struct ImportedFunc final : public Function {
@@ -68,7 +68,7 @@ struct ImportedFunc final : public Function {
                         llvm::StringRef Name)
       : Function(SymbolIdx, TypeIdx, FuncIdx, Name.str()) {}
 
-  bool isImport() { return true; }
+  bool isImport() override { return true; }
 };
 
 struct Local {
@@ -96,7 +96,7 @@ public:
     return Result;
   }
 
-  bool isImport() { return false; }
+  bool isImport() override { return false; }
   void visit(WasmVisitor &V) const;
 };
 

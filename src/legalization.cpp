@@ -633,7 +633,7 @@ void FunctionLegalizer::visitGetElementPtrInst(llvm::GetElementPtrInst &GI) {
     llvm::Value *Index = getMappedValue(IdxIt->get())[0];
     SextIdx = Builder.CreateSExtOrTrunc(Index, IntPtrTy);
 
-    if (llvm::StructType *STy = llvm::dyn_cast<llvm::StructType>(CurrentTy)) {
+    if (auto *STy = llvm::dyn_cast<llvm::StructType>(CurrentTy)) {
       // TODO can we index into a struct with a variable?
       unsigned FieldIdx = cast<llvm::ConstantInt>(Index)->getZExtValue();
       uint64_t FieldOffset =

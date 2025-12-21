@@ -1,7 +1,6 @@
 #pragma once
 
 #include "watever/type.hpp"
-#include "watever/utils.hpp"
 #include <cstdint>
 #include <llvm/Support/LEB128.h>
 #include <llvm/Support/raw_ostream.h>
@@ -21,11 +20,13 @@ enum class ExternalType : uint8_t {
 class Limit {
   bool Is64Bit;
   bool HasMax;
-  uint8_t getPrecedingFlag() const { return Is64Bit << 2 | HasMax; }
+  [[nodiscard]] uint8_t getPrecedingFlag() const {
+    return Is64Bit << 2 | HasMax;
+  }
 
 public:
   uint64_t Min;
-  uint64_t Max;
+  uint64_t Max{};
   explicit Limit(uint32_t Min) : Is64Bit(false), HasMax(false), Min(Min) {}
   explicit Limit(uint64_t Min) : Is64Bit(true), HasMax(false), Min(Min) {}
 
@@ -46,7 +47,7 @@ public:
 struct ExternType {
   virtual ~ExternType() = default;
   virtual void writePayload(llvm::raw_ostream &OS) const = 0;
-  virtual ExternalType getExternalType() const = 0;
+  [[nodiscard]] virtual ExternalType getExternalType() const = 0;
 };
 
 class MemType final : public ExternType {
@@ -59,7 +60,7 @@ public:
     Lim.writePayload(OS);
   }
 
-  ExternalType getExternalType() const override {
+  [[nodiscard]] ExternalType getExternalType() const override {
     return ExternalType::MemType;
   }
 };
@@ -70,11 +71,11 @@ class FuncExternType final : public ExternType {
 public:
   explicit FuncExternType(uint32_t TypeIdx) : TypeIndex(TypeIdx) {}
 
-  virtual void writePayload(llvm::raw_ostream &OS) const override {
+  void writePayload(llvm::raw_ostream &OS) const override {
     llvm::encodeULEB128(TypeIndex, OS);
   }
 
-  ExternalType getExternalType() const override {
+  [[nodiscard]] ExternalType getExternalType() const override {
     return ExternalType::FuncType;
   }
 };
@@ -89,7 +90,7 @@ public:
     OS << static_cast<uint8_t>(Type);
     OS << (Mutable ? '\01' : '\00');
   }
-  ExternalType getExternalType() const override {
+  [[nodiscard]] ExternalType getExternalType() const override {
     return ExternalType::GlobalType;
   }
 };

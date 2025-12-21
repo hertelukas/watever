@@ -728,7 +728,7 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
     }
   }
 
-  std::reverse(Actions.Insts.begin(), Actions.Insts.end());
+  std::ranges::reverse(Actions.Insts);
   return std::make_unique<WasmActions>(std::move(Actions));
 }
 
@@ -903,10 +903,9 @@ FunctionLowering::translateBB(llvm::BasicBlock *BB) const {
   // Just create a local, so return instructions know where to find it. Prolog
   // will be patched in, after the function has been handled
   if (!F->SavedSP) {
-    bool HasAlloca =
-        std::any_of(BB->begin(), BB->end(), [](const llvm::Instruction &I) {
-          return llvm::isa<llvm::AllocaInst>(I);
-        });
+    bool HasAlloca = std::ranges::any_of(*BB, [](const llvm::Instruction &I) {
+      return llvm::isa<llvm::AllocaInst>(I);
+    });
     if (HasAlloca) {
       auto PointerType =
           BB->getModule()->getDataLayout().getPointerSizeInBits() == 64

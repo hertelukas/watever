@@ -3,11 +3,11 @@
 #include "watever/import.hpp"
 #include "watever/ir.hpp"
 #include "watever/linking.hpp"
-#include <cstdint>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/Support/Endian.h>
 #include <llvm/Support/LEB128.h>
 #include <llvm/Support/raw_ostream.h>
+#include <cstdint>
 
 namespace watever {
 static constexpr uint32_t WateverBinaryMagic = 0x6d736100;

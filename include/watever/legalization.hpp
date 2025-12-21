@@ -32,17 +32,17 @@ public:
 
   using iterator = llvm::SmallVectorImpl<llvm::Value *>::const_iterator;
 
-  iterator begin() const { return Parts.begin(); }
-  iterator end() const { return Parts.end(); }
-  size_t size() const { return Parts.size(); }
-  bool empty() const { return Parts.empty(); }
+  [[nodiscard]] iterator begin() const { return Parts.begin(); }
+  [[nodiscard]] iterator end() const { return Parts.end(); }
+  [[nodiscard]] size_t size() const { return Parts.size(); }
+  [[nodiscard]] bool empty() const { return Parts.empty(); }
 
   llvm::Value *operator[](size_t I) const {
     assert(I < Parts.size() && "Index out of bounds");
     return Parts[I];
   }
 
-  bool isScalar() const { return Parts.size() == 1; }
+  [[nodiscard]] bool isScalar() const { return Parts.size() == 1; }
 };
 
 class LegalType {
@@ -54,17 +54,17 @@ public:
 
   using iterator = llvm::SmallVectorImpl<llvm::Type *>::const_iterator;
 
-  iterator begin() const { return Types.begin(); }
-  iterator end() const { return Types.end(); }
-  size_t size() const { return Types.size(); }
-  bool empty() const { return Types.empty(); }
+  [[nodiscard]] iterator begin() const { return Types.begin(); }
+  [[nodiscard]] iterator end() const { return Types.end(); }
+  [[nodiscard]] size_t size() const { return Types.size(); }
+  [[nodiscard]] bool empty() const { return Types.empty(); }
 
   llvm::Type *operator[](size_t I) const {
     assert(I < Types.size() && "Index out of bounds");
     return Types[I];
   }
 
-  bool isScalar() const { return Types.size() == 1; }
+  [[nodiscard]] bool isScalar() const { return Types.size() == 1; }
 };
 
 class FunctionLegalizer : public llvm::InstVisitor<FunctionLegalizer> {

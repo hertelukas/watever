@@ -39,33 +39,38 @@ struct Opcode {
 
   static Opcode fromCode(uint32_t);
   static Opcode fromCode(uint8_t Prefix, uint32_t Code);
-  bool hasPrefix() const { return getInfo().Prefix != 0; }
-  uint8_t getPrefix() const { return getInfo().Prefix; }
-  uint8_t getCode() const { return getInfo().Code; }
+  [[nodiscard]] bool hasPrefix() const { return getInfo().Prefix != 0; }
+  [[nodiscard]] uint8_t getPrefix() const { return getInfo().Prefix; }
+  [[nodiscard]] uint8_t getCode() const { return getInfo().Code; }
   // size_t getLength() const { return getBytes().size(); }
-  const char *getName() const { return getInfo().Name; }
-  const char *getDecomp() const {
+  [[nodiscard]] const char *getName() const { return getInfo().Name; }
+  [[nodiscard]] const char *getDecomp() const {
     return *getInfo().Decomp ? getInfo().Decomp : getInfo().Name;
   }
-  ValType getResultType() const { return getInfo().ResultType; }
-  ValType getParamType1() const { return getInfo().ParamTypes[0]; }
-  ValType getParamType2() const { return getInfo().ParamTypes[1]; }
-  ValType getParamType3() const { return getInfo().ParamTypes[2]; }
-  ValType getParamType(int N) const { return getInfo().ParamTypes[N - 1]; }
+  [[nodiscard]] ValType getResultType() const { return getInfo().ResultType; }
+  [[nodiscard]] ValType getParamType1() const {
+    return getInfo().ParamTypes[0];
+  }
+  [[nodiscard]] ValType getParamType2() const;
+  [[nodiscard]] ValType getParamType3() const {
+    return getInfo().ParamTypes[2];
+  }
+  [[nodiscard]] ValType getParamType(int N) const {
+    return getInfo().ParamTypes[N - 1];
+  }
 
   // Write the opcode to OS
   void writeBytes(llvm::raw_ostream &OS) const;
 
   // Get the lane count of an extract/replace simd op.
-  uint32_t getSimdLaneCount() const;
-
+  [[nodiscard]] uint32_t getSimdLaneCount() const;
 
   static bool isPrefixByte(uint8_t Byte) {
     return Byte == KMathPrefix || Byte == KThreadsPrefix || Byte == KSimdPrefix;
   }
 
-  bool isEnabled(const Features &Fs) const;
-  bool isInvalid() const { return E >= Invalid; }
+  [[nodiscard]] bool isEnabled(const Features &Fs) const;
+  [[nodiscard]] bool isInvalid() const;
 
 private:
   static constexpr uint32_t KMathPrefix = 0xfc;
@@ -116,7 +121,7 @@ private:
     *OutCode = PrefixCode & 0xff;
   }
 
-  Info getInfo() const;
+  [[nodiscard]] Info getInfo() const;
   static Info Infos[];
 
   Enum E;
@@ -136,11 +141,11 @@ inline Opcode Opcode::fromCode(uint8_t Prefix, uint32_t Code) {
     // the code is 0 (for nop).
     [[likely]]
     if (Value != 0 || Code == 0) {
-      return Opcode(static_cast<Enum>(Value));
+      return {static_cast<Enum>(Value)};
     }
   }
 
-  return Opcode(encodeInvalidOpcode(PrefixCode));
+  return {encodeInvalidOpcode(PrefixCode)};
 }
 
 } // namespace watever

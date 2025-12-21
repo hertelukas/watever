@@ -70,12 +70,12 @@ enum class SectionType : uint8_t {
 struct Subsection {
   virtual ~Subsection() = default;
   // code identifying type of subsection
-  virtual SectionType getSectionType() const = 0;
-  virtual uint32_t getPayloadLen() const = 0;
+  [[nodiscard]] virtual SectionType getSectionType() const = 0;
+  [[nodiscard]] virtual uint32_t getPayloadLen() const = 0;
   virtual void writePayload(llvm::raw_ostream &OS) const = 0;
 };
 
-enum class SegmentFlag : uint32_t {
+enum class SegmentFlag : uint32_t { // NOLINT(performance-enum-size)
   // Signals that the segment contains only null terminated strings allowing the
   // linker to perform merging.
   WASM_SEGMENT_FLAG_STRINGS = 1,
@@ -98,7 +98,7 @@ struct Segment {
 
   void setFlag(SegmentFlag Flag) { Flags |= static_cast<uint32_t>(Flag); }
 
-  uint32_t getSegmentLen() const {
+  [[nodiscard]] uint32_t getSegmentLen() const {
     uint32_t Len = 0;
     Len += llvm::getULEB128Size(Name.size()); // name_len
     Len += Name.size();                       // name_data
@@ -111,11 +111,11 @@ struct Segment {
 struct SegmentInfo final : Subsection {
   std::vector<Segment> Segments;
 
-  SectionType getSectionType() const override {
+  [[nodiscard]] SectionType getSectionType() const override {
     return SectionType::WASM_SEGMENT_INFO;
   }
 
-  uint32_t getPayloadLen() const override {
+  [[nodiscard]] uint32_t getPayloadLen() const override {
     uint32_t Res = llvm::getULEB128Size(Segments.size());
     for (auto &Seg : Segments) {
       Res += Seg.getSegmentLen();
@@ -140,7 +140,7 @@ struct InitFunc {
   // the symbol index of init function (not the function index) (varuint32)
   uint32_t SymbolIndex;
 
-  uint32_t getInitFuncLen() const {
+  [[nodiscard]] uint32_t getInitFuncLen() const {
     uint32_t Len = llvm::getULEB128Size(Priority);
     Len += llvm::getULEB128Size(SymbolIndex);
     return Len;
@@ -150,11 +150,11 @@ struct InitFunc {
 struct InitFunctions final : Subsection {
   std::vector<InitFunc> Functions;
 
-  SectionType getSectionType() const override {
+  [[nodiscard]] SectionType getSectionType() const override {
     return SectionType::WASM_INIT_FUNCS;
   }
 
-  uint32_t getPayloadLen() const override {
+  [[nodiscard]] uint32_t getPayloadLen() const override {
     uint32_t Res = llvm::getULEB128Size(Functions.size());
     for (auto &F : Functions) {
       Res += F.getInitFuncLen();
@@ -180,7 +180,7 @@ enum class SymbolKind : uint8_t {
   SYMTAB_TABLE = 5,
 };
 
-enum class SymbolFlag : uint32_t {
+enum class SymbolFlag : uint32_t { // NOLINT(performance-enum-size)
   // Indicating that this is a weak symbol. When linking multiple modules
   // defining the same symbol, all weak definitions are discarded if any strong
   // definitions exist; then if multiple weak definitions exist all but one
@@ -226,7 +226,7 @@ struct SymbolName {
   std::string Name;
   bool IsImport;
 
-  uint32_t getLen() const {
+  [[nodiscard]] uint32_t getLen() const {
     uint32_t Len{};
     Len += llvm::getULEB128Size(Index);
     if (!IsImport) {
@@ -245,7 +245,7 @@ struct SymbolData {
   uint32_t Offset;
   uint32_t Size;
 
-  uint32_t getLen() const {
+  [[nodiscard]] uint32_t getLen() const {
     uint32_t Len{};
     Len += llvm::getULEB128Size(Name.size());
     Len += Name.size();
@@ -260,7 +260,9 @@ struct SymbolData {
 struct SymbolSection {
   uint32_t Section;
 
-  uint32_t getLen() const { return llvm::getULEB128Size(Section); }
+  [[nodiscard]] uint32_t getLen() const {
+    return llvm::getULEB128Size(Section);
+  }
 };
 
 struct SymInfo {
@@ -269,7 +271,7 @@ struct SymInfo {
 
   std::variant<SymbolName, SymbolData, SymbolSection> Content;
 
-  uint32_t getSymInfoLen() const {
+  [[nodiscard]] uint32_t getSymInfoLen() const {
     uint32_t Len = 1; // kind
     Len += llvm::getULEB128Size(Flags);
     Len += std::visit([](const auto &Arg) { return Arg.getLen(); }, Content);
@@ -280,11 +282,11 @@ struct SymInfo {
 struct SymbolTable final : Subsection {
   std::vector<SymInfo> Infos;
 
-  SectionType getSectionType() const override {
+  [[nodiscard]] SectionType getSectionType() const override {
     return SectionType::WASM_SYMBOL_TABLE;
   }
 
-  uint32_t getPayloadLen() const override {
+  [[nodiscard]] uint32_t getPayloadLen() const override {
     uint32_t Res = llvm::getULEB128Size(Infos.size());
     for (auto &S : Infos) {
       Res += S.getSymInfoLen();
@@ -332,14 +334,16 @@ struct ComdatSym {
   ComdatKind Kind;
   uint32_t Index;
 
-  uint32_t getComdatSymLen() const { return 1 + llvm::getULEB128Size(Index); }
+  [[nodiscard]] uint32_t getComdatSymLen() const {
+    return 1 + llvm::getULEB128Size(Index);
+  }
 };
 
 struct Comdat {
   std::string Name;
   const uint32_t Flags = 0; // Must be zero
   std::vector<ComdatSym> ComdatSyms;
-  uint32_t getComdatLen() const {
+  [[nodiscard]] uint32_t getComdatLen() const {
     uint32_t Res = llvm::getULEB128Size(Name.size()); // name_len
     Res += Name.size();                               // name_str
     Res += llvm::getULEB128Size(Flags);               // flags
@@ -354,11 +358,11 @@ struct Comdat {
 struct ComdatInfo final : Subsection {
   std::vector<Comdat> Comdats;
 
-  SectionType getSectionType() const override {
+  [[nodiscard]] SectionType getSectionType() const override {
     return SectionType::WASM_COMDAT_INFO;
   }
 
-  uint32_t getPayloadLen() const override {
+  [[nodiscard]] uint32_t getPayloadLen() const override {
     uint32_t Res = llvm::getULEB128Size(Comdats.size());
     for (auto &C : Comdats) {
       Res += C.getComdatLen();

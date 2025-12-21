@@ -57,7 +57,7 @@ class InstArgument {
 public:
   virtual void encode(llvm::raw_ostream &) const = 0;
   virtual void addRelocation(llvm::raw_ostream &, Relocation &) {};
-  virtual std::string getString() const = 0;
+  [[nodiscard]] virtual std::string getString() const = 0;
   virtual ~InstArgument() = default;
 };
 
@@ -71,7 +71,7 @@ public:
   MemArg(uint32_t Alignment, uint64_t Offset)
       : Alignment(Alignment), Offset(Offset) {}
 
-  std::string getString() const override {
+  [[nodiscard]] std::string getString() const override {
     return llvm::formatv("align: {}, idx: {}, offset: {}", Alignment, MemIdx,
                          Offset);
   }
@@ -97,7 +97,7 @@ class LocalArg final : public InstArgument {
 public:
   Local *Lo;
   explicit LocalArg(Local *L) : Lo(L) {}
-  std::string getString() const override {
+  [[nodiscard]] std::string getString() const override {
     return llvm::formatv("{}", Lo->Index);
   }
   void encode(llvm::raw_ostream &OS) const override {
@@ -109,7 +109,7 @@ class RelocatableFuncArg final : public InstArgument {
 public:
   Function *Func;
   explicit RelocatableFuncArg(Function *F) : Func(F) {}
-  std::string getString() const override {
+  [[nodiscard]] std::string getString() const override {
     return llvm::formatv("{}", Func->FunctionIndex);
   }
   void encode(llvm::raw_ostream &OS) const override {
@@ -128,7 +128,7 @@ class RelocatableGlobalArg final : public InstArgument {
 
 public:
   explicit RelocatableGlobalArg(Global *G) : Gl(G) {}
-  std::string getString() const override {
+  [[nodiscard]] std::string getString() const override {
     return llvm::formatv("{}", Gl->GlobalIdx);
   }
   void encode(llvm::raw_ostream &OS) const override {
@@ -168,7 +168,7 @@ public:
   WasmInst &operator=(const WasmInst &) = delete;
 
 #ifdef WATEVER_LOGGING
-  std::string getString() const {
+  [[nodiscard]] std::string getString() const {
     const char *Name = Opcode(Op).getName();
 
     return std::visit(
@@ -282,7 +282,7 @@ public:
       return It->second;
     }
     // Type doesn't yet exist
-    uint32_t NewIndex = static_cast<uint32_t>(Types.size());
+    auto NewIndex = static_cast<uint32_t>(Types.size());
     Types.push_back(Signature);
     TypeLookup.insert({Signature, NewIndex});
     return NewIndex;
@@ -312,7 +312,8 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
   WasmActions Actions;
 
   void calculateLiveOut();
-  llvm::DenseMap<llvm::Value *, int> getInternalUserCounts() const;
+  [[nodiscard]] llvm::DenseMap<llvm::Value *, int>
+  getInternalUserCounts() const;
 
   Module &M;
   DefinedFunc *Parent;
@@ -396,7 +397,7 @@ public:
 
 class FunctionLowering {
   // TODO I currently don't see why we need to store blocktype
-  enum class BlockType {
+  enum class BlockType : uint8_t {
     IfThenElse,
     Loop,
     Block,
