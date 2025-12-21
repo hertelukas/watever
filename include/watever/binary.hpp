@@ -118,8 +118,8 @@ class BinaryWriter {
     for (const auto &Import : Imports) {
       llvm::encodeULEB128(Import.ModuleName.size(), ContentOS);
       ContentOS << Import.ModuleName;
-      llvm::encodeULEB128(Import.EntityName.size(), ContentOS);
-      ContentOS << Import.EntityName;
+      llvm::encodeULEB128(Import.ItemName.size(), ContentOS);
+      ContentOS << Import.ItemName;
       ContentOS << static_cast<uint8_t>(Import.Extern->getExternalType());
       Import.Extern->writePayload(ContentOS);
     }

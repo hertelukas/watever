@@ -161,8 +161,8 @@ void BinaryWriter::write() {
   }
 
   for (const auto &G : Mod.ImportedGlobals) {
-    Imports.emplace_back(G->ModuleName, G->EntityName,
-                         std::make_unique<GlobalType>(G->Ty, G->Mutable));
+    Imports.emplace_back(G->ModuleName, G->ItemName,
+                         std::make_unique<GlobalType>(G->Type, G->Mutable));
   }
 
   writeImports(Imports);

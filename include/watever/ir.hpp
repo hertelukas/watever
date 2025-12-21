@@ -2,6 +2,7 @@
 
 #include "watever/linking.hpp"
 #include "watever/opcode.hpp"
+#include "watever/symbol.hpp"
 #include "watever/type.hpp"
 #include "watever/utils.hpp"
 #include <cstdint>
@@ -94,66 +95,55 @@ public:
 
 class LocalArg final : public InstArgument {
 public:
-  uint32_t Index;
-  explicit LocalArg(uint32_t Index) : Index(Index) {}
-  std::string getString() const override { return llvm::formatv("{}", Index); }
+  Local *Lo;
+  explicit LocalArg(Local *L) : Lo(L) {}
+  std::string getString() const override {
+    return llvm::formatv("{}", Lo->Index);
+  }
   void encode(llvm::raw_ostream &OS) const override {
-    llvm::encodeULEB128(Index, OS);
+    llvm::encodeULEB128(Lo->Index, OS);
   }
 };
 
 class RelocatableFuncArg final : public InstArgument {
 public:
-  uint32_t FunctionIndex;
-  explicit RelocatableFuncArg(uint32_t Index) : FunctionIndex(Index) {}
+  Function *Func;
+  explicit RelocatableFuncArg(Function *F) : Func(F) {}
   std::string getString() const override {
-    return llvm::formatv("{}", FunctionIndex);
+    return llvm::formatv("{}", Func->FunctionIndex);
   }
   void encode(llvm::raw_ostream &OS) const override {
     // Must be padded to 5 bytes, so it can be patched by the linker
-    llvm::encodeULEB128(FunctionIndex, OS, 5);
+    llvm::encodeULEB128(Func->FunctionIndex, OS, 5);
   }
 
-  // TODO using the functionIndex is not generally correct, it should be the
-  // symbol table index
   void addRelocation(llvm::raw_ostream &OS, Relocation &Reloc) override {
     Reloc.Entries.emplace_back(RelocationType::R_WASM_FUNCTION_INDEX_LEB,
-                               OS.tell(), FunctionIndex);
+                               OS.tell(), Func->SymbolIndex);
   }
 };
 
 class RelocatableGlobalArg final : public InstArgument {
-public:
-  uint32_t GlobalIndex;
-  ValType Ty;
-  std::string ModuleName;
-  std::string EntityName;
-  bool Mutable;
+  Global *Gl;
 
-  explicit RelocatableGlobalArg(uint32_t Index, ValType Ty, std::string MN,
-                                std::string EN)
-      : GlobalIndex(Index), Ty(Ty), ModuleName(std::move(MN)),
-        EntityName(std::move(EN)) {}
+public:
+  explicit RelocatableGlobalArg(Global *G) : Gl(G) {}
   std::string getString() const override {
-    return llvm::formatv("{} ({}::{})", GlobalIndex, ModuleName, EntityName);
+    return llvm::formatv("{}", Gl->GlobalIdx);
   }
   void encode(llvm::raw_ostream &OS) const override {
-    llvm::encodeULEB128(GlobalIndex, OS, 5);
+    llvm::encodeULEB128(Gl->GlobalIdx, OS, 5);
   }
 
-  // TODO using the globalIndex is wrong
   void addRelocation(llvm::raw_ostream &OS, Relocation &Reloc) override {
     Reloc.Entries.emplace_back(RelocationType::R_WASM_GLOBAL_INDEX_LEB,
-                               OS.tell(), GlobalIndex);
+                               OS.tell(), Gl->SymbolIndex);
   }
 };
 
 class WasmInst {
-  // TODO remove last options; create one consistent, non-owning InstArgument
-  // pointer. See Issue #4
   using Storage =
-      std::variant<std::monostate, int64_t, std::unique_ptr<InstArgument>,
-                   LocalArg *, RelocatableGlobalArg *>;
+      std::variant<std::monostate, int64_t, std::unique_ptr<InstArgument>>;
   Storage Data;
 
 public:
@@ -163,9 +153,13 @@ public:
   WasmInst(Opcode::Enum O, int64_t Imm) : Data(Imm), Op(O) {}
   WasmInst(Opcode::Enum O, std::unique_ptr<InstArgument> Arg)
       : Data(std::move(Arg)), Op(O) {}
-  // FIXME this should be deleted, and united with the above constructor
-  WasmInst(Opcode::Enum O, LocalArg *Arg) : Data(Arg), Op(O) {}
-  WasmInst(Opcode::Enum O, RelocatableGlobalArg *Arg) : Data(Arg), Op(O) {}
+
+  // Convenience constructors
+  WasmInst(Opcode::Enum O, ImportedGlobal *IG)
+      : Data(std::make_unique<RelocatableGlobalArg>(IG)), Op(O) {}
+
+  WasmInst(Opcode::Enum O, Local *L)
+      : Data(std::make_unique<LocalArg>(L)), Op(O) {}
 
   WasmInst(WasmInst &&) = default;
   WasmInst &operator=(WasmInst &&) = default;
@@ -186,12 +180,7 @@ public:
             [&](const std::unique_ptr<InstArgument> &Arg) {
               return llvm::formatv("{0} {1}", Name, Arg->getString()).str();
             },
-            [&](LocalArg *Local) {
-              return llvm::formatv("{0} {1}", Name, Local->getString()).str();
-            },
-            [&](RelocatableGlobalArg *Global) {
-              return llvm::formatv("{0} {1}", Name, Global->getString()).str();
-            }},
+        },
         Data);
   }
 #endif
@@ -199,17 +188,14 @@ public:
   void write(llvm::raw_ostream &OS, Relocation &Reloc) const {
     Opcode(Op).writeBytes(OS);
 
-    std::visit(Overloaded{[&](std::monostate) {},
-                          [&](int64_t Imm) { llvm::encodeSLEB128(Imm, OS); },
-                          [&](const std::unique_ptr<InstArgument> &Arg) {
-                            Arg->addRelocation(OS, Reloc);
-                            Arg->encode(OS);
-                          },
-                          [&](LocalArg *Local) { Local->encode(OS); },
-                          [&](RelocatableGlobalArg *Global) {
-                            Global->addRelocation(OS, Reloc);
-                            Global->encode(OS);
-                          }},
+    std::visit(Overloaded{
+                   [&](std::monostate) {},
+                   [&](int64_t Imm) { llvm::encodeSLEB128(Imm, OS); },
+                   [&](const std::unique_ptr<InstArgument> &Arg) {
+                     Arg->addRelocation(OS, Reloc);
+                     Arg->encode(OS);
+                   },
+               },
                Data);
   }
 };
@@ -275,76 +261,21 @@ public:
   void accept(WasmVisitor &V) override { V.visit(*this); }
 };
 
-struct Function {
-  uint32_t LinkerFlags{};
-  std::string Name;
-  uint32_t TypeIndex;
-  uint32_t FunctionIndex;
-
-  Function(uint32_t TypeIdx, uint32_t FuncIdx, std::string Nm)
-      : Name(std::move(Nm)), TypeIndex(TypeIdx), FunctionIndex(FuncIdx) {}
-
-  void setFlag(SymbolFlag Flag) { LinkerFlags |= static_cast<uint32_t>(Flag); }
-  bool isSet(SymbolFlag Flag) {
-    return (LinkerFlags & static_cast<uint32_t>(Flag)) != 0;
-  }
-
-  // Needed to decide if we have to write out the SymbolName in the relocation
-  virtual bool isImport() = 0;
-
-  virtual ~Function() = default;
-};
-
-struct ImportedFunc final : public Function {
-  explicit ImportedFunc(uint32_t TypeIdx, uint32_t FuncIdx,
-                        llvm::StringRef Name)
-      : Function(TypeIdx, FuncIdx, Name.str()) {}
-
-  bool isImport() { return true; }
-};
-
-class DefinedFunc final : public Function {
-  friend class FunctionLowering;
-  uint32_t TotalLocals{};
-
-public:
-  uint32_t Args{};
-  std::unique_ptr<Wasm> Body{};
-  llvm::DenseMap<llvm::Value *, LocalArg *> LocalMapping;
-  llvm::DenseMap<ValType, llvm::SmallVector<std::unique_ptr<LocalArg>>>
-      Locals{};
-
-  LocalArg *SavedSP{};
-  explicit DefinedFunc(uint32_t TypeIdx, uint32_t FuncIdx, uint32_t Args,
-                       llvm::StringRef Name)
-      : Function(TypeIdx, FuncIdx, Name.str()), Args(Args) {}
-
-  LocalArg *getNewLocal(ValType Ty) {
-    auto NewLocal = std::make_unique<LocalArg>(TotalLocals++);
-    auto *Result = NewLocal.get();
-    Locals[Ty].push_back(std::move(NewLocal));
-    // Assign temporary local for debugging
-    return Result;
-  }
-
-  bool isImport() { return false; }
-  void visit(WasmVisitor &V) const { Body->accept(V); }
-};
-
 class Module {
   uint32_t TotalGlobals{};
 
 public:
   llvm::SmallVector<FuncType> Types;
+  llvm::SmallVector<std::unique_ptr<Symbol>> Symbols;
   // Deduplication lookup table
   std::map<FuncType, uint32_t> TypeLookup;
-  llvm::SmallVector<std::unique_ptr<ImportedFunc>> Imports{};
-  llvm::SmallVector<std::unique_ptr<DefinedFunc>, 4> Functions{};
+  llvm::SmallVector<ImportedFunc *> Imports{};
+  llvm::SmallVector<DefinedFunc *> Functions{};
   llvm::DenseMap<llvm::Function *, Function *> FunctionMap{};
 
-  llvm::SmallVector<std::unique_ptr<RelocatableGlobalArg>> ImportedGlobals{};
-  llvm::DenseMap<llvm::Value *, RelocatableGlobalArg *> GlobalMapping;
-  RelocatableGlobalArg *StackPointer;
+  llvm::SmallVector<ImportedGlobal *> ImportedGlobals{};
+  llvm::DenseMap<llvm::Value *, Global *> GlobalMap;
+  ImportedGlobal *StackPointer;
 
   uint32_t getOrAddType(const FuncType &Signature) {
     if (auto It = TypeLookup.find(Signature); It != TypeLookup.end()) {
@@ -359,12 +290,14 @@ public:
 
   /// Returns a pointer to the stack pointer global - creates one, if it doesn't
   /// exist yet.
-  RelocatableGlobalArg *getStackPointer(ValType PtrTy) {
+  ImportedGlobal *getStackPointer(ValType PtrTy) {
     if (!StackPointer) {
-      auto NewStackPointer = std::make_unique<RelocatableGlobalArg>(
-          TotalGlobals++, PtrTy, "env", "__stack_pointer");
+      auto NewStackPointer = std::make_unique<ImportedGlobal>(
+          Symbols.size(), TotalGlobals++, PtrTy, true, "env",
+          "__stack_pointer");
       StackPointer = NewStackPointer.get();
-      ImportedGlobals.push_back(std::move(NewStackPointer));
+      ImportedGlobals.push_back(StackPointer);
+      Symbols.push_back(std::move(NewStackPointer));
     }
     return StackPointer;
   }
@@ -396,16 +329,17 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
     // Load saved stack pointer if needed. All potential allocas for this return
     // dominate us
     if (Parent->SavedSP) {
-      RelocatableGlobalArg *StackPointer;
       ValType PointerType;
       if (RI.getModule()->getDataLayout().getPointerSizeInBits() == 64) {
         PointerType = ValType::I64;
       } else {
         PointerType = ValType::I32;
       }
-      StackPointer = M.getStackPointer(PointerType);
-      Actions.Insts.emplace_back(Opcode::GlobalSet, StackPointer);
-      Actions.Insts.emplace_back(Opcode::LocalGet, Parent->SavedSP);
+      auto *StackPointer = M.getStackPointer(PointerType);
+      auto GlobalArgVal = std::make_unique<RelocatableGlobalArg>(StackPointer);
+      Actions.Insts.emplace_back(Opcode::GlobalSet, std::move(GlobalArgVal));
+      auto SavedSPArg = std::make_unique<LocalArg>(Parent->SavedSP);
+      Actions.Insts.emplace_back(Opcode::LocalGet, std::move(SavedSPArg));
     }
     addOperandsToWorklist(RI.operands());
   }

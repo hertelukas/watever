@@ -96,11 +96,11 @@ public:
 
 struct Import {
   std::string ModuleName;
-  std::string EntityName;
+  std::string ItemName;
 
   std::unique_ptr<ExternType> Extern;
-  Import(std::string MN, std::string EN, std::unique_ptr<ExternType> Extern)
-      : ModuleName(std::move(MN)), EntityName(std::move(EN)),
+  Import(std::string MN, std::string IN, std::unique_ptr<ExternType> Extern)
+      : ModuleName(std::move(MN)), ItemName(std::move(IN)),
         Extern(std::move(Extern)) {}
 };
 } // namespace watever

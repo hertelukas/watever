@@ -5,7 +5,8 @@ set(APP_SOURCES
   utils.cpp
   opcode.cpp
   opcode-code-table.c
-  printer.cpp)
+  printer.cpp
+  symbol.cpp)
   
 add_library(${PROJECT_NAME}lib ${APP_SOURCES})
 

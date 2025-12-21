@@ -1,6 +1,7 @@
 #include "watever/ir.hpp"
 #include "watever/opcode.hpp"
 #include "watever/printer.hpp"
+#include "watever/symbol.hpp"
 #include "watever/type.hpp"
 #include "watever/utils.hpp"
 #include <algorithm>
@@ -215,7 +216,7 @@ void BlockLowering::visitAllocaInst(llvm::AllocaInst &AI) {
   const uint32_t Size =
       AI.getModule()->getDataLayout().getTypeAllocSize(AllocatedType);
 
-  RelocatableGlobalArg *StackPointer;
+  ImportedGlobal *StackPointer;
   auto PointerType =
       AI.getModule()->getDataLayout().getPointerSizeInBits() == 64
           ? ValType::I64
@@ -626,9 +627,8 @@ void BlockLowering::visitCallInst(llvm::CallInst &CI) {
 
   if (Callee) {
     auto *Func = M.FunctionMap[Callee];
-    Actions.Insts.emplace_back(
-        Opcode::Call,
-        std::make_unique<RelocatableFuncArg>(Func->FunctionIndex));
+    Actions.Insts.emplace_back(Opcode::Call,
+                               std::make_unique<RelocatableFuncArg>(Func));
   }
 }
 
@@ -713,18 +713,18 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
     } else {
       WATEVER_LOG_TRACE("... so we can just load it");
       Count[Next]--;
-      LocalArg *Local;
+      Local *L;
       // Check if someone else is already getting it
       if (auto It = Parent->LocalMapping.find(Next);
           It != Parent->LocalMapping.end()) {
-        Local = It->second;
+        L = It->second;
       } else {
         // If not, we create it
-        Local = Parent->getNewLocal(
+        L = Parent->getNewLocal(
             fromLLVMType(Next->getType(), BB->getDataLayout()));
       }
-      Parent->LocalMapping[Next] = Local;
-      Actions.Insts.push_back(WasmInst(Opcode::LocalGet, Local));
+      Parent->LocalMapping[Next] = L;
+      Actions.Insts.push_back(WasmInst(Opcode::LocalGet, L));
     }
   }
 
@@ -749,7 +749,7 @@ std::unique_ptr<Wasm> FunctionLowering::doBranch(const llvm::BasicBlock *Source,
     if (auto *Arg = llvm::dyn_cast<llvm::Argument>(IncomingVal)) {
       PhiActions.Insts.push_back(WasmInst(Opcode::LocalGet, Arg->getArgNo()));
     } else {
-      LocalArg *SourceLocal;
+      Local *SourceLocal;
       if (auto It = F->LocalMapping.find(IncomingVal);
           It != F->LocalMapping.end()) {
         // The source has already been emitted
@@ -764,7 +764,7 @@ std::unique_ptr<Wasm> FunctionLowering::doBranch(const llvm::BasicBlock *Source,
       PhiActions.Insts.push_back(WasmInst(Opcode::LocalGet, SourceLocal));
     }
 
-    LocalArg *DestLocal;
+    Local *DestLocal;
     if (auto It = F->LocalMapping.find(&Phi); It != F->LocalMapping.end()) {
       DestLocal = It->second;
     } else {
@@ -959,11 +959,15 @@ Module ModuleLowering::convert(llvm::Module &Mod,
 
     const uint32_t FuncTypeIndex = Res.getOrAddType(WasmFuncTy);
     auto Import = std::make_unique<ImportedFunc>(
-        FuncTypeIndex, FunctionIndexCounter++, F.getName().str());
+        Res.Symbols.size(), FuncTypeIndex, FunctionIndexCounter++,
+        F.getName().str());
     Res.FunctionMap[&F] = Import.get();
-    Res.Imports.push_back(std::move(Import));
+    Res.Imports.push_back(Import.get());
+    Res.Symbols.push_back(std::move(Import));
   }
 
+  // Then declare all defined functions. This needs to be done before lowering,
+  // so we can use not-yet-lowered functions (e.g., in calls).
   for (auto &F : Mod) {
     if (F.isDeclaration()) {
       continue;
@@ -985,15 +989,15 @@ Module ModuleLowering::convert(llvm::Module &Mod,
     const uint32_t FuncTypeIndex = Res.getOrAddType(WasmFuncTy);
 
     auto FunctionPtr = std::make_unique<DefinedFunc>(
-        FuncTypeIndex, FunctionIndexCounter++,
+        Res.Symbols.size(), FuncTypeIndex, FunctionIndexCounter++,
         static_cast<uint32_t>(F.arg_size()), F.getName());
 
-    auto *FunctionPtrPtr = FunctionPtr.get();
-    Res.Functions.push_back(std::move(FunctionPtr));
-
-    Res.FunctionMap[&F] = FunctionPtrPtr;
+    Res.FunctionMap[&F] = FunctionPtr.get();
+    Res.Functions.push_back(FunctionPtr.get());
+    Res.Symbols.push_back(std::move(FunctionPtr));
   }
 
+  // Lower functions, which might involve adding a prolog to save the SP
   for (auto &F : Mod) {
     if (F.isDeclaration()) {
       continue;
@@ -1014,7 +1018,8 @@ Module ModuleLowering::convert(llvm::Module &Mod,
       if (!WasmFunc->SavedSP) {
         WATEVER_LOG_WARN("Unsset SavedSP");
       }
-      Prolog->Insts.emplace_back(Opcode::GlobalGet, Res.StackPointer);
+      auto GlobalArg = std::make_unique<RelocatableGlobalArg>(Res.StackPointer);
+      Prolog->Insts.emplace_back(Opcode::GlobalGet, std::move(GlobalArg));
       Prolog->Insts.emplace_back(Opcode::LocalSet, WasmFunc->SavedSP);
       WasmFunc->Body = std::make_unique<WasmSeq>(std::move(Prolog),
                                                  std::move(WasmFunc->Body));
