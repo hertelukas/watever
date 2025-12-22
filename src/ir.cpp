@@ -1013,6 +1013,7 @@ Module ModuleLowering::convert(llvm::Module &Mod,
     if (GV.isDeclaration()) {
       auto UndefData = std::make_unique<UndefinedData>(Res.Symbols.size(),
                                                        GV.getName().str());
+      UndefData->setFlag(SymbolFlag::WASM_SYM_UNDEFINED);
       Res.DataMap[&GV] = UndefData.get();
       Res.Symbols.push_back(std::move(UndefData));
       continue;
@@ -1026,7 +1027,7 @@ Module ModuleLowering::convert(llvm::Module &Mod,
     auto DefData = std::make_unique<DefinedData>(
         Res.Symbols.size(), Res.Datas.size(), true, GV.getName().str(), Content,
         Relocs);
-    
+
     Res.DataMap[&GV] = DefData.get();
     Res.Datas.push_back(DefData.get());
     Res.Symbols.push_back(std::move(DefData));
@@ -1053,6 +1054,7 @@ Module ModuleLowering::convert(llvm::Module &Mod,
     auto Import = std::make_unique<ImportedFunc>(
         Res.Symbols.size(), FuncTypeIndex, FunctionIndexCounter++,
         F.getName().str());
+    Import->setFlag(SymbolFlag::WASM_SYM_UNDEFINED);
     Res.FunctionMap[&F] = Import.get();
     Res.Imports.push_back(Import.get());
     Res.Symbols.push_back(std::move(Import));
@@ -1084,6 +1086,8 @@ Module ModuleLowering::convert(llvm::Module &Mod,
         Res.Symbols.size(), FuncTypeIndex, FunctionIndexCounter++,
         static_cast<uint32_t>(F.arg_size()), F.getName());
 
+    // TODO use correct flags
+    FunctionPtr->setFlag(SymbolFlag::WASM_SYM_VISIBILITY_HIDDEN);
     Res.FunctionMap[&F] = FunctionPtr.get();
     Res.Functions.push_back(FunctionPtr.get());
     Res.Symbols.push_back(std::move(FunctionPtr));

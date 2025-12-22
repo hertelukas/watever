@@ -6,6 +6,7 @@
 #include "watever/symbol.hpp"
 #include <cstdint>
 #include <llvm/ADT/SmallVector.h>
+#include <llvm/Support/Casting.h>
 #include <llvm/Support/LEB128.h>
 #include <llvm/Support/raw_ostream.h>
 #include <memory>
@@ -215,33 +216,40 @@ void BinaryWriter::write() {
   Linking Link{};
 
   SymbolTable SymTab{};
-  // TODO this is very inefficient, use constructors, don't copy everything
-  // everywhere
-  for (const auto &F : Mod.Imports) {
-    SymInfo SymInfo{};
-    SymbolName SymName{};
-    SymName.Index = F->FunctionIndex;
-    // TODO Not needed for imports, as we store the name in the import
-    SymName.IsImport = true;
-    SymInfo.Kind = SymbolKind::SYMTAB_FUNCTION;
-    SymInfo.Content = SymName;
-    // TODO use actual flags, and set correct ones when declaring function
-    SymInfo.Flags = static_cast<uint32_t>(SymbolFlag::WASM_SYM_UNDEFINED);
-    SymTab.Infos.push_back(SymInfo);
-  }
-  for (const auto &F : Mod.Functions) {
-    SymInfo SymInfo{};
-    SymbolName SymName{};
-    SymName.Index = F->FunctionIndex;
-    // Not needed for imports, as we store the name in the import
-    SymName.IsImport = false;
-    SymName.Name = F->Name;
-    SymInfo.Kind = SymbolKind::SYMTAB_FUNCTION;
-    SymInfo.Content = SymName;
-    // TODO use actual flags, and set correct ones when declaring function
-    SymInfo.Flags =
-        static_cast<uint32_t>(SymbolFlag::WASM_SYM_VISIBILITY_HIDDEN);
-    SymTab.Infos.push_back(SymInfo);
+  for (const auto &Symbol : Mod.Symbols) {
+
+    if (llvm::isa<Function>(Symbol) || llvm::isa<Global>(Symbol)) {
+      std::string Name{};
+      uint32_t Index{};
+      bool Import{};
+      if (const auto *DF = llvm::dyn_cast<DefinedFunc>(Symbol.get())) {
+        Name = DF->Name;
+        Index = DF->FunctionIndex;
+      } else if (const auto *IF = llvm::dyn_cast<ImportedFunc>(Symbol.get())) {
+        Index = IF->FunctionIndex;
+        Import = true;
+      }
+      // TODO defined globals might not need an entry in the symbol table.
+      // However, I currently give every symbol, including defined globals, a
+      // fixed index, so I need to list them in the SymTab
+      else if (const auto *DG = llvm::dyn_cast<DefinedGlobal>(Symbol.get())) {
+        Index = DG->GlobalIdx;
+      } else if (const auto *IG =
+                     llvm::dyn_cast<ImportedGlobal>(Symbol.get())) {
+        Index = IG->GlobalIdx;
+        Import = true;
+      }
+
+      SymTab.Infos.emplace_back(SymbolName(Index, std::move(Name), Import),
+                                Symbol->getKind(), Symbol->LinkerFlags);
+    } else if (const auto *DD = llvm::dyn_cast<DefinedData>(Symbol.get())) {
+      WATEVER_TODO("use correct offset and size for defined data symbol");
+      SymTab.Infos.emplace_back(SymbolData(DD->Name, DD->DataIndex, 0, 0),
+                                Symbol->getKind(), Symbol->LinkerFlags);
+    } else if (const auto *UD = llvm::dyn_cast<UndefinedData>(Symbol.get())) {
+      SymTab.Infos.emplace_back(SymbolData(UD->Name), Symbol->getKind(),
+                                Symbol->LinkerFlags);
+    }
   }
 
   Link.Subsections.push_back(std::make_unique<SymbolTable>(SymTab));

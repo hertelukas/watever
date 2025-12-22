@@ -12,15 +12,28 @@ class Wasm;
 class WasmVisitor;
 
 struct Symbol {
+  enum class Kind : uint8_t {
+    ImportedGlobal,
+    DefinedGlobal,
+    ImportedFunc,
+    DefinedFunc,
+    UndefinedData,
+    DefinedData,
+  };
+
+  const Kind ClassKind;
   uint32_t SymbolIndex{};
   uint32_t LinkerFlags{};
 
-  explicit Symbol(uint32_t SI) : SymbolIndex(SI) {}
+  explicit Symbol(Kind K, uint32_t SI) : ClassKind(K), SymbolIndex(SI) {}
+  [[nodiscard]] Kind getClassKind() const { return ClassKind; }
+
   void setFlag(SymbolFlag Flag) { LinkerFlags |= static_cast<uint32_t>(Flag); }
   bool isSet(SymbolFlag Flag) {
     return (LinkerFlags & static_cast<uint32_t>(Flag)) != 0;
   }
 
+  [[nodiscard]] virtual SymbolKind getKind() const = 0;
   virtual ~Symbol() = default;
 };
 
@@ -28,8 +41,18 @@ struct Global : public Symbol {
   uint32_t GlobalIdx;
   ValType Type;
   bool Mutable;
-  explicit Global(uint32_t SymbolIdx, uint32_t GlobalIdx, ValType Ty, bool Mut)
-      : Symbol(SymbolIdx), GlobalIdx(GlobalIdx), Type(Ty), Mutable(Mut) {}
+  explicit Global(Kind K, uint32_t SymbolIdx, uint32_t GlobalIdx, ValType Ty,
+                  bool Mut)
+      : Symbol(K, SymbolIdx), GlobalIdx(GlobalIdx), Type(Ty), Mutable(Mut) {}
+
+  [[nodiscard]] SymbolKind getKind() const override {
+    return SymbolKind::SYMTAB_GLOBAL;
+  }
+
+  static bool classof(const Symbol *S) {
+    return S->getClassKind() == Kind::ImportedGlobal ||
+           S->getClassKind() == Kind::DefinedGlobal;
+  }
 };
 
 struct ImportedGlobal final : public Global {
@@ -37,14 +60,20 @@ struct ImportedGlobal final : public Global {
   std::string ItemName;
   explicit ImportedGlobal(uint32_t SymbolIdx, uint32_t GlobalIdx, ValType Ty,
                           bool Mut, std::string MN, std::string IN)
-      : Global(SymbolIdx, GlobalIdx, Ty, Mut), ModuleName(std::move(MN)),
-        ItemName(std::move(IN)) {}
+      : Global(Kind::ImportedGlobal, SymbolIdx, GlobalIdx, Ty, Mut),
+        ModuleName(std::move(MN)), ItemName(std::move(IN)) {}
+  static bool classof(const Symbol *S) {
+    return S->getClassKind() == Kind::ImportedGlobal;
+  }
 };
 
 struct DefinedGlobal final : public Global {
   std::unique_ptr<Wasm> Expr;
   explicit DefinedGlobal(uint32_t SymbolIdx, uint32_t GlobalIdx, ValType Ty,
                          bool Mut, std::unique_ptr<Wasm> Ex);
+  static bool classof(const Symbol *S) {
+    return S->getClassKind() == Kind::DefinedGlobal;
+  }
 };
 
 struct Function : public Symbol {
@@ -52,13 +81,21 @@ struct Function : public Symbol {
   uint32_t TypeIndex;
   uint32_t FunctionIndex;
 
-  Function(uint32_t SymbolIdx, uint32_t TypeIdx, uint32_t FuncIdx,
+  Function(Kind K, uint32_t SymbolIdx, uint32_t TypeIdx, uint32_t FuncIdx,
            std::string Nm)
-      : Symbol(SymbolIdx), Name(std::move(Nm)), TypeIndex(TypeIdx),
+      : Symbol(K, SymbolIdx), Name(std::move(Nm)), TypeIndex(TypeIdx),
         FunctionIndex(FuncIdx) {}
 
   // Needed to decide if we have to write out the SymbolName in the relocation
   virtual bool isImport() = 0;
+  [[nodiscard]] SymbolKind getKind() const override {
+    return SymbolKind::SYMTAB_FUNCTION;
+  }
+
+  static bool classof(const Symbol *S) {
+    return S->getClassKind() == Kind::ImportedFunc ||
+           S->getClassKind() == Kind::DefinedFunc;
+  }
 
   ~Function() override = default;
 };
@@ -66,9 +103,13 @@ struct Function : public Symbol {
 struct ImportedFunc final : public Function {
   explicit ImportedFunc(uint32_t SymbolIdx, uint32_t TypeIdx, uint32_t FuncIdx,
                         llvm::StringRef Name)
-      : Function(SymbolIdx, TypeIdx, FuncIdx, Name.str()) {}
+      : Function(Kind::ImportedFunc, SymbolIdx, TypeIdx, FuncIdx, Name.str()) {}
 
   bool isImport() override { return true; }
+
+  static bool classof(const Symbol *S) {
+    return S->getClassKind() == Kind::ImportedFunc;
+  }
 };
 
 struct Local {
@@ -98,12 +139,24 @@ public:
 
   bool isImport() override { return false; }
   void visit(WasmVisitor &V) const;
+  static bool classof(const Symbol *S) {
+    return S->getClassKind() == Kind::DefinedFunc;
+  }
 };
 
 struct Data : public Symbol {
   std::string Name;
-  explicit Data(uint32_t SymbolIdx, std::string Name)
-      : Symbol(SymbolIdx), Name(std::move(Name)) {}
+  explicit Data(Kind K, uint32_t SymbolIdx, std::string Name)
+      : Symbol(K, SymbolIdx), Name(std::move(Name)) {}
+
+  [[nodiscard]] SymbolKind getKind() const override {
+    return SymbolKind::SYMTAB_DATA;
+  }
+
+  static bool classof(const Symbol *S) {
+    return S->getClassKind() == Kind::DefinedData ||
+           S->getClassKind() == Kind::UndefinedData;
+  }
 };
 
 // Data that appears in the data section of the WebAssembly binary
@@ -115,14 +168,23 @@ struct DefinedData final : public Data {
   explicit DefinedData(uint32_t SymbolIdx, uint32_t DataIdx, bool Active,
                        std::string Name, llvm::ArrayRef<uint8_t> Content,
                        llvm::ArrayRef<RelocationEntry> Relocs)
-      : Data(SymbolIdx, std::move(Name)), DataIndex(DataIdx), Active(Active),
-        Content(Content.begin(), Content.end()), Relocations(Relocs) {}
+      : Data(Kind::DefinedData, SymbolIdx, std::move(Name)), DataIndex(DataIdx),
+        Active(Active), Content(Content.begin(), Content.end()),
+        Relocations(Relocs) {}
+
+  static bool classof(const Symbol *S) {
+    return S->getClassKind() == Kind::DefinedData;
+  }
 };
 
 // Undefined data, which does neither appear in the data section, nor has a
 // segment info
 struct UndefinedData final : public Data {
   explicit UndefinedData(uint32_t SymbolIdx, std::string Name)
-      : Data(SymbolIdx, std::move(Name)) {}
+      : Data(Kind::UndefinedData, SymbolIdx, std::move(Name)) {}
+
+  static bool classof(const Symbol *S) {
+    return S->getClassKind() == Kind::UndefinedData;
+  }
 };
 } // namespace watever

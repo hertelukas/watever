@@ -244,6 +244,9 @@ struct SymbolName {
   std::string Name;
   bool IsImport;
 
+  explicit SymbolName(uint32_t ItemIndex, std::string Name, bool Import)
+      : Index(ItemIndex), Name(std::move(Name)), IsImport(Import) {}
+
   [[nodiscard]] uint32_t getLen() const {
     uint32_t Len{};
     Len += llvm::getULEB128Size(Index);
@@ -259,17 +262,29 @@ struct SymbolName {
 struct SymbolData {
   std::string Name;
   // TODO these are all optionals, see spec
-  uint32_t Index;
-  uint32_t Offset;
-  uint32_t Size;
+  uint32_t Index{};
+  uint32_t Offset{};
+  uint32_t Size{};
+
+  bool Defined;
+
+  explicit SymbolData(std::string Name)
+      : Name(std::move(Name)), Defined(false) {}
+
+  explicit SymbolData(std::string Name, uint32_t Idx, uint32_t Off,
+                      uint32_t Size)
+      : Name(std::move(Name)), Index(Idx), Offset(Off), Size(Size),
+        Defined(true) {}
 
   [[nodiscard]] uint32_t getLen() const {
     uint32_t Len{};
     Len += llvm::getULEB128Size(Name.size());
     Len += Name.size();
-    Len += llvm::getULEB128Size(Index);
-    Len += llvm::getULEB128Size(Offset);
-    Len += llvm::getULEB128Size(Size);
+    if (Defined) {
+      Len += llvm::getULEB128Size(Index);
+      Len += llvm::getULEB128Size(Offset);
+      Len += llvm::getULEB128Size(Size);
+    }
     return Len;
   }
 };
@@ -285,9 +300,16 @@ struct SymbolSection {
 
 struct SymInfo {
   SymbolKind Kind;
-  uint32_t Flags{};
+  uint32_t Flags;
 
   std::variant<SymbolName, SymbolData, SymbolSection> Content;
+
+  explicit SymInfo(SymbolName SN, SymbolKind K, uint32_t Flags)
+      : Kind(K), Flags(Flags), Content(std::move(SN)) {}
+  explicit SymInfo(SymbolData SD, SymbolKind K, uint32_t Flags)
+      : Kind(K), Flags(Flags), Content(std::move(SD)) {}
+  explicit SymInfo(SymbolSection SS, SymbolKind K, uint32_t Flags)
+      : Kind(K), Flags(Flags), Content(SS) {}
 
   [[nodiscard]] uint32_t getSymInfoLen() const {
     uint32_t Len = 1; // kind
@@ -327,9 +349,11 @@ struct SymbolTable final : Subsection {
                             [&](const SymbolData &SymData) {
                               llvm::encodeULEB128(SymData.Name.size(), OS);
                               OS << SymData.Name;
-                              llvm::encodeULEB128(SymData.Index, OS);
-                              llvm::encodeULEB128(SymData.Offset, OS);
-                              llvm::encodeULEB128(SymData.Size, OS);
+                              if (SymData.Defined) {
+                                llvm::encodeULEB128(SymData.Index, OS);
+                                llvm::encodeULEB128(SymData.Offset, OS);
+                                llvm::encodeULEB128(SymData.Size, OS);
+                              }
                             },
                             [&](const SymbolSection &SymSec) {
                               llvm::encodeULEB128(SymSec.Section, OS);
