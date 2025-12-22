@@ -1,4 +1,5 @@
 #include "watever/ir.hpp"
+#include "watever/linking.hpp"
 #include "watever/opcode.hpp"
 #include "watever/printer.hpp"
 #include "watever/symbol.hpp"
@@ -7,10 +8,13 @@
 #include <algorithm>
 #include <cstdint>
 #include <llvm/ADT/DenseMap.h>
+#include <llvm/ADT/StringRef.h>
 #include <llvm/Analysis/LoopNestAnalysis.h>
 #include <llvm/IR/Argument.h>
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/Constants.h>
+#include <llvm/IR/GlobalValue.h>
+#include <llvm/IR/GlobalVariable.h>
 #include <llvm/IR/InstrTypes.h>
 #include <llvm/IR/Instruction.h>
 #include <llvm/IR/Instructions.h>
@@ -20,6 +24,60 @@
 #include <memory>
 
 using namespace watever;
+
+void Module::flattenConstant(const llvm::Constant *C,
+                             std::vector<uint8_t> &Buffer,
+                             llvm::SmallVector<RelocationEntry> &Relocs) {
+  // Simple data arrays
+  if (auto *CDS = llvm::dyn_cast<llvm::ConstantDataSequential>(C)) {
+    llvm::StringRef RawData = CDS->getRawDataValues();
+    Buffer.insert(Buffer.end(), RawData.begin(), RawData.end());
+    return;
+  }
+
+  // Aggregates
+  if (auto *CA = llvm::dyn_cast<llvm::ConstantAggregate>(C)) {
+    for (unsigned I = 0; I != CA->getNumOperands(); ++I) {
+      flattenConstant(CA->getOperand(I), Buffer, Relocs);
+    }
+    return;
+  }
+
+  // Integer constants
+  if (auto *CI = llvm::dyn_cast<llvm::ConstantInt>(C)) {
+    unsigned Width = CI->getBitWidth();
+    uint64_t Val = CI->getZExtValue();
+    if (Width <= 8)
+      appendBytes(Buffer, static_cast<uint8_t>(Val));
+    else if (Width <= 16)
+      appendBytes(Buffer, static_cast<uint16_t>(Val));
+    else if (Width <= 32)
+      appendBytes(Buffer, static_cast<uint32_t>(Val));
+    else if (Width <= 64)
+      appendBytes(Buffer, static_cast<uint64_t>(Val));
+    else {
+      WATEVER_UNIMPLEMENTED("handle constnat int >64 bit");
+    }
+    return;
+  }
+
+  // zero initializers
+  if (llvm::isa<llvm::ConstantAggregateZero>(C)) {
+    WATEVER_UNIMPLEMENTED("figure out alloc size");
+    return;
+  }
+
+  if (auto *GV = llvm::dyn_cast<llvm::GlobalValue>(C)) {
+    WATEVER_UNIMPLEMENTED("handle data relocation to {}", llvmToString(*GV));
+  }
+
+  if (auto *_ = llvm::dyn_cast<llvm::ConstantExpr>(C)) {
+    WATEVER_UNIMPLEMENTED("handle constant expressions in data section");
+  }
+
+  WATEVER_UNIMPLEMENTED("constant data of type {} is not yet supported",
+                        llvmToString(*C->getType()));
+}
 
 void BlockLowering::calculateLiveOut() {
   for (auto &Val : *BB) {
@@ -684,6 +742,16 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
       // worklist
       if (auto *Inst = llvm::dyn_cast<llvm::Instruction>(Next)) {
         visit(*Inst);
+      } else if (auto *GV = llvm::dyn_cast<llvm::GlobalVariable>(Next)) {
+        auto *WasmData = M.DataMap[GV];
+        if (!WasmData) {
+          WATEVER_UNREACHABLE("unknown global {}", llvmToString(*GV));
+        }
+        if (BB->getDataLayout().getPointerSizeInBits() == 64) {
+          Actions.Insts.emplace_back(Opcode::I64Const, WasmData);
+        } else {
+          Actions.Insts.emplace_back(Opcode::I32Const, WasmData);
+        }
       }
       // Otherwise, we can just load constants/arguments
       else if (const auto *Const = llvm::dyn_cast<llvm::ConstantInt>(Next)) {
@@ -938,6 +1006,29 @@ Module ModuleLowering::convert(llvm::Module &Mod,
   Module Res{};
 
   uint32_t FunctionIndexCounter = 0;
+
+  for (auto &GV : Mod.globals()) {
+    WATEVER_LOG_TRACE("Adding global value {}", GV.getName().str());
+
+    if (GV.isDeclaration()) {
+      auto UndefData = std::make_unique<UndefinedData>(Res.Symbols.size(),
+                                                       GV.getName().str());
+      Res.DataMap[&GV] = UndefData.get();
+      Res.Symbols.push_back(std::move(UndefData));
+      continue;
+    }
+
+    std::vector<uint8_t> Content;
+    llvm::SmallVector<RelocationEntry> Relocs;
+
+    Res.flattenConstant(GV.getInitializer(), Content, Relocs);
+
+    auto DefData = std::make_unique<DefinedData>(
+        Res.Symbols.size(), Res.TotalDatas++, true, GV.getName().str(), Content,
+        Relocs);
+    Res.DataMap[&GV] = DefData.get();
+    Res.Symbols.push_back(std::move(DefData));
+  }
 
   // Imported functions must be defined first
   for (auto &F : Mod) {

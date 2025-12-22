@@ -14,6 +14,7 @@
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/CFG.h>
 #include <llvm/IR/Dominators.h>
+#include <llvm/IR/GlobalValue.h>
 #include <llvm/IR/InstVisitor.h>
 #include <llvm/IR/InstrTypes.h>
 #include <llvm/IR/Instruction.h>
@@ -141,25 +142,46 @@ public:
   }
 };
 
+class RelocatablePointerArg final : public InstArgument {
+  Data *DT;
+
+public:
+  explicit RelocatablePointerArg(Data *D) : DT(D) {}
+  [[nodiscard]] std::string getString() const override {
+    return llvm::formatv("{}", DT->Name);
+  }
+  void encode(llvm::raw_ostream &OS) const override {
+    llvm::encodeSLEB128(0, OS, 5);
+  }
+
+  void addRelocation(llvm::raw_ostream &OS, Relocation &Reloc) override {
+    Reloc.Entries.emplace_back(RelocationType::R_WASM_MEMORY_ADDR_SLEB,
+                               OS.tell(), DT->SymbolIndex);
+  }
+};
+
 class WasmInst {
   using Storage =
       std::variant<std::monostate, int64_t, std::unique_ptr<InstArgument>>;
-  Storage Data;
+  Storage Arg;
 
 public:
   Opcode::Enum Op;
 
-  WasmInst(Opcode::Enum O) : Data(std::monostate{}), Op(O) {}
-  WasmInst(Opcode::Enum O, int64_t Imm) : Data(Imm), Op(O) {}
+  WasmInst(Opcode::Enum O) : Arg(std::monostate{}), Op(O) {}
+  WasmInst(Opcode::Enum O, int64_t Imm) : Arg(Imm), Op(O) {}
   WasmInst(Opcode::Enum O, std::unique_ptr<InstArgument> Arg)
-      : Data(std::move(Arg)), Op(O) {}
+      : Arg(std::move(Arg)), Op(O) {}
 
   // Convenience constructors
   WasmInst(Opcode::Enum O, ImportedGlobal *IG)
-      : Data(std::make_unique<RelocatableGlobalArg>(IG)), Op(O) {}
+      : Arg(std::make_unique<RelocatableGlobalArg>(IG)), Op(O) {}
 
   WasmInst(Opcode::Enum O, Local *L)
-      : Data(std::make_unique<LocalArg>(L)), Op(O) {}
+      : Arg(std::make_unique<LocalArg>(L)), Op(O) {}
+
+  WasmInst(Opcode::Enum O, Data *D)
+      : Arg(std::make_unique<RelocatablePointerArg>(D)), Op(O) {}
 
   WasmInst(WasmInst &&) = default;
   WasmInst &operator=(WasmInst &&) = default;
@@ -181,7 +203,7 @@ public:
               return llvm::formatv("{0} {1}", Name, Arg->getString()).str();
             },
         },
-        Data);
+        Arg);
   }
 #endif
 
@@ -196,7 +218,7 @@ public:
                      Arg->encode(OS);
                    },
                },
-               Data);
+               Arg);
   }
 };
 
@@ -262,9 +284,20 @@ public:
 };
 
 class Module {
+  friend class ModuleLowering;
   uint32_t TotalGlobals{};
+  // Helper to append raw bytes of a primitive type
+  template <typename T>
+  void appendBytes(std::vector<uint8_t> &Buffer, T Value) {
+    const auto *Bytes = reinterpret_cast<const uint8_t *>(&Value);
+    Buffer.insert(Buffer.end(), Bytes, Bytes + sizeof(T));
+  }
+
+  void flattenConstant(const llvm::Constant *C, std::vector<uint8_t> &Buffer,
+                       llvm::SmallVector<RelocationEntry> &Relocs);
 
 public:
+  uint32_t TotalDatas{};
   llvm::SmallVector<FuncType> Types;
   llvm::SmallVector<std::unique_ptr<Symbol>> Symbols;
   // Deduplication lookup table
@@ -276,6 +309,8 @@ public:
   llvm::SmallVector<ImportedGlobal *> ImportedGlobals{};
   llvm::DenseMap<llvm::Value *, Global *> GlobalMap;
   ImportedGlobal *StackPointer;
+
+  llvm::DenseMap<llvm::GlobalValue *, Data *> DataMap;
 
   uint32_t getOrAddType(const FuncType &Signature) {
     if (auto It = TypeLookup.find(Signature); It != TypeLookup.end()) {

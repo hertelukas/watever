@@ -100,4 +100,29 @@ public:
   void visit(WasmVisitor &V) const;
 };
 
+struct Data : public Symbol {
+  std::string Name;
+  explicit Data(uint32_t SymbolIdx, std::string Name)
+      : Symbol(SymbolIdx), Name(std::move(Name)) {}
+};
+
+// Data that appears in the data section of the WebAssembly binary
+struct DefinedData final : public Data {
+  uint32_t DataIndex;
+  bool Active;
+  std::vector<uint8_t> Content;
+  llvm::SmallVector<RelocationEntry> Relocations;
+  explicit DefinedData(uint32_t SymbolIdx, uint32_t DataIdx, bool Active,
+                       std::string Name, llvm::ArrayRef<uint8_t> Content,
+                       llvm::ArrayRef<RelocationEntry> Relocs)
+      : Data(SymbolIdx, std::move(Name)), DataIndex(DataIdx), Active(Active),
+        Content(Content.begin(), Content.end()), Relocations(Relocs) {}
+};
+
+// Undefined data, which does neither appear in the data section, nor has a
+// segment info
+struct UndefinedData final : public Data {
+  explicit UndefinedData(uint32_t SymbolIdx, std::string Name)
+      : Data(SymbolIdx, std::move(Name)) {}
+};
 } // namespace watever
