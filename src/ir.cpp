@@ -1024,9 +1024,11 @@ Module ModuleLowering::convert(llvm::Module &Mod,
     Res.flattenConstant(GV.getInitializer(), Content, Relocs);
 
     auto DefData = std::make_unique<DefinedData>(
-        Res.Symbols.size(), Res.TotalDatas++, true, GV.getName().str(), Content,
+        Res.Symbols.size(), Res.Datas.size(), true, GV.getName().str(), Content,
         Relocs);
+    
     Res.DataMap[&GV] = DefData.get();
+    Res.Datas.push_back(DefData.get());
     Res.Symbols.push_back(std::move(DefData));
   }
 

@@ -3,11 +3,11 @@
 #include "watever/import.hpp"
 #include "watever/ir.hpp"
 #include "watever/linking.hpp"
+#include <cstdint>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/Support/Endian.h>
 #include <llvm/Support/LEB128.h>
 #include <llvm/Support/raw_ostream.h>
-#include <cstdint>
 
 namespace watever {
 static constexpr uint32_t WateverBinaryMagic = 0x6d736100;
@@ -52,7 +52,7 @@ class BinaryWriter {
   // This is needed for relocations, so they can index into the correct section
   // by index, not by section ID. (For example, if we only have a type and a
   // code section, the code section will have index  1)
-  uint32_t CurrentSection;
+  uint32_t CurrentSection{};
 
   llvm::SmallVector<Relocation> Relocations;
 
@@ -60,51 +60,6 @@ class BinaryWriter {
   void writeVersion() { writeIntegral(Version, OS); }
 
   void writeTypes();
-  void writeFunctions();
-  void writeCode();
-
-  // Custom section with name "reloc.<SECTION>"
-  // TODO figure out if this is a custom section or part of linking custom
-  // section
-  void writeRelocation(const Relocation &Rel) {
-    llvm::SmallVector<char> Content;
-    llvm::raw_svector_ostream ContentOS(Content);
-
-    llvm::encodeULEB128(Rel.SectionName.length() + 6, ContentOS);
-    ContentOS << "reloc.";
-    ContentOS << Rel.SectionName;
-    llvm::encodeULEB128(Rel.Section, ContentOS);
-    llvm::encodeULEB128(Rel.Entries.size(), ContentOS);
-
-    for (auto &Entry : Rel.Entries) {
-      ContentOS << static_cast<uint8_t>(Entry.Type);
-      llvm::encodeULEB128(Entry.Offset, ContentOS);
-      llvm::encodeULEB128(Entry.Index, ContentOS);
-    }
-
-    OS << static_cast<uint8_t>(Section::Custom);
-    llvm::encodeULEB128(Content.size(), OS);
-    OS << ContentOS.str();
-  }
-
-  void writeLinking(const Linking &Link) {
-    llvm::SmallVector<char> Content;
-    llvm::raw_svector_ostream ContentOS(Content);
-
-    llvm::encodeULEB128(7, ContentOS);
-    ContentOS << "linking";
-    llvm::encodeULEB128(Link.Version, ContentOS);
-    for (const auto &SectionPtr : Link.Subsections) {
-      ContentOS << static_cast<uint8_t>(SectionPtr->getSectionType());
-      llvm::encodeULEB128(SectionPtr->getPayloadLen(),
-                          ContentOS);      // payload_len
-      SectionPtr->writePayload(ContentOS); // payload_data
-    }
-
-    OS << static_cast<uint8_t>(Section::Custom);
-    llvm::encodeULEB128(Content.size(), OS);
-    OS << ContentOS.str();
-  }
 
   void writeImports(llvm::ArrayRef<Import> Imports) {
     if (Imports.empty()) {
@@ -125,6 +80,56 @@ class BinaryWriter {
     }
 
     OS << static_cast<uint8_t>(Section::Import);
+    llvm::encodeULEB128(Content.size(), OS);
+    OS << ContentOS.str();
+  }
+
+  void writeFunctions();
+  void writeCode();
+
+  void writeData();
+  void writeDataCount();
+
+  void writeLinking(const Linking &Link) {
+    llvm::SmallVector<char> Content;
+    llvm::raw_svector_ostream ContentOS(Content);
+
+    llvm::encodeULEB128(7, ContentOS);
+    ContentOS << "linking";
+    llvm::encodeULEB128(Link.Version, ContentOS);
+    for (const auto &SectionPtr : Link.Subsections) {
+      ContentOS << static_cast<uint8_t>(SectionPtr->getSectionType());
+      llvm::encodeULEB128(SectionPtr->getPayloadLen(),
+                          ContentOS);      // payload_len
+      SectionPtr->writePayload(ContentOS); // payload_data
+    }
+
+    OS << static_cast<uint8_t>(Section::Custom);
+    llvm::encodeULEB128(Content.size(), OS);
+    OS << ContentOS.str();
+  }
+
+  // Custom section with name "reloc.<SECTION>"
+  void writeRelocation(const Relocation &Rel) {
+    llvm::SmallVector<char> Content;
+    llvm::raw_svector_ostream ContentOS(Content);
+
+    llvm::encodeULEB128(Rel.SectionName.length() + 6, ContentOS);
+    ContentOS << "reloc.";
+    ContentOS << Rel.SectionName;
+    llvm::encodeULEB128(Rel.Section, ContentOS);
+    llvm::encodeULEB128(Rel.Entries.size(), ContentOS);
+
+    for (auto &Entry : Rel.Entries) {
+      ContentOS << static_cast<uint8_t>(Entry.Type);
+      llvm::encodeULEB128(Entry.Offset, ContentOS);
+      llvm::encodeULEB128(Entry.Index, ContentOS);
+      if (Entry.hasAddend()) {
+        llvm::encodeSLEB128(Entry.Addend, ContentOS);
+      }
+    }
+
+    OS << static_cast<uint8_t>(Section::Custom);
     llvm::encodeULEB128(Content.size(), OS);
     OS << ContentOS.str();
   }

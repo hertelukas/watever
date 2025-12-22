@@ -43,8 +43,26 @@ struct RelocationEntry {
   // the index of the type)
   uint32_t Index;
 
+  // For R_WASM_MEMORY_ADDR_*, R_WASM_FUNCTION_OFFSET_I32, and
+  // R_WASM_SECTION_OFFSET_I32 relocations (and their 64-bit counterparts), an
+  // addend which gets added to the address
+  int32_t Addend{};
+
   RelocationEntry(RelocationType Ty, uint32_t Offset, uint32_t Idx)
       : Type(Ty), Offset(Offset), Index(Idx) {}
+
+  [[nodiscard]] constexpr bool hasAddend() const {
+    return (Type == RelocationType::R_WASM_MEMORY_ADDR_LEB ||
+            Type == RelocationType::R_WASM_MEMORY_ADDR_SLEB ||
+            Type == RelocationType::R_WASM_MEMORY_ADDR_I32 ||
+            Type == RelocationType::R_WASM_MEMORY_ADDR_LEB64 ||
+            Type == RelocationType::R_WASM_MEMORY_ADDR_SLEB64 ||
+            Type == RelocationType::R_WASM_MEMORY_ADDR_I64 ||
+            Type == RelocationType::R_WASM_MEMORY_ADDR_LOCREL_I32 ||
+            Type == RelocationType::R_WASM_FUNCTION_OFFSET_I32 ||
+            Type == RelocationType::R_WASM_FUNCTION_OFFSET_I64 ||
+            Type == RelocationType::R_WASM_SECTION_OFFSET_I32);
+  }
 };
 
 /// https://github.com/WebAssembly/tool-conventions/blob/main/Linking.md#relocation-sections

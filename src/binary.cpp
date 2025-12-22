@@ -3,6 +3,7 @@
 #include "watever/ir.hpp"
 #include "watever/linking.hpp"
 #include "watever/opcode.hpp"
+#include "watever/symbol.hpp"
 #include <cstdint>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/Support/LEB128.h>
@@ -140,6 +141,46 @@ void BinaryWriter::writeCode() {
   OS << ContentOS.str();
 }
 
+void BinaryWriter::writeData() {
+  if (Mod.Datas.empty()) {
+    return;
+  }
+  CurrentSection++;
+  llvm::SmallVector<char> Content;
+  llvm::raw_svector_ostream ContentOS(Content);
+
+  llvm::encodeULEB128(Mod.Datas.size(), ContentOS);
+  uint32_t Offset{};
+  for (auto *Data : Mod.Datas) {
+    // TODO currently every segment is active, and results in i32.const <offset>
+    // end
+    ContentOS << static_cast<uint8_t>(0);
+    // TODO support 64-bit
+    Opcode(Opcode::I32Const).writeBytes(ContentOS);
+    llvm::encodeSLEB128(Offset, ContentOS);
+    Opcode(Opcode::End).writeBytes(ContentOS);
+
+    llvm::encodeULEB128(Data->Content.size(), ContentOS);
+    ContentOS.write(reinterpret_cast<const char *>(Data->Content.data()),
+                    Data->Content.size());
+    Offset += Data->Content.size();
+  }
+
+  OS << static_cast<uint8_t>(Section::Data);
+  llvm::encodeULEB128(Content.size(), OS);
+  OS << ContentOS.str();
+}
+
+void BinaryWriter::writeDataCount() {
+  if (Mod.Datas.empty()) {
+    return;
+  }
+  CurrentSection++;
+  OS << static_cast<uint8_t>(Section::DataCount);
+  llvm::encodeULEB128(llvm::getULEB128Size(Mod.Datas.size()), OS);
+  llvm::encodeULEB128(Mod.Datas.size(), OS);
+}
+
 void BinaryWriter::write() {
   writeMagic();
   writeVersion();
@@ -167,7 +208,9 @@ void BinaryWriter::write() {
 
   writeImports(Imports);
   writeFunctions();
+  writeDataCount();
   writeCode();
+  writeData();
 
   Linking Link{};
 

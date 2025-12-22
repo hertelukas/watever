@@ -297,7 +297,6 @@ class Module {
                        llvm::SmallVector<RelocationEntry> &Relocs);
 
 public:
-  uint32_t TotalDatas{};
   llvm::SmallVector<FuncType> Types;
   llvm::SmallVector<std::unique_ptr<Symbol>> Symbols;
   // Deduplication lookup table
@@ -310,6 +309,7 @@ public:
   llvm::DenseMap<llvm::Value *, Global *> GlobalMap;
   ImportedGlobal *StackPointer;
 
+  llvm::SmallVector<DefinedData *> Datas{};
   llvm::DenseMap<llvm::GlobalValue *, Data *> DataMap;
 
   uint32_t getOrAddType(const FuncType &Signature) {
