@@ -187,6 +187,7 @@ public:
   void visitGetElementPtrInst(llvm::GetElementPtrInst &GI);
 
   // Conversion Operations
+  void visitTruncInst(llvm::TruncInst &TI);
 
   // Other Operations
   void visitICmpInst(llvm::ICmpInst &ICI);
@@ -196,8 +197,7 @@ public:
   void visitCallInst(llvm::CallInst &CI);
 
   void visitInstruction(llvm::Instruction &I) {
-    // TODO set to UNIMPLEMENTED
-    WATEVER_TODO("{} not (yet) supported", I.getOpcodeName());
+    WATEVER_UNIMPLEMENTED("{} not (yet) supported", I.getOpcodeName());
   }
 };
 

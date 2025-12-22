@@ -668,6 +668,18 @@ void FunctionLegalizer::visitGetElementPtrInst(llvm::GetElementPtrInst &GI) {
 //===----------------------------------------------------------------------===//
 // Conversion Operations
 //===----------------------------------------------------------------------===//
+void FunctionLegalizer::visitTruncInst(llvm::TruncInst &TI) {
+  auto Arg = getMappedValue(TI.getOperand(0));
+
+  if (Arg.isScalar()) {
+    ValueMap[&TI] = Builder.CreateTrunc(Arg[0], TI.getDestTy());
+    return;
+  }
+
+  WATEVER_UNIMPLEMENTED("non-scalar truncation from {} to {}",
+                        llvmToString(*TI.getSrcTy()),
+                        llvmToString(*TI.getDestTy()));
+}
 //===----------------------------------------------------------------------===//
 // Other Operations
 //===----------------------------------------------------------------------===//
