@@ -19,6 +19,8 @@ struct Symbol {
     DefinedFunc,
     UndefinedData,
     DefinedData,
+    UndefinedTable,
+    DefinedTable,
   };
 
   const Kind ClassKind;
@@ -185,6 +187,39 @@ struct UndefinedData final : public Data {
 
   static bool classof(const Symbol *S) {
     return S->getClassKind() == Kind::UndefinedData;
+  }
+};
+
+struct Table : public Symbol {
+  ValType Type;
+  explicit Table(Kind K, uint32_t SymbolIdx, ValType ET)
+      : Symbol(K, SymbolIdx), Type(ET) {}
+  [[nodiscard]] SymbolKind getKind() const override {
+    return SymbolKind::SYMTAB_TABLE;
+  }
+
+  static bool classof(const Symbol *S) {
+    return S->getClassKind() == Kind::DefinedTable ||
+           S->getClassKind() == Kind::UndefinedTable;
+  }
+};
+
+struct DefinedTable final : public Table {
+  explicit DefinedTable(uint32_t SymbolIdx, ValType ElementType)
+      : Table(Kind::DefinedTable, SymbolIdx, ElementType) {}
+  static bool classof(const Symbol *S) {
+    return S->getClassKind() == Kind::DefinedTable;
+  }
+};
+
+struct UndefinedTable final : public Table {
+  std::string ItemName;
+  explicit UndefinedTable(uint32_t SymbolIdx, ValType ElementType,
+                          std::string IN)
+      : Table(Kind::UndefinedTable, SymbolIdx, ElementType),
+        ItemName(std::move(IN)) {}
+  static bool classof(const Symbol *S) {
+    return S->getClassKind() == Kind::UndefinedTable;
   }
 };
 } // namespace watever
