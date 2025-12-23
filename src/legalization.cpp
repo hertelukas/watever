@@ -808,20 +808,31 @@ void FunctionLegalizer::visitSelectInst(llvm::SelectInst &SI) {
 
 void FunctionLegalizer::visitCallInst(llvm::CallInst &CI) {
   auto *OldCalledFunc = CI.getCalledFunction();
+
+  llvm::Value *NewCallee = nullptr;
+
   if (!OldCalledFunc) {
-    WATEVER_UNIMPLEMENTED("indirect calls");
+    // Indirect call
+    auto CalledOp = getMappedValue(CI.getCalledOperand());
+    if (!CalledOp.isScalar()) {
+      WATEVER_UNREACHABLE("indirectly called function is not scalar");
+    }
+    NewCallee = CalledOp[0];
+  } else {
+    // Direct call
+    // Fallback to old function, in case of calling a declaration
+    NewCallee = OldCalledFunc;
+    if (auto It = FuncMap.find(OldCalledFunc); It != FuncMap.end()) {
+      NewCallee = It->second;
+    }
   }
-
-  // Default to old, in case of declaration
-  auto *NewCallee = OldCalledFunc;
-  if (auto It = FuncMap.find(OldCalledFunc); It != FuncMap.end()) {
-    NewCallee = It->second;
-  }
-
-  if (!LegalizationPass::getLegalType(OldCalledFunc->getReturnType())
-           .isScalar()) {
+  
+  if (!LegalizationPass::getLegalType(CI.getType()).isScalar()) {
     WATEVER_UNIMPLEMENTED("prepare indirect return value");
   }
+
+  auto *NewFuncTy =
+      LegalizationPass::getLegalFunctionType(CI.getFunctionType());
 
   llvm::SmallVector<llvm::Value *> NewArgs;
   for (auto &OldArg : CI.args()) {
@@ -831,9 +842,10 @@ void FunctionLegalizer::visitCallInst(llvm::CallInst &CI) {
     }
   }
 
-  assert(NewCallee->arg_size() == NewArgs.size() && "Argument count mismatch!");
+  assert(NewFuncTy->getNumParams() == NewArgs.size() &&
+         "Argument count mismatch!");
 
-  auto *NewCall = Builder.CreateCall(NewCallee, NewArgs);
+  auto *NewCall = Builder.CreateCall(NewFuncTy, NewCallee, NewArgs);
   NewCall->setCallingConv(CI.getCallingConv());
 
   ValueMap[&CI] = LegalValue{NewCall};
@@ -841,9 +853,9 @@ void FunctionLegalizer::visitCallInst(llvm::CallInst &CI) {
 
 llvm::Function *LegalizationPass::createLegalFunction(llvm::Module &Mod,
                                                       llvm::Function *OldFunc) {
-  llvm::Function *Fn = llvm::Function::Create(
-      createLegalFunctionType(OldFunc->getFunctionType()),
-      OldFunc->getLinkage(), OldFunc->getName(), Mod);
+  llvm::Function *Fn =
+      llvm::Function::Create(getLegalFunctionType(OldFunc->getFunctionType()),
+                             OldFunc->getLinkage(), OldFunc->getName(), Mod);
 
   bool IndirectReturn = getLegalType(OldFunc->getReturnType()).size() > 1;
 
@@ -870,7 +882,7 @@ llvm::Function *LegalizationPass::createLegalFunction(llvm::Module &Mod,
 }
 
 llvm::FunctionType *
-LegalizationPass::createLegalFunctionType(llvm::FunctionType *OldFuncTy) {
+LegalizationPass::getLegalFunctionType(llvm::FunctionType *OldFuncTy) {
   auto LegalResultTy = getLegalType(OldFuncTy->getReturnType());
 
   llvm::Type *ResultTy = nullptr;

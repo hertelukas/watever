@@ -206,12 +206,11 @@ class LegalizationPass : public llvm::PassInfoMixin<LegalizationPass> {
   static llvm::Function *createLegalFunction(llvm::Module &M,
                                              llvm::Function *OldFunc);
 
-  static llvm::FunctionType *
-  createLegalFunctionType(llvm::FunctionType *OldFuncTy);
-
 public:
   explicit LegalizationPass(const TargetConfig &C) : Config(C) {}
   static LegalType getLegalType(llvm::Type *Ty);
+  static llvm::FunctionType *
+  getLegalFunctionType(llvm::FunctionType *OldFuncTy);
   llvm::PreservedAnalyses run(llvm::Module &M,
                               llvm::ModuleAnalysisManager &MAM);
 };
