@@ -85,6 +85,7 @@ class BinaryWriter {
   }
 
   void writeFunctions();
+  void writeElements();
   void writeCode();
 
   void writeData();

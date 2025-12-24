@@ -95,6 +95,24 @@ public:
   }
 };
 
+class TableType final : public ExternType {
+  ValType RefType;
+  Limit Lim;
+
+public:
+  // TODO check that Type is a RefType
+  explicit TableType(ValType RTy, Limit Lim) : RefType(RTy), Lim(Lim) {}
+
+  void writePayload(llvm::raw_ostream &OS) const override {
+    OS << static_cast<uint8_t>(RefType);
+    Lim.writePayload(OS);
+  }
+
+  [[nodiscard]] ExternalType getExternalType() const override {
+    return ExternalType::TableType;
+  }
+};
+
 struct Import {
   std::string ModuleName;
   std::string ItemName;

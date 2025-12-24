@@ -192,8 +192,9 @@ struct UndefinedData final : public Data {
 
 struct Table : public Symbol {
   ValType Type;
-  explicit Table(Kind K, uint32_t SymbolIdx, ValType ET)
-      : Symbol(K, SymbolIdx), Type(ET) {}
+  uint32_t TableIndex;
+  explicit Table(Kind K, uint32_t SymbolIdx, uint32_t TableIdx, ValType ET)
+      : Symbol(K, SymbolIdx), Type(ET), TableIndex(TableIdx) {}
   [[nodiscard]] SymbolKind getKind() const override {
     return SymbolKind::SYMTAB_TABLE;
   }
@@ -205,8 +206,9 @@ struct Table : public Symbol {
 };
 
 struct DefinedTable final : public Table {
-  explicit DefinedTable(uint32_t SymbolIdx, ValType ElementType)
-      : Table(Kind::DefinedTable, SymbolIdx, ElementType) {}
+  explicit DefinedTable(uint32_t SymbolIdx, uint32_t TableIdx,
+                        ValType ElementType)
+      : Table(Kind::DefinedTable, SymbolIdx, TableIdx, ElementType) {}
   static bool classof(const Symbol *S) {
     return S->getClassKind() == Kind::DefinedTable;
   }
@@ -214,9 +216,9 @@ struct DefinedTable final : public Table {
 
 struct UndefinedTable final : public Table {
   std::string ItemName;
-  explicit UndefinedTable(uint32_t SymbolIdx, ValType ElementType,
-                          std::string IN)
-      : Table(Kind::UndefinedTable, SymbolIdx, ElementType),
+  explicit UndefinedTable(uint32_t SymbolIdx, uint32_t TableIdx,
+                          ValType ElementType, std::string IN)
+      : Table(Kind::UndefinedTable, SymbolIdx, TableIdx, ElementType),
         ItemName(std::move(IN)) {}
   static bool classof(const Symbol *S) {
     return S->getClassKind() == Kind::UndefinedTable;

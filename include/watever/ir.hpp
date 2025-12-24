@@ -160,6 +160,50 @@ public:
   }
 };
 
+class RelocatableIndirectCallArg final : public InstArgument {
+  uint32_t TypeIndex;
+  Table *Tab;
+
+public:
+  explicit RelocatableIndirectCallArg(uint32_t TypeIdx,
+                                      Table *IndirectFunctionTable)
+      : TypeIndex(TypeIdx), Tab(IndirectFunctionTable) {}
+
+  [[nodiscard]] std::string getString() const override {
+    return llvm::formatv("{} {}", TypeIndex, Tab->TableIndex).str();
+  }
+  void encode(llvm::raw_ostream &OS) const override {
+    llvm::encodeULEB128(TypeIndex, OS, 5);
+    llvm::encodeULEB128(Tab->TableIndex, OS, 5);
+  }
+
+  void addRelocation(llvm::raw_ostream &OS, Relocation &Reloc) override {
+    Reloc.Entries.emplace_back(RelocationType::R_WASM_TYPE_INDEX_LEB, OS.tell(),
+                               TypeIndex);
+    Reloc.Entries.emplace_back(RelocationType::R_WASM_TABLE_NUMBER_LEB,
+                               OS.tell() + 5, Tab->SymbolIndex);
+  }
+};
+
+class RelocatableTableIndexArg final : public InstArgument {
+  Function *F;
+
+public:
+  explicit RelocatableTableIndexArg(Function *F) : F(F) {}
+
+  [[nodiscard]] std::string getString() const override {
+    return llvm::formatv("table index for {}", F->Name).str();
+  }
+  void encode(llvm::raw_ostream &OS) const override {
+    llvm::encodeSLEB128(0, OS, 5);
+  }
+
+  void addRelocation(llvm::raw_ostream &OS, Relocation &Reloc) override {
+    Reloc.Entries.emplace_back(RelocationType::R_WASM_TABLE_INDEX_SLEB,
+                               OS.tell(), F->SymbolIndex);
+  }
+};
+
 class WasmInst {
   using Storage =
       std::variant<std::monostate, int64_t, std::unique_ptr<InstArgument>>;
@@ -182,6 +226,9 @@ public:
 
   WasmInst(Opcode::Enum O, Data *D)
       : Arg(std::make_unique<RelocatablePointerArg>(D)), Op(O) {}
+
+  WasmInst(Opcode::Enum O, Function *F)
+      : Arg(std::make_unique<RelocatableFuncArg>(F)), Op(O) {}
 
   WasmInst(WasmInst &&) = default;
   WasmInst &operator=(WasmInst &&) = default;
@@ -286,6 +333,7 @@ public:
 class Module {
   friend class ModuleLowering;
   uint32_t TotalGlobals{};
+  uint32_t TotalTables{};
   // Helper to append raw bytes of a primitive type
   template <typename T>
   void appendBytes(std::vector<uint8_t> &Buffer, T Value) {
@@ -312,6 +360,10 @@ public:
   llvm::SmallVector<DefinedData *> Datas{};
   llvm::DenseMap<llvm::GlobalValue *, Data *> DataMap;
 
+  std::vector<Function *> IndirectFunctionElements{nullptr};
+  llvm::DenseMap<Function *, uint32_t> IndirectFunctionElementLookup;
+  UndefinedTable *IndirectFunctionTable{};
+
   uint32_t getOrAddType(const FuncType &Signature) {
     if (auto It = TypeLookup.find(Signature); It != TypeLookup.end()) {
       return It->second;
@@ -323,6 +375,14 @@ public:
     return NewIndex;
   }
 
+  void addIndirectFunctionElement(Function *F) {
+    if (IndirectFunctionElementLookup.contains(F)) {
+      return;
+    }
+    IndirectFunctionElementLookup[F] = IndirectFunctionElements.size();
+    IndirectFunctionElements.push_back(F);
+  }
+
   /// Returns a pointer to the stack pointer global - creates one, if it doesn't
   /// exist yet.
   ImportedGlobal *getStackPointer(ValType PtrTy) {
@@ -330,11 +390,25 @@ public:
       auto NewStackPointer = std::make_unique<ImportedGlobal>(
           Symbols.size(), TotalGlobals++, PtrTy, true, "env",
           "__stack_pointer");
+      NewStackPointer->setFlag(SymbolFlag::WASM_SYM_UNDEFINED);
       StackPointer = NewStackPointer.get();
       ImportedGlobals.push_back(StackPointer);
       Symbols.push_back(std::move(NewStackPointer));
     }
     return StackPointer;
+  }
+
+  UndefinedTable *getIndirectFunctionTable() {
+    if (!IndirectFunctionTable) {
+      auto NewIndirectFunctionTable = std::make_unique<UndefinedTable>(
+          Symbols.size(), TotalTables++, ValType::Func,
+          "__indirect_function_table");
+      NewIndirectFunctionTable->setFlag(SymbolFlag::WASM_SYM_NO_STRIP);
+      NewIndirectFunctionTable->setFlag(SymbolFlag::WASM_SYM_UNDEFINED);
+      IndirectFunctionTable = NewIndirectFunctionTable.get();
+      Symbols.push_back(std::move(NewIndirectFunctionTable));
+    }
+    return IndirectFunctionTable;
   }
 };
 

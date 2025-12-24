@@ -687,6 +687,26 @@ void BlockLowering::visitCallInst(llvm::CallInst &CI) {
     auto *Func = M.FunctionMap[Callee];
     Actions.Insts.emplace_back(Opcode::Call,
                                std::make_unique<RelocatableFuncArg>(Func));
+  } else {
+    WorkList.push_back(CI.getCalledOperand());
+    auto *FuncTable = M.getIndirectFunctionTable();
+    auto *FT = CI.getFunctionType();
+    FuncType WasmFuncTy{};
+    for (auto *ParamTy : FT->params()) {
+      auto WasmType = fromLLVMType(ParamTy, CI.getModule()->getDataLayout());
+      WasmFuncTy.Params.push_back(WasmType);
+    }
+
+    if (!FT->getReturnType()->isVoidTy()) {
+      WasmFuncTy.Results.push_back(
+          fromLLVMType(FT->getReturnType(), CI.getModule()->getDataLayout()));
+    }
+
+    const uint32_t FuncTypeIndex = M.getOrAddType(WasmFuncTy);
+
+    Actions.Insts.emplace_back(
+        Opcode::CallIndirect,
+        std::make_unique<RelocatableIndirectCallArg>(FuncTypeIndex, FuncTable));
   }
 }
 
@@ -775,6 +795,15 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
         }
       } else if (auto *Arg = llvm::dyn_cast<llvm::Argument>(Next)) {
         Actions.Insts.push_back(WasmInst(Opcode::LocalGet, Arg->getArgNo()));
+      } else if (auto *F = llvm::dyn_cast<llvm::Function>(Next)) {
+        auto *WasmFunc = M.FunctionMap[F];
+        M.addIndirectFunctionElement(WasmFunc);
+        auto Arg = std::make_unique<RelocatableTableIndexArg>(WasmFunc);
+        if (F->getDataLayout().getPointerSizeInBits() == 64) {
+          Actions.Insts.emplace_back(Opcode::I64Const, std::move(Arg));
+        } else {
+          Actions.Insts.emplace_back(Opcode::I32Const, std::move(Arg));
+        }
       } else {
         WATEVER_TODO("put {} on top of the stack", llvmToString(*Next));
       }

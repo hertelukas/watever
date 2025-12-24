@@ -10,7 +10,6 @@
 #include <llvm/Support/LEB128.h>
 #include <llvm/Support/raw_ostream.h>
 #include <memory>
-#include <variant>
 
 namespace watever {
 
@@ -86,6 +85,34 @@ void BinaryWriter::writeFunctions() {
   }
 
   OS << static_cast<uint8_t>(Section::Function);
+  llvm::encodeULEB128(Content.size(), OS);
+  OS << ContentOS.str();
+}
+
+void BinaryWriter::writeElements() {
+  if (Mod.IndirectFunctionElements.size() <= 1) {
+    return;
+  }
+  CurrentSection++;
+  llvm::SmallVector<char> Content;
+  llvm::raw_svector_ostream ContentOS(Content);
+
+  llvm::encodeULEB128(Mod.IndirectFunctionElements.size() - 1, ContentOS);
+
+  // TODO I'm confused about this; why can a single element hold multiple
+  // functions?
+  // We skip the first element, as this is reserved as nullptr
+  llvm::encodeULEB128(uint32_t{0}, ContentOS);
+  Opcode(Opcode::I32Const).writeBytes(ContentOS);
+  llvm::encodeULEB128(1, ContentOS);
+  Opcode(Opcode::End).writeBytes(ContentOS);
+  llvm::encodeULEB128(Mod.IndirectFunctionElements.size() - 1, ContentOS);
+  for (uint32_t I = 1; I < Mod.IndirectFunctionElements.size(); ++I) {
+    llvm::encodeULEB128(Mod.IndirectFunctionElements[I]->FunctionIndex,
+                        ContentOS);
+  }
+
+  OS << static_cast<uint8_t>(Section::Element);
   llvm::encodeULEB128(Content.size(), OS);
   OS << ContentOS.str();
 }
@@ -192,9 +219,8 @@ void BinaryWriter::write() {
 
   // Add default memory
   // TODO respect bit width
-  Imports.emplace_back(
-      "env", "__linear_memory",
-      std::make_unique<MemType>(Limit{static_cast<uint32_t>(0)}));
+  Imports.emplace_back("env", "__linear_memory",
+                       std::make_unique<MemType>(Limit{uint32_t{0}}));
 
   for (const auto &F : Mod.Imports) {
     Imports.emplace_back(
@@ -207,8 +233,16 @@ void BinaryWriter::write() {
                          std::make_unique<GlobalType>(G->Type, G->Mutable));
   }
 
+  if (Mod.IndirectFunctionTable) {
+    Imports.emplace_back(
+        "env", Mod.IndirectFunctionTable->ItemName,
+        std::make_unique<TableType>(Mod.IndirectFunctionTable->Type,
+                                    Limit{uint32_t{1}}));
+  }
+
   writeImports(Imports);
   writeFunctions();
+  writeElements();
   writeDataCount();
   writeCode();
   writeData();
@@ -218,7 +252,8 @@ void BinaryWriter::write() {
   SymbolTable SymTab{};
   for (const auto &Symbol : Mod.Symbols) {
 
-    if (llvm::isa<Function>(Symbol) || llvm::isa<Global>(Symbol)) {
+    if (llvm::isa<Function>(Symbol) || llvm::isa<Global>(Symbol) ||
+        llvm::isa<Table>(Symbol)) {
       std::string Name{};
       uint32_t Index{};
       bool Import{};
@@ -237,6 +272,10 @@ void BinaryWriter::write() {
       } else if (const auto *IG =
                      llvm::dyn_cast<ImportedGlobal>(Symbol.get())) {
         Index = IG->GlobalIdx;
+        Import = true;
+      } else if (const auto *UT =
+                     llvm::dyn_cast<UndefinedTable>(Symbol.get())) {
+        Index = UT->TableIndex;
         Import = true;
       }
 
