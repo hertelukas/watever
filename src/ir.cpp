@@ -1053,10 +1053,25 @@ Module ModuleLowering::convert(llvm::Module &Mod,
 
     Res.flattenConstant(GV.getInitializer(), Content, Relocs);
 
+    DataSection S;
+    if (GV.isConstant()) {
+      S = DataSection::RO_DATA;
+    } else if (GV.getInitializer()->isNullValue() ||
+               GV.getInitializer()->isZeroValue()) {
+      S = DataSection::BSS;
+    } else {
+      S = DataSection::DATA;
+    }
+
     auto DefData = std::make_unique<DefinedData>(
         Res.Symbols.size(), Res.Datas.size(), true, GV.getName().str(), Content,
-        Relocs);
+        Relocs, S);
 
+    if (GV.getThreadLocalMode() != llvm::GlobalValue::NotThreadLocal) {
+      DefData->setFlag(SegmentFlag::WASM_SEGMENT_FLAG_TLS);
+    }
+    // TODO check if string or retain flags needed
+    // TODO set alignment
     Res.DataMap[&GV] = DefData.get();
     Res.Datas.push_back(DefData.get());
     Res.Symbols.push_back(std::move(DefData));

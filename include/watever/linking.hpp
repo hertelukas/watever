@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <llvm/Support/LEB128.h>
 #include <llvm/Support/raw_ostream.h>
+#include <utility>
 #include <variant>
 #include <vector>
 namespace watever {
@@ -106,6 +107,24 @@ enum class SegmentFlag : uint32_t { // NOLINT(performance-enum-size)
   WASM_SEG_FLAG_RETAIN = 4,
 };
 
+enum class DataSection : uint8_t {
+  RO_DATA,
+  BSS,
+  DATA,
+};
+
+inline std::string dataSectionToString(DataSection S) {
+  switch (S) {
+  case DataSection::RO_DATA:
+    return ".rodata.";
+  case DataSection::BSS:
+    return ".bss.";
+  case DataSection::DATA:
+    return ".data.";
+  }
+  WATEVER_UNREACHABLE("unknown data section");
+}
+
 struct Segment {
   // UTF-8 encoding of the segment's name
   std::string Name;
@@ -113,6 +132,9 @@ struct Segment {
   uint32_t Alignment;
   // a bitfield containing flags for this segment (varuint32)
   uint32_t Flags;
+
+  explicit Segment(std::string N, uint32_t Align, uint32_t Flags)
+      : Name(std::move(N)), Alignment(Align), Flags(Flags) {}
 
   void setFlag(SegmentFlag Flag) { Flags |= static_cast<uint32_t>(Flag); }
 

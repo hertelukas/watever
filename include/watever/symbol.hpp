@@ -167,12 +167,18 @@ struct DefinedData final : public Data {
   bool Active;
   std::vector<uint8_t> Content;
   llvm::SmallVector<RelocationEntry> Relocations;
+  uint32_t Flags{};
+  uint32_t Alignment{};
+  DataSection Sec;
+
   explicit DefinedData(uint32_t SymbolIdx, uint32_t DataIdx, bool Active,
                        std::string Name, llvm::ArrayRef<uint8_t> Content,
-                       llvm::ArrayRef<RelocationEntry> Relocs)
+                       llvm::ArrayRef<RelocationEntry> Relocs, DataSection S)
       : Data(Kind::DefinedData, SymbolIdx, std::move(Name)), DataIndex(DataIdx),
         Active(Active), Content(Content.begin(), Content.end()),
-        Relocations(Relocs) {}
+        Relocations(Relocs), Sec(S) {}
+
+  void setFlag(SegmentFlag F) { Flags |= static_cast<uint32_t>(F); }
 
   static bool classof(const Symbol *S) {
     return S->getClassKind() == Kind::DefinedData;
