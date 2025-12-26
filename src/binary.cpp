@@ -169,9 +169,9 @@ void BinaryWriter::writeCode() {
   OS << ContentOS.str();
 }
 
-SegmentInfo BinaryWriter::writeData() {
+void BinaryWriter::writeData() {
   if (Mod.Datas.empty()) {
-    return SegmentInfo{};
+    return;
   }
   CurrentSection++;
   llvm::SmallVector<char> Content;
@@ -179,10 +179,7 @@ SegmentInfo BinaryWriter::writeData() {
 
   llvm::encodeULEB128(Mod.Datas.size(), ContentOS);
   uint32_t Offset{};
-  SegmentInfo Segments;
   for (auto *Data : Mod.Datas) {
-    Segments.Segments.emplace_back(dataSectionToString(Data->Sec) + Data->Name,
-                                   Data->Alignment, Data->Flags);
     // TODO currently every segment is active, and results in i32.const <offset>
     // end
     ContentOS << static_cast<uint8_t>(0);
@@ -200,8 +197,6 @@ SegmentInfo BinaryWriter::writeData() {
   OS << static_cast<uint8_t>(Section::Data);
   llvm::encodeULEB128(Content.size(), OS);
   OS << ContentOS.str();
-
-  return Segments;
 }
 
 void BinaryWriter::writeDataCount() {
@@ -250,7 +245,7 @@ void BinaryWriter::write() {
   writeElements();
   writeDataCount();
   writeCode();
-  auto SI = writeData();
+  writeData();
 
   Linking Link{};
 
@@ -297,7 +292,13 @@ void BinaryWriter::write() {
   }
 
   Link.Subsections.push_back(std::make_unique<SymbolTable>(SymTab));
-  if (!SI.Segments.empty()) {
+
+  if (!Mod.Datas.empty()) {
+    SegmentInfo SI;
+    for (auto *Data : Mod.Datas) {
+      SI.Segments.emplace_back(dataSectionToString(Data->Sec) + Data->Name,
+                               Data->Alignment, Data->Flags);
+    }
     Link.Subsections.push_back(std::make_unique<SegmentInfo>(SI));
   }
 

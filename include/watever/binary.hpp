@@ -88,7 +88,7 @@ class BinaryWriter {
   void writeElements();
   void writeCode();
 
-  SegmentInfo writeData();
+  void writeData();
   void writeDataCount();
 
   void writeLinking(const Linking &Link) {
