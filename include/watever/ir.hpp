@@ -204,9 +204,12 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
 
   WasmActions Actions;
 
-  void calculateLiveOut();
+  /// Calculates the users of each value for the AST at \p Root.
   [[nodiscard]] llvm::DenseMap<llvm::Value *, int>
-  getInternalUserCounts() const;
+  getDependencyTreeUserCount(llvm::Instruction *Root) const;
+
+  /// Check wether \p Val has a user outside of this BB
+  bool hasExternalUser(llvm::Value *Val);
 
   Module &M;
   DefinedFunc *Parent;
