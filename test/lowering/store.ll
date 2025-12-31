@@ -16,6 +16,16 @@ entry:
   ret void
 }
 
+define void @store_const_i7(ptr %p) {
+; CHECK-LABEL: $store_const_i7
+; CHECK-NEXT:    local.get 0
+; CHECK-NEXT:    i32.const 1
+; CHECK-NEXT:    i32.store8
+entry:
+  store i7 1, ptr %p
+  ret void
+}
+
 define void @store_i8(ptr %p, i8 %a) {
 ; CHECK-LABEL: $store_i8
 ; CHECK-NEXT:    local.get 0
@@ -23,6 +33,16 @@ define void @store_i8(ptr %p, i8 %a) {
 ; CHECK-NEXT:    i32.store8
 entry:
   store i8 %a, ptr %p
+  ret void
+}
+
+define void @store_const_i8(ptr %p) {
+; CHECK-LABEL: $store_const_i8
+; CHECK-NEXT:    local.get 0
+; CHECK-NEXT:    i32.const 1
+; CHECK-NEXT:    i32.store8 
+entry:
+  store i8 1, ptr %p
   ret void
 }
 
@@ -36,6 +56,16 @@ define void @store_i10(ptr %p, i10 %a) {
 ; CHECK-NEXT:    i32.store16
 entry:
   store i10 %a, ptr %p
+  ret void
+}
+
+define void @store_const_i10(ptr %p) {
+; CHECK-LABEL: $store_const_i10
+; CHECK-NEXT:    local.get 0
+; CHECK-NEXT:    i32.const 1
+; CHECK-NEXT:    i32.store16
+entry:
+  store i10 1, ptr %p
   ret void
 }
 
@@ -83,6 +113,16 @@ entry:
   ret void
 }
 
+define void @store_const_i25(ptr %p) {
+; CHECK-LABEL: $store_const_i25
+; CHECK-NEXT:    local.get 0
+; CHECK-NEXT:    i32.const 1
+; CHECK-NEXT:    i32.store
+entry:
+  store i25 1, ptr %p
+  ret void
+}
+
 define void @store_i32(ptr %p, i32 %a) {
 ; CHECK-LABEL: $store_i32
 ; CHECK-NEXT:    local.get 0
@@ -126,6 +166,19 @@ define void @store_i40(ptr %p, i40 %a) {
 ; CHECK-NEXT:    i64.store8 offset=4
 entry:
   store i40 %a, ptr %p
+  ret void
+}
+
+define void @store_const_i40(ptr %p) {
+; CHECK-LABEL: $store_const_i40
+; CHECK-NEXT:    local.get 0
+; CHECK-NEXT:    i32.const 1
+; CHECK-NEXT:    i32.store align=1
+; CHECK-NEXT:    local.get 0
+; CHECK-NEXT:    i32.const 0
+; CHECK-NEXT:    i32.store8 offset=4
+entry:
+  store i40 1, ptr %p
   ret void
 }
 

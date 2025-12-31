@@ -503,6 +503,7 @@ void FunctionLegalizer::visitStoreInst(llvm::StoreInst &SI) {
     llvm::Value *ToStore = nullptr;
 
     // We have to make sure that we don't store unclean bits
+    // TODO not sure if we do need to check this
     if (Width % 8 != 0) {
       ToStore = Builder.CreateAnd(
           StoreValue[0],

@@ -374,7 +374,6 @@ void BlockLowering::visitLoadInst(llvm::LoadInst &LI) {
 void BlockLowering::visitStoreInst(llvm::StoreInst &SI) {
   auto *StoreType = SI.getOperand(0)->getType();
 
-  // TODO schedule value
   if (StoreType->isIntegerTy()) {
     if (auto *TruncInst = llvm::dyn_cast<llvm::TruncInst>(SI.getOperand(0))) {
       auto FromWidth =
@@ -413,6 +412,21 @@ void BlockLowering::visitStoreInst(llvm::StoreInst &SI) {
     }
 
     const unsigned Width = StoreType->getIntegerBitWidth();
+    // For constants, we allow 8 and 16-bit, as these are not legalized away.
+    // However, we need to push it onto the worklist as a i32
+    if (const auto *Const =
+            llvm::dyn_cast<llvm::ConstantInt>(SI.getValueOperand())) {
+      if (Width <= 8) {
+        doGreedyMemOp(SI, Opcode::I32Store8);
+      } else if (Width <= 16) {
+        doGreedyMemOp(SI, Opcode::I32Store16);
+      }
+      if (Width <= 16) {
+        WorkList.push_back(llvm::ConstantInt::get(
+            llvm::Type::getInt32Ty(SI.getContext()), Const->getZExtValue()));
+        return;
+      }
+    }
     if (Width == 32) {
       doGreedyMemOp(SI, Opcode::I32Store);
       WorkList.push_back(SI.getValueOperand());
