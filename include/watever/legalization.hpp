@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cassert>
 #include <llvm/ADT/DenseMap.h>
 #include <llvm/ADT/STLExtras.h>
 #include <llvm/ADT/StringRef.h>
@@ -190,6 +191,17 @@ public:
   void visitTruncInst(llvm::TruncInst &TI);
   void visitZExtInst(llvm::ZExtInst &ZI);
   void visitSExtInst(llvm::SExtInst &SI);
+
+  void visitPtrToIntInst(llvm::PtrToIntInst &I) {
+    auto Arg = getMappedValue(I.getPointerOperand());
+    assert(Arg.isScalar() && "pointer must be scalar");
+    ValueMap[&I] = Builder.CreatePtrToInt(Arg[0], I.getDestTy());
+  };
+  void visitIntToPtrInst(llvm::IntToPtrInst &I) {
+    auto Arg = getMappedValue(I.getOperand(0));
+    assert(Arg.isScalar() && "int pointer must be scalar");
+    ValueMap[&I] = Builder.CreatePtrToInt(Arg[0], I.getDestTy());
+  };
 
   // Other Operations
   void visitICmpInst(llvm::ICmpInst &ICI);
