@@ -1,5 +1,6 @@
 #pragma once
 
+#include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/Type.h>
 
 /* clang-format off */
@@ -62,3 +63,13 @@ template <std::integral T> void writeIntegral(T Value, llvm::raw_ostream &OS) {
 template <class... Ts> struct Overloaded : Ts... {
   using Ts::operator()...;
 };
+
+inline std::string getBlockName(const llvm::BasicBlock *BB) {
+  if (BB->hasName()) {
+    return BB->getName().str();
+  }
+  std::string Str;
+  llvm::raw_string_ostream OS(Str);
+  BB->printAsOperand(OS, false);
+  return OS.str();
+}

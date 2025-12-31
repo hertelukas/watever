@@ -22,6 +22,7 @@
 #include <llvm/IR/Value.h>
 #include <llvm/Support/Casting.h>
 #include <memory>
+#include <ranges>
 
 using namespace watever;
 
@@ -839,8 +840,8 @@ std::unique_ptr<Wasm> FunctionLowering::doBranch(const llvm::BasicBlock *Source,
   // Actions to be executed on the edge
   WasmActions PhiActions;
   for (auto &Phi : Target->phis()) {
-    WATEVER_LOG_TRACE("emitting phi edge from {} to {}",
-                      Source->getName().str(), Target->getName().str());
+    WATEVER_LOG_TRACE("emitting phi edge from {} to {}", getBlockName(Source),
+                      getBlockName(Target));
 
     llvm::Value *IncomingVal = Phi.getIncomingValueForBlock(Source);
     WATEVER_LOG_TRACE("incoming value is {}", llvmToString(*IncomingVal));
@@ -883,18 +884,18 @@ std::unique_ptr<Wasm> FunctionLowering::doBranch(const llvm::BasicBlock *Source,
   if (DT.dominates(Target, Source) || isMergeNode(Target)) {
 #ifdef WATEVER_LOGGING
     if (DT.dominates(Target, Source)) {
-      WATEVER_LOG_TRACE("backwards branch from {} to {}",
-                        Source->getName().str(), Target->getName().str());
+      WATEVER_LOG_TRACE("backwards branch from {} to {}", getBlockName(Source),
+                        getBlockName(Target));
     } else {
-      WATEVER_LOG_TRACE("forwards branch from {} to {}",
-                        Source->getName().str(), Target->getName().str());
+      WATEVER_LOG_TRACE("forwards branch from {} to {}", getBlockName(Source),
+                        getBlockName(Target));
     }
 #endif
     BranchNode = std::make_unique<WasmBr>(WasmBr{index(Target, Ctx)});
   } else {
 
     WATEVER_LOG_TRACE("no branch needed from {} to {}, fall through",
-                      Source->getName().str(), Target->getName().str());
+                      getBlockName(Source), getBlockName(Target));
     BranchNode = doTree(Target, Ctx);
   }
 
@@ -908,14 +909,14 @@ std::unique_ptr<Wasm> FunctionLowering::doBranch(const llvm::BasicBlock *Source,
 
 std::unique_ptr<Wasm> FunctionLowering::doTree(llvm::BasicBlock *Root,
                                                Context Ctx) {
-  WATEVER_LOG_TRACE("doTree with root {}", Root->getName().str());
+  WATEVER_LOG_TRACE("doTree with root {}", getBlockName(Root));
 
   llvm::SmallVector<llvm::BasicBlock *> MergeChildren;
   getMergeChildren(Root, MergeChildren);
 
   // Emit loop block
   if (LI.isLoopHeader(Root)) {
-    WATEVER_LOG_TRACE("Generating loop for {}", Root->getName().str());
+    WATEVER_LOG_TRACE("Generating loop for {}", getBlockName(Root));
     Ctx.push_back(ContainingSyntax::createLoop(Root));
     return std::make_unique<WasmLoop>(
         WasmLoop{nodeWithin(Root, MergeChildren, Ctx)});
@@ -939,9 +940,9 @@ std::unique_ptr<Wasm> FunctionLowering::nodeWithin(
         assert(Br->getNumSuccessors() == 2 &&
                "expected two successors in conditional branch");
 
-        WATEVER_LOG_TRACE("{} branches to {} and {}", Parent->getName().str(),
-                          Br->getSuccessor(0)->getName().str(),
-                          Br->getSuccessor(1)->getName().str());
+        WATEVER_LOG_TRACE("{} branches to {} and {}", getBlockName(Parent),
+                          getBlockName(Br->getSuccessor(0)),
+                          getBlockName(Br->getSuccessor(1)));
 
         Leaving = std::make_unique<WasmIf>(
             doBranch(Parent, Br->getSuccessor(0), Ctx),
@@ -950,8 +951,8 @@ std::unique_ptr<Wasm> FunctionLowering::nodeWithin(
         assert(Br->getNumSuccessors() == 1 &&
                "expected only one successor in unconditional branch");
 
-        WATEVER_LOG_TRACE("{} branches to {}", Parent->getName().str(),
-                          Br->getSuccessor(0)->getName().str());
+        WATEVER_LOG_TRACE("{} branches to {}", getBlockName(Parent),
+                          getBlockName(Br->getSuccessor(0)));
 
         Leaving = doBranch(Parent, Br->getSuccessor(0), Ctx);
       }
@@ -974,8 +975,8 @@ std::unique_ptr<Wasm> FunctionLowering::nodeWithin(
   auto *Follower = MergeChildren.back();
   MergeChildren.pop_back();
 
-  WATEVER_LOG_TRACE("{} is followed by {}", Parent->getName().str(),
-                    Follower->getName().str());
+  WATEVER_LOG_TRACE("{} is followed by {}", getBlockName(Parent),
+                    getBlockName(Follower));
 
   auto FirstContext = Ctx;
   FirstContext.push_back(ContainingSyntax::createBlock(Follower));
@@ -989,11 +990,11 @@ std::unique_ptr<Wasm> FunctionLowering::nodeWithin(
       WasmSeq{std::move(First), std::move(Second)});
 }
 
-// TODO this might be wrong, needs double checking
 int FunctionLowering::index(const llvm::BasicBlock *BB, Context &Ctx) {
   int I = 0;
-  for (const auto &Syntax : Ctx) {
-    if (Syntax.Label == BB) {
+  // Iterate in reverse to find the innermost matching label (relative index 0)
+  for (auto &It : std::ranges::reverse_view(Ctx)) {
+    if (It.Label == BB) {
       return I;
     }
     ++I;
@@ -1030,7 +1031,7 @@ void FunctionLowering::getMergeChildren(
     for (const auto *Child : *Node) {
       if (isMergeNode(Child->getBlock())) {
         WATEVER_LOG_TRACE("{} is dominated merge",
-                          Child->getBlock()->getName().str());
+                          getBlockName(Child->getBlock()));
         Result.push_back(Child->getBlock());
       }
     }

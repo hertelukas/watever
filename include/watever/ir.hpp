@@ -346,8 +346,21 @@ class FunctionLowering {
   getMergeChildren(const llvm::BasicBlock *R,
                    llvm::SmallVectorImpl<llvm::BasicBlock *> &Result) const;
 
-  static bool isMergeNode(const llvm::BasicBlock *BB) {
-    return !llvm::pred_empty(BB) && !BB->getSinglePredecessor();
+  bool isMergeNode(const llvm::BasicBlock *BB) const {
+    // If we have only one, or no predecessor, we are cleary not a merge node
+    if (llvm::pred_empty(BB) || BB->getSinglePredecessor()) {
+      return false;
+    }
+
+    unsigned ForwardEdges = 0;
+    for (auto *Pred : llvm::predecessors(BB)) {
+      // if BB dominates Pred, we are looking at a back edge; we are only
+      // interested in forward edges
+      if (!DT.dominates(BB, Pred)) {
+        ForwardEdges++;
+      }
+    }
+    return ForwardEdges >= 2;
   }
 
 public:

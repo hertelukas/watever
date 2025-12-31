@@ -74,3 +74,23 @@ exit:
     %y = sub i32 %x, %b
     ret i32 %y
 }
+
+
+; The loop is not a merge node, even though it has multiple incoming edges
+define void @forward_merge(i1 %a) {
+; CHECK-LABEL: forward_merge
+; CHECK: loop
+; CHECK-NEXT: call $foo
+; CHECK: if
+; CHECK-NEXT: br 0
+; CHECK: else
+; CHECK-NEXT: br 1
+entry:
+  br i1 %a, label %merge, label %loop
+loop:
+  call void @foo()
+  br i1 %a, label %loop, label %merge
+merge:
+  call void @bar()
+  ret void
+}
