@@ -2,6 +2,7 @@
 #include "watever/utils.hpp"
 #include <llvm/ADT/DenseMapInfo.h>
 #include <llvm/ADT/STLExtras.h>
+#include <llvm/ADT/SmallVector.h>
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/DerivedTypes.h>
@@ -866,6 +867,35 @@ void FunctionLegalizer::visitSelectInst(llvm::SelectInst &SI) {
 
 void FunctionLegalizer::visitCallInst(llvm::CallInst &CI) {
   auto *OldCalledFunc = CI.getCalledFunction();
+
+  // Handle intrinsics
+  // They cannot have a legalized signature
+  if (OldCalledFunc && OldCalledFunc->isIntrinsic()) {
+    llvm::SmallVector<llvm::Value *> NewArgs;
+    for (auto &Arg : CI.args()) {
+      auto LegalArg = getMappedValue(Arg.get());
+      if (!LegalArg.isScalar()) {
+        WATEVER_UNIMPLEMENTED("reconstruct the original llvm::Value, based on "
+                              "the legalized argument");
+      }
+      auto *ValueArg = LegalArg[0];
+      // Value does not need preprocessing
+      if (ValueArg->getType() == Arg->getType()) {
+        NewArgs.push_back(ValueArg);
+        continue;
+      }
+
+      if (ValueArg->getType()->isIntegerTy()) {
+        NewArgs.push_back(Builder.CreateTrunc(ValueArg, Arg->getType()));
+        continue;
+      }
+
+      WATEVER_UNIMPLEMENTED("unsupported delegalization of {}",
+                            llvmToString(*ValueArg));
+    }
+    ValueMap[&CI] = LegalValue{Builder.CreateCall(OldCalledFunc, NewArgs)};
+    return;
+  }
 
   llvm::Value *NewCallee = nullptr;
 
