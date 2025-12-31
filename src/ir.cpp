@@ -957,6 +957,10 @@ std::unique_ptr<Wasm> FunctionLowering::nodeWithin(
       }
     } else if (llvm::isa<llvm::ReturnInst>(Term)) {
       Leaving = std::make_unique<WasmReturn>();
+    } else if (llvm::isa<llvm::UnreachableInst>(Term)) {
+      WasmActions UnreachableAction;
+      UnreachableAction.Insts.emplace_back(Opcode::Unreachable);
+      Leaving = std::make_unique<WasmActions>(std::move(UnreachableAction));
     } else {
       // TODO support switch
       WATEVER_UNREACHABLE("unsupported terminator: {}",

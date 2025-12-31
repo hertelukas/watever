@@ -171,6 +171,10 @@ public:
   void visitReturnInst(llvm::ReturnInst &RI);
   void visitBranchInst(llvm::BranchInst &BI);
 
+  void visitUnreachableInst(llvm::UnreachableInst &UI) {
+    ValueMap[&UI] = Builder.CreateUnreachable();
+  }
+
   // Unary Operations
   void visitUnaryOperator(llvm::UnaryOperator &UO);
 

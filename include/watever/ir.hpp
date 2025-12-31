@@ -247,6 +247,8 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
     }
   };
 
+  void visitUnreachableInst(llvm::UnreachableInst &) {}
+
   // Unary Operations
   void visitUnaryOperator(llvm::UnaryOperator &UO);
   // Binary Operations
