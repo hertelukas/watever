@@ -680,6 +680,54 @@ void FunctionLegalizer::visitTruncInst(llvm::TruncInst &TI) {
                         llvmToString(*TI.getSrcTy()),
                         llvmToString(*TI.getDestTy()));
 }
+
+// TODO check when we need to and the upper bits
+void FunctionLegalizer::visitZExtInst(llvm::ZExtInst &ZI) {
+  auto Arg = getMappedValue(ZI.getOperand(0));
+  if (Arg.isScalar()) {
+    ValueMap[&ZI] = Builder.CreateZExt(Arg[0], ZI.getDestTy());
+    return;
+  }
+  WATEVER_UNIMPLEMENTED("non-scalar zext from {} to {}",
+                        llvmToString(*ZI.getSrcTy()),
+                        llvmToString(*ZI.getDestTy()));
+}
+
+void FunctionLegalizer::visitSExtInst(llvm::SExtInst &SI) {
+  auto Arg = getMappedValue(SI.getOperand(0));
+
+  const auto FromWidth = SI.getSrcTy()->getIntegerBitWidth();
+  const auto ToWidth = SI.getDestTy()->getIntegerBitWidth();
+
+  if (Arg.isScalar()) {
+    // Supported natively
+    // TODO support --enable-sign-extension
+    if (FromWidth == 32 && ToWidth == 64) {
+      ValueMap[&SI] = Builder.CreateSExt(Arg[0], SI.getDestTy());
+      return;
+    }
+
+    auto *From = Arg[0];
+    // Otherwise, we have to shl followed by arithemtic shift right to set upper
+    // bits
+    if (FromWidth <= 32 && ToWidth > 32) {
+      // ZExt, if needed
+      From = Builder.CreateZExt(From, Int64Ty);
+    }
+
+    // Width of the WebAssembly type
+    const auto TargetWidth = From->getType()->getIntegerBitWidth();
+    const auto ShiftAmount = TargetWidth - FromWidth;
+    // Fill upper bits with 1, if needed
+    From = Builder.CreateShl(From, ShiftAmount);
+    ValueMap[&SI] = Builder.CreateAShr(From, ShiftAmount);
+    return;
+  }
+  WATEVER_UNIMPLEMENTED("non-scalar zext from {} to {}",
+                        llvmToString(*SI.getSrcTy()),
+                        llvmToString(*SI.getDestTy()));
+}
+
 //===----------------------------------------------------------------------===//
 // Other Operations
 //===----------------------------------------------------------------------===//
@@ -826,7 +874,7 @@ void FunctionLegalizer::visitCallInst(llvm::CallInst &CI) {
       NewCallee = It->second;
     }
   }
-  
+
   if (!LegalizationPass::getLegalType(CI.getType()).isScalar()) {
     WATEVER_UNIMPLEMENTED("prepare indirect return value");
   }

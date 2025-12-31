@@ -188,6 +188,8 @@ public:
 
   // Conversion Operations
   void visitTruncInst(llvm::TruncInst &TI);
+  void visitZExtInst(llvm::ZExtInst &ZI);
+  void visitSExtInst(llvm::SExtInst &SI);
 
   // Other Operations
   void visitICmpInst(llvm::ICmpInst &ICI);
