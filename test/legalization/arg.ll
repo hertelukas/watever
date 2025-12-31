@@ -34,3 +34,8 @@ define void @arg_i128_i64_i160(i128 %a, i64 %b, i160 %c) {
 ; CHECK-LABEL: @arg_i128_i64_i160(i64 %a.0, i64 %a.1, i64 %b, i64 %c.0, i64 %c.1, i64 %c.2)
   ret void
 }
+
+define void @vararg(i32 %a, ...) {
+; CHECK-LABEL: @vararg(i32 %a, ptr %varargs)
+  ret void
+}

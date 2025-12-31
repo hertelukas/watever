@@ -935,6 +935,9 @@ llvm::Function *LegalizationPass::createLegalFunction(llvm::Module &Mod,
 
     I += LegalArgType.size();
   }
+  if (OldFunc->getFunctionType()->isVarArg()) {
+    Fn->getArg(I)->setName("varargs");
+  }
 
   return Fn;
 }
@@ -962,7 +965,12 @@ LegalizationPass::getLegalFunctionType(llvm::FunctionType *OldFuncTy) {
     }
   }
 
-  return llvm::FunctionType::get(ResultTy, Params, OldFuncTy->isVarArg());
+  // Pointer to the arguments
+  if (OldFuncTy->isVarArg()) {
+    Params.push_back(llvm::PointerType::get(OldFuncTy->getContext(), 0));
+  }
+
+  return llvm::FunctionType::get(ResultTy, Params, false);
 }
 
 LegalType LegalizationPass::getLegalType(llvm::Type *Ty) {
