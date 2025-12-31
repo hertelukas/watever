@@ -671,8 +671,18 @@ void FunctionLegalizer::visitGetElementPtrInst(llvm::GetElementPtrInst &GI) {
 void FunctionLegalizer::visitTruncInst(llvm::TruncInst &TI) {
   auto Arg = getMappedValue(TI.getOperand(0));
 
+  const auto FromWidth = TI.getSrcTy()->getIntegerBitWidth();
+  const auto ToWidth = TI.getDestTy()->getIntegerBitWidth();
+
   if (Arg.isScalar()) {
-    ValueMap[&TI] = Builder.CreateTrunc(Arg[0], TI.getDestTy());
+    // Emit a wrap
+    if (FromWidth > 32 && ToWidth <= 32) {
+      ValueMap[&TI] = Builder.CreateTrunc(Arg[0], Int32Ty);
+    }
+    // Otherwise, this is a no-op
+    else {
+      ValueMap[&TI] = Arg;
+    }
     return;
   }
 
