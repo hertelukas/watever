@@ -876,7 +876,7 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
         Result->Insts.emplace_back(Opcode::LocalSet, L);
       } else {
         if (!Inst.getType()->isVoidTy()) {
-          Actions.Insts.emplace_back(Opcode::Drop);
+          Result->Insts.emplace_back(Opcode::Drop);
         }
       }
     }
