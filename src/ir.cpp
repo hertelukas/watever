@@ -543,7 +543,14 @@ void BlockLowering::visitSExtInst(llvm::SExtInst &SI) {
 // Other Operations
 //===----------------------------------------------------------------------===//
 void BlockLowering::visitICmpInst(llvm::ICmpInst &II) {
-  const unsigned Width = II.getOperand(0)->getType()->getIntegerBitWidth();
+  unsigned Width;
+
+  if (II.getOperand(0)->getType()->isPointerTy()) {
+    Width = II.getModule()->getDataLayout().getPointerSizeInBits();
+  } else {
+    Width = II.getOperand(0)->getType()->getIntegerBitWidth();
+  }
+
   bool Handled = true;
 
   addOperandsToWorklist(II.operands());
