@@ -18,6 +18,7 @@
 #include <llvm/IR/InstrTypes.h>
 #include <llvm/IR/Instruction.h>
 #include <llvm/IR/Instructions.h>
+#include <llvm/IR/Intrinsics.h>
 #include <llvm/IR/Type.h>
 #include <llvm/IR/Value.h>
 #include <llvm/Support/Casting.h>
@@ -125,6 +126,15 @@ bool BlockLowering::hasExternalUser(llvm::Value *Val) {
     }
   }
   return false;
+}
+
+void BlockLowering::handleIntrinsic(llvm::CallInst &CI) {
+  switch (CI.getCalledFunction()->getIntrinsicID()) {
+  default: {
+    WATEVER_TODO("handle {} intrinsic",
+                 CI.getCalledFunction()->getName().str());
+  }
+  }
 }
 
 //===----------------------------------------------------------------------===//
@@ -695,6 +705,9 @@ void BlockLowering::visitSelectInst(llvm::SelectInst &SI) {
 
 void BlockLowering::visitCallInst(llvm::CallInst &CI) {
   auto *Callee = CI.getCalledFunction();
+  if (Callee && Callee->isIntrinsic()) {
+    return handleIntrinsic(CI);
+  }
   addOperandsToWorklist(CI.args());
 
   if (Callee) {
@@ -1122,7 +1135,9 @@ Module ModuleLowering::convert(llvm::Module &Mod,
 
   // Imported functions must be defined first
   for (auto &F : Mod) {
-    if (!F.isDeclaration()) {
+    // Intrinsics will not get imported, nor called - but directly lowered in
+    // place
+    if (!F.isDeclaration() || F.isIntrinsic()) {
       continue;
     }
     auto *FT = F.getFunctionType();

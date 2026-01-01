@@ -220,6 +220,8 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
     }
   }
 
+  void handleIntrinsic(llvm::CallInst &CI);
+
   // Terminator Instructions (should not be needed, as these are mapped to
   // blocks)
   void visitReturnInst(llvm::ReturnInst &RI) {
