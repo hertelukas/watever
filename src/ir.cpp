@@ -321,12 +321,16 @@ void BlockLowering::doGreedyMemOp(llvm::Instruction &I, Opcode::Enum Op) {
           BinOp->getOpcode() == llvm::Instruction::Add) {
         if (auto *Offset =
                 llvm::dyn_cast<llvm::ConstantInt>(BinOp->getOperand(1))) {
-          WATEVER_LOG_TRACE("inlining offset");
-          Actions.Insts.emplace_back(
-              Op, std::make_unique<MemArg>(0, Offset->getZExtValue()));
-          // We need the pointer (without the offset) on top of the stack
-          WorkList.push_back(BinOp->getOperand(0));
-          return;
+
+          // We cannot inline negative offsets
+          if (Offset->getSExtValue() > 0) {
+            WATEVER_LOG_TRACE("inlining offset");
+            Actions.Insts.emplace_back(
+                Op, std::make_unique<MemArg>(0, Offset->getZExtValue()));
+            // We need the pointer (without the offset) on top of the stack
+            WorkList.push_back(BinOp->getOperand(0));
+            return;
+          }
         }
       }
     }
