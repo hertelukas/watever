@@ -738,6 +738,7 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
       llvm::DenseMap<llvm::Value *, Local *> ASTLocals;
       WorkList.push_back(&Inst);
       auto Counts = getDependencyTreeUserCount(&Inst);
+
       while (!WorkList.empty()) {
         auto *Next = WorkList.pop_back_val();
         WATEVER_LOG_TRACE("handling {}", llvmToString(*Next));
@@ -856,6 +857,10 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
             fromLLVMType(Inst.getType(), BB->getDataLayout()));
         Parent->LocalMapping[&Inst] = L;
         Result->Insts.emplace_back(Opcode::LocalSet, L);
+      } else {
+        if (!Inst.getType()->isVoidTy()) {
+          Actions.Insts.emplace_back(Opcode::Drop);
+        }
       }
     }
   }
@@ -1185,6 +1190,7 @@ Module ModuleLowering::convert(llvm::Module &Mod,
     auto &LI = FAM.getResult<llvm::LoopAnalysis>(F);
 
     FunctionLowering FL{WasmFunc, DT, LI, Res};
+    WATEVER_LOG_DBG("Lowering function {}", F.getName().str());
     FL.lower();
 
     if (WasmFunc->SavedSP) {
@@ -1203,7 +1209,6 @@ Module ModuleLowering::convert(llvm::Module &Mod,
                                                  std::move(WasmFunc->Body));
     }
 
-    WATEVER_LOG_DBG("Lowered function {}", F.getName().str());
     dumpWasm(*WasmFunc->Body);
   }
   return Res;
