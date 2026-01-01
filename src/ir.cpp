@@ -795,12 +795,15 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
         }
         // Otherwise, we can just load constants/arguments
         else if (const auto *Const = llvm::dyn_cast<llvm::ConstantInt>(Next)) {
-          if (Const->getBitWidth() == 32 || Const->getBitWidth() == 1) {
+          if (Const->getBitWidth() == 1) {
             Actions.Insts.push_back(
                 WasmInst(Opcode::I32Const, Const->getValue().getZExtValue()));
+          } else if (Const->getBitWidth() == 32) {
+            Actions.Insts.push_back(
+                WasmInst(Opcode::I32Const, Const->getValue().getSExtValue()));
           } else if (Const->getBitWidth() == 64) {
             Actions.Insts.push_back(
-                WasmInst(Opcode::I64Const, Const->getValue().getZExtValue()));
+                WasmInst(Opcode::I64Const, Const->getValue().getSExtValue()));
           } else {
             WATEVER_UNREACHABLE("unsupported constant bit width: {}",
                                 Const->getBitWidth());
