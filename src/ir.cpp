@@ -825,6 +825,12 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
           } else {
             Actions.Insts.emplace_back(Opcode::I32Const, std::move(Arg));
           }
+        } else if (llvm::isa<llvm::ConstantPointerNull>(Next)) {
+          if (BB->getDataLayout().getPointerSizeInBits() == 64) {
+            Actions.Insts.emplace_back(Opcode::I64Const, 0);
+          } else {
+            Actions.Insts.emplace_back(Opcode::I32Const, 0);
+          }
         } else {
           WATEVER_TODO("put {} on top of the stack", llvmToString(*Next));
         }
