@@ -360,8 +360,14 @@ void FunctionLegalizer::visitBinaryOperator(llvm::BinaryOperator &BO) {
 //===----------------------------------------------------------------------===//
 
 void FunctionLegalizer::visitAllocaInst(llvm::AllocaInst &AI) {
+  llvm::Value *ArraySize = AI.getArraySize();
+
+  if (!llvm::isa<llvm::Constant>(ArraySize)) {
+    ArraySize = getMappedValue(ArraySize)[0];
+  }
+
   ValueMap[&AI] = Builder.CreateAlloca(AI.getAllocatedType(),
-                                       AI.getAddressSpace(), AI.getArraySize());
+                                       AI.getAddressSpace(), ArraySize);
 }
 
 void FunctionLegalizer::visitLoadInst(llvm::LoadInst &LI) {
