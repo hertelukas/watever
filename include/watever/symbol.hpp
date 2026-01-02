@@ -5,6 +5,8 @@
 #include <cstdint>
 #include <llvm/ADT/DenseMap.h>
 #include <llvm/ADT/SmallVector.h>
+#include <llvm/IR/BasicBlock.h>
+#include <llvm/IR/Instruction.h>
 
 namespace watever {
 
@@ -127,8 +129,10 @@ public:
   std::unique_ptr<Wasm> Body{};
   llvm::DenseMap<llvm::Value *, Local *> LocalMapping;
   llvm::DenseMap<ValType, llvm::SmallVector<std::unique_ptr<Local>>> Locals{};
+  llvm::DenseMap<llvm::Instruction *, uint32_t> StackSlots{};
 
-  Local *SavedSP{};
+  Local *FP{};
+  uint64_t FrameSize{};
   explicit DefinedFunc(uint32_t SymbolIdx, uint32_t TypeIdx, uint32_t FuncIdx,
                        uint32_t Args, llvm::StringRef Name);
 
@@ -144,6 +148,8 @@ public:
   static bool classof(const Symbol *S) {
     return S->getClassKind() == Kind::DefinedFunc;
   }
+
+  void setupStackFrame(llvm::BasicBlock *Entry);
 };
 
 struct Data : public Symbol {

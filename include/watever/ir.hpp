@@ -225,19 +225,19 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
   // Terminator Instructions (should not be needed, as these are mapped to
   // blocks)
   void visitReturnInst(llvm::ReturnInst &RI) {
-    // Load saved stack pointer if needed. All potential allocas for this return
-    // dominate us
-    if (Parent->SavedSP) {
-      ValType PointerType;
-      if (RI.getModule()->getDataLayout().getPointerSizeInBits() == 64) {
-        PointerType = ValType::I64;
-      } else {
-        PointerType = ValType::I32;
-      }
-      auto *StackPointer = M.getStackPointer(PointerType);
+    if (Parent->FP) {
+      // Eplilogue is SP = FP + static_stack_size
+      const bool Is64Bit =
+          RI.getModule()->getDataLayout().getPointerSizeInBits() == 64;
+      const auto PtrTy = Is64Bit ? ValType::I64 : ValType::I32;
+      const auto ConstOp = Is64Bit ? Opcode::I64Const : Opcode::I32Const;
+      const auto AddOp = Is64Bit ? Opcode::I64Add : Opcode::I32Add;
+      auto *StackPointer = M.getStackPointer(PtrTy);
       auto GlobalArgVal = std::make_unique<RelocatableGlobalArg>(StackPointer);
       Actions.Insts.emplace_back(Opcode::GlobalSet, std::move(GlobalArgVal));
-      auto SavedSPArg = std::make_unique<LocalArg>(Parent->SavedSP);
+      Actions.Insts.emplace_back(AddOp);
+      Actions.Insts.emplace_back(ConstOp, Parent->FrameSize);
+      auto SavedSPArg = std::make_unique<LocalArg>(Parent->FP);
       Actions.Insts.emplace_back(Opcode::LocalGet, std::move(SavedSPArg));
     }
     addOperandsToWorklist(RI.operands());

@@ -22,6 +22,7 @@
 #include <llvm/IR/Type.h>
 #include <llvm/IR/Value.h>
 #include <llvm/Support/Casting.h>
+#include <llvm/Support/MathExtras.h>
 #include <memory>
 #include <ranges>
 
@@ -58,7 +59,7 @@ void Module::flattenConstant(const llvm::Constant *C,
     else if (Width <= 64)
       appendBytes(Buffer, static_cast<uint64_t>(Val));
     else {
-      WATEVER_UNIMPLEMENTED("handle constnat int >64 bit");
+      WATEVER_UNIMPLEMENTED("handle constant int >64 bit");
     }
     return;
   }
@@ -273,16 +274,31 @@ void BlockLowering::visitBinaryOperator(llvm::BinaryOperator &BO) {
 //===----------------------------------------------------------------------===//
 
 void BlockLowering::visitAllocaInst(llvm::AllocaInst &AI) {
+  const bool Is64Bit =
+      AI.getModule()->getDataLayout().getPointerSizeInBits() == 64;
+  const auto PtrTy = Is64Bit ? ValType::I64 : ValType::I32;
+  const auto ConstOp = Is64Bit ? Opcode::I64Const : Opcode::I32Const;
+  const auto AddOp = Is64Bit ? Opcode::I64Add : Opcode::I32Add;
+  const auto AndOp = Is64Bit ? Opcode::I64And : Opcode::I32And;
+  const auto SubOp = Is64Bit ? Opcode::I64Sub : Opcode::I32Sub;
+  const auto MulOp = Is64Bit ? Opcode::I64Mul : Opcode::I32Mul;
+
+  // Static allocation
+  if (auto It = Parent->StackSlots.find(&AI); It != Parent->StackSlots.end()) {
+    assert(Parent->FP && "no frame pointer defined");
+    Actions.Insts.emplace_back(AddOp);
+    Actions.Insts.emplace_back(ConstOp, It->second);
+    Actions.Insts.emplace_back(Opcode::LocalGet, Parent->FP);
+    return;
+  }
+
+  // Dynamic allocation
   auto *AllocatedType = AI.getAllocatedType();
-  const uint32_t Size =
+  uint32_t Size =
       AI.getModule()->getDataLayout().getTypeAllocSize(AllocatedType);
 
   ImportedGlobal *StackPointer;
-  auto PointerType =
-      AI.getModule()->getDataLayout().getPointerSizeInBits() == 64
-          ? ValType::I64
-          : ValType::I32;
-  StackPointer = M.getStackPointer(PointerType);
+  StackPointer = M.getStackPointer(PtrTy);
 
   if (Size == 0) {
     Actions.Insts.emplace_back(Opcode::GlobalGet, StackPointer);
@@ -296,15 +312,50 @@ void BlockLowering::visitAllocaInst(llvm::AllocaInst &AI) {
   Actions.Insts.emplace_back(Opcode::GlobalGet, StackPointer);
   Actions.Insts.emplace_back(Opcode::GlobalSet, StackPointer);
 
+  Actions.Insts.emplace_back(SubOp);
+
   // Subtract the stack pointer
-  if (PointerType == ValType::I64) {
-    Actions.Insts.emplace_back(Opcode::I64Sub);
-    Actions.Insts.emplace_back(Opcode::I64Const, Size);
+  // If it is in array, we need to multiply the size of one object with the
+  // array size
+  if (AI.isArrayAllocation()) {
+    // TODO this fails if the type of the array size != ptr size
+    /** TODO could avoid the extra local, if we could do
+     * global.get __stack_pointer
+     * <evaluate array size>
+     * i32.const size
+     * mul
+     * <align>
+     * sub
+     *
+     * Currently, the following is generated
+     * <evaluate array size>
+     * i32.const size
+     * mul
+     * <align>
+     * local.set <total array size>
+     * global.get __stack_pointer
+     * local.get <total array size>
+     * sub
+     */
+    Local *TotalSizeLocal = Parent->getNewLocal(PtrTy);
+    Actions.Insts.emplace_back(Opcode::LocalGet, TotalSizeLocal);
+    Actions.Insts.emplace_back(Opcode::GlobalGet, StackPointer);
+    Actions.Insts.emplace_back(Opcode::LocalSet, TotalSizeLocal);
+    // Align
+    Actions.Insts.emplace_back(AndOp);
+    Actions.Insts.emplace_back(ConstOp, -16);
+    Actions.Insts.emplace_back(AddOp);
+    Actions.Insts.emplace_back(ConstOp, 15);
+    // Calculate total size
+    // TODO we probably can use a shl in most cases here
+    Actions.Insts.emplace_back(MulOp);
+    Actions.Insts.emplace_back(ConstOp, Size);
+    WorkList.push_back(AI.getArraySize());
   } else {
-    Actions.Insts.emplace_back(Opcode::I32Sub);
-    Actions.Insts.emplace_back(Opcode::I32Const, Size);
+    Size = llvm::alignTo(Size, 16);
+    Actions.Insts.emplace_back(ConstOp, Size);
+    Actions.Insts.emplace_back(Opcode::GlobalGet, StackPointer);
   }
-  Actions.Insts.emplace_back(Opcode::GlobalGet, StackPointer);
 }
 
 void BlockLowering::doGreedyMemOp(llvm::Instruction &I, Opcode::Enum Op) {
@@ -856,8 +907,6 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
           WATEVER_TODO("put {} on top of the stack", llvmToString(*Next));
         }
       }
-      // TODO the value might not have side effects, but may still be used in
-      // another BB. We then have to assign a local too.
       std::ranges::reverse(Actions.Insts);
       Result->Insts.insert(Result->Insts.end(),
                            std::make_move_iterator(Actions.Insts.begin()),
@@ -1057,22 +1106,6 @@ int FunctionLowering::index(const llvm::BasicBlock *BB, Context &Ctx) {
 std::unique_ptr<WasmActions>
 FunctionLowering::translateBB(llvm::BasicBlock *BB) const {
   BlockLowering BL{BB, M, F};
-  // Just create a local, so return instructions know where to find it. Prolog
-  // will be patched in, after the function has been handled
-  if (!F->SavedSP) {
-    bool HasAlloca = std::ranges::any_of(*BB, [](const llvm::Instruction &I) {
-      return llvm::isa<llvm::AllocaInst>(I);
-    });
-    if (HasAlloca) {
-      auto PointerType =
-          BB->getModule()->getDataLayout().getPointerSizeInBits() == 64
-              ? ValType::I64
-              : ValType::I32;
-
-      F->SavedSP = F->getNewLocal(PointerType);
-    }
-  }
-
   return BL.lower();
 }
 
@@ -1205,6 +1238,7 @@ Module ModuleLowering::convert(llvm::Module &Mod,
       continue;
     }
     auto *WasmFunc = static_cast<DefinedFunc *>(Res.FunctionMap[&F]);
+    WasmFunc->setupStackFrame(&F.front());
     auto &DT = FAM.getResult<llvm::DominatorTreeAnalysis>(F);
     auto &LI = FAM.getResult<llvm::LoopAnalysis>(F);
 
@@ -1212,19 +1246,21 @@ Module ModuleLowering::convert(llvm::Module &Mod,
     WATEVER_LOG_DBG("Lowering function {}", F.getName().str());
     FL.lower();
 
-    if (WasmFunc->SavedSP) {
-      // Insert prolog to save SP
-      auto Prolog = std::make_unique<WasmActions>();
-      if (!Res.StackPointer) {
-        WATEVER_LOG_WARN("Unset SP");
-      }
-      if (!WasmFunc->SavedSP) {
-        WATEVER_LOG_WARN("Unsset SavedSP");
-      }
-      auto GlobalArg = std::make_unique<RelocatableGlobalArg>(Res.StackPointer);
-      Prolog->Insts.emplace_back(Opcode::GlobalGet, std::move(GlobalArg));
-      Prolog->Insts.emplace_back(Opcode::LocalSet, WasmFunc->SavedSP);
-      WasmFunc->Body = std::make_unique<WasmSeq>(std::move(Prolog),
+    // Generate prologue, if we use a FP
+    if (WasmFunc->FP) {
+      const bool Is64Bit = Mod.getDataLayout().getPointerSizeInBits() == 64;
+      const auto ConstOp = Is64Bit ? Opcode::I64Const : Opcode::I32Const;
+      const auto SubOp = Is64Bit ? Opcode::I64Sub : Opcode::I32Sub;
+
+      auto Prologue = std::make_unique<WasmActions>();
+      // SP = SP - frame_size
+      Prologue->Insts.emplace_back(Opcode::GlobalGet, Res.StackPointer);
+      Prologue->Insts.emplace_back(ConstOp, WasmFunc->FrameSize);
+      Prologue->Insts.emplace_back(SubOp);
+      Prologue->Insts.emplace_back(Opcode::GlobalSet, Res.StackPointer);
+      Prologue->Insts.emplace_back(Opcode::GlobalGet, Res.StackPointer);
+      Prologue->Insts.emplace_back(Opcode::LocalSet, WasmFunc->FP);
+      WasmFunc->Body = std::make_unique<WasmSeq>(std::move(Prologue),
                                                  std::move(WasmFunc->Body));
     }
 
