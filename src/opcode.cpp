@@ -70,14 +70,14 @@ bool Opcode::isEnabled(const Features &Fs) const {
   case Opcode::I64TruncSatF32U:
   case Opcode::I64TruncSatF64S:
   case Opcode::I64TruncSatF64U:
-    return Fs.sat_float_to_int_enabled();
+    return Fs.nontrapping_fptoint_enabled();
 
   case Opcode::I32Extend8S:
   case Opcode::I32Extend16S:
   case Opcode::I64Extend8S:
   case Opcode::I64Extend16S:
   case Opcode::I64Extend32S:
-    return Fs.sign_extension_enabled();
+    return Fs.sign_ext_enabled();
 
   case Opcode::MemoryAtomicNotify:
   case Opcode::MemoryAtomicWait32:
@@ -146,7 +146,7 @@ bool Opcode::isEnabled(const Features &Fs) const {
   case Opcode::I64AtomicRmw8CmpxchgU:
   case Opcode::I64AtomicRmw16CmpxchgU:
   case Opcode::I64AtomicRmw32CmpxchgU:
-    return Fs.threads_enabled();
+    return Fs.atomics_enabled();
 
   case Opcode::V128Const:
   case Opcode::V128Load:
@@ -304,7 +304,7 @@ bool Opcode::isEnabled(const Features &Fs) const {
   case Opcode::I8X16Abs:
   case Opcode::I16X8Abs:
   case Opcode::I32X4Abs:
-    return Fs.simd_enabled();
+    return Fs.simd128_enabled();
 
   case Opcode::I8X16RelaxedSwizzle:
   case Opcode::I32X4RelaxedTruncF32X4S:

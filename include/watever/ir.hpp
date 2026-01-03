@@ -4,6 +4,7 @@
 #include "watever/linking.hpp"
 #include "watever/opcode.hpp"
 #include "watever/symbol.hpp"
+#include "watever/target.hpp"
 #include "watever/type.hpp"
 #include "watever/utils.hpp"
 #include <cstdint>
@@ -129,6 +130,7 @@ class Module {
                        llvm::SmallVector<RelocationEntry> &Relocs);
 
 public:
+  TargetConfig Config;
   llvm::SmallVector<FuncType> Types;
   llvm::SmallVector<std::unique_ptr<Symbol>> Symbols;
   // Deduplication lookup table
@@ -139,7 +141,7 @@ public:
 
   llvm::SmallVector<ImportedGlobal *> ImportedGlobals{};
   llvm::DenseMap<llvm::Value *, Global *> GlobalMap;
-  ImportedGlobal *StackPointer;
+  ImportedGlobal *StackPointer = nullptr;
 
   llvm::SmallVector<DefinedData *> Datas{};
   llvm::DenseMap<llvm::GlobalValue *, Data *> DataMap;
@@ -147,6 +149,8 @@ public:
   std::vector<Function *> IndirectFunctionElements{nullptr};
   llvm::DenseMap<Function *, uint32_t> IndirectFunctionElementLookup;
   UndefinedTable *IndirectFunctionTable{};
+
+  explicit Module(TargetConfig C) : Config(C) {}
 
   uint32_t getOrAddType(const FuncType &Signature) {
     if (auto It = TypeLookup.find(Signature); It != TypeLookup.end()) {
@@ -378,7 +382,8 @@ public:
 
 class ModuleLowering {
 public:
-  static Module convert(llvm::Module &Mod, llvm::FunctionAnalysisManager &FAM);
+  static Module convert(llvm::Module &Mod, llvm::FunctionAnalysisManager &FAM,
+                        TargetConfig C);
 };
 
 } // namespace watever

@@ -209,6 +209,38 @@ void BinaryWriter::writeDataCount() {
   llvm::encodeULEB128(Mod.Datas.size(), OS);
 }
 
+void BinaryWriter::writeFeatures() {
+  llvm::SmallVector<char> Content;
+  llvm::raw_svector_ostream ContentOS(Content);
+
+  llvm::encodeULEB128(15, ContentOS);
+  ContentOS << "target_features";
+
+  uint32_t FeatureCount = 0;
+#define WATEVER_FEATURE(VAR, NAME, DEFAULT, HELP)                              \
+  if (Mod.Config.EnabledFeatures.VAR##_enabled())                              \
+    FeatureCount++;
+#include "watever/feature.def"
+#undef WATEVER_FEATURE
+
+  llvm::encodeULEB128(FeatureCount, ContentOS);
+
+#define WATEVER_FEATURE(VAR, NAME, DEFAULT, HELP)                              \
+  {                                                                            \
+    if (Mod.Config.EnabledFeatures.VAR##_enabled()) {                          \
+      ContentOS << "+";                                                        \
+      llvm::encodeULEB128(llvm::StringRef(NAME).size(), ContentOS);            \
+      ContentOS << NAME;                                                       \
+    }                                                                          \
+  }
+#include "watever/feature.def"
+#undef WATEVER_FEATURE
+
+  OS << static_cast<uint8_t>(Section::Custom);
+  llvm::encodeULEB128(Content.size(), OS);
+  OS << ContentOS.str();
+}
+
 void BinaryWriter::write() {
   writeMagic();
   writeVersion();
@@ -307,6 +339,8 @@ void BinaryWriter::write() {
   for (const auto &Reloc : Relocations) {
     writeRelocation(Reloc);
   }
+
+  writeFeatures();
 }
 
 } /* namespace watever */

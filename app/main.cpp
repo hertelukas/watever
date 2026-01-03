@@ -19,6 +19,12 @@
 #include "watever/target.hpp"
 #include "watever/utils.hpp"
 
+struct FeatureOption {
+  std::unique_ptr<args::Group> Group;
+  std::unique_ptr<args::Flag> Enable;
+  std::unique_ptr<args::Flag> Disable;
+};
+
 int main(int argc, char *argv[]) {
   args::ArgumentParser Parser("Watever");
   args::HelpFlag Help(Parser, "help", "Display help", {'h', "help"});
@@ -37,6 +43,28 @@ int main(int argc, char *argv[]) {
 
   args::Flag LegalOnly(Parser, "legal", "Run only legalization and print IR",
                        {"legal"});
+
+  args::Group FeatureGroup(
+      Parser, "WebAssembly Features (--disable-<feature> to disable)");
+  std::unordered_map<std::string, FeatureOption> Features;
+
+  // Feature flags
+#define WATEVER_FEATURE(VAR, NAME, DEFAULT, HELP)                              \
+  {                                                                            \
+    auto &Opt = Features[#VAR];                                                \
+    std::string Status = DEFAULT ? "(default ON)" : " (default OFF)";          \
+    Opt.Group = std::make_unique<args::Group>(                                 \
+        FeatureGroup, "", args::Group::Validators::AtMostOne);                 \
+    Opt.Enable = std::make_unique<args::Flag>(                                 \
+        *Opt.Group, NAME, std::string("Enable " HELP " ") + Status,            \
+        args::Matcher{NAME});                                                  \
+    Opt.Disable = std::make_unique<args::Flag>(                                \
+        *Opt.Group, "disable-" NAME, "Disable " HELP,                          \
+        args::Matcher{"disable-" NAME}, args::Options::Hidden);                \
+  }
+
+#include "watever/feature.def"
+#undef WATEVER_FEATURE
 
   Parser.ParseCLI(argc, argv);
   if (Parser.GetError() == args::Error::Help) {
@@ -76,6 +104,22 @@ int main(int argc, char *argv[]) {
     spdlog::set_level(Level);
   }
 #endif
+  watever::TargetConfig Config{};
+
+#define WATEVER_FEATURE(VAR, NAME, DEFAULT, HELP)                              \
+  {                                                                            \
+    bool IsEnabled = DEFAULT;                                                  \
+    auto &Opt = Features[#VAR];                                                \
+    if (*Opt.Enable) {                                                         \
+      IsEnabled = true;                                                        \
+    }                                                                          \
+    if (*Opt.Disable) {                                                        \
+      IsEnabled = false;                                                       \
+    }                                                                          \
+    Config.EnabledFeatures.set_##VAR##_enabled(IsEnabled);                     \
+  }
+#include "watever/feature.def"
+#undef WATEVER_FEATURE
 
   // Setup output
   llvm::raw_ostream *OS = &llvm::outs();
@@ -122,8 +166,6 @@ int main(int argc, char *argv[]) {
 
   llvm::ModulePassManager LegalizeMPM;
 
-  watever::TargetConfig Config{};
-
   LegalizeMPM.addPass(watever::LegalizationPass(Config));
 
   LegalizeMPM.run(*Mod, MAM);
@@ -148,7 +190,7 @@ int main(int argc, char *argv[]) {
   OptimizePM.run(*Mod, MAM);
 
   watever::ModuleLowering LoweringContext{};
-  auto LoweredModule = LoweringContext.convert(*Mod, FAM);
+  auto LoweredModule = LoweringContext.convert(*Mod, FAM, Config);
 
   watever::BinaryWriter Writer{*OS, LoweredModule};
   Writer.write();

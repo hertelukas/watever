@@ -135,6 +135,8 @@ class BinaryWriter {
     OS << ContentOS.str();
   }
 
+  void writeFeatures();
+
 public:
   // TODO make Module const? Currently, I'm writing indices into functions...
   BinaryWriter(llvm::raw_ostream &Stream, Module &Mod) : OS(Stream), Mod(Mod) {}

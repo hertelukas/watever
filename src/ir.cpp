@@ -3,6 +3,7 @@
 #include "watever/opcode.hpp"
 #include "watever/printer.hpp"
 #include "watever/symbol.hpp"
+#include "watever/target.hpp"
 #include "watever/type.hpp"
 #include "watever/utils.hpp"
 #include <algorithm>
@@ -1124,8 +1125,9 @@ void FunctionLowering::getMergeChildren(
 }
 
 Module ModuleLowering::convert(llvm::Module &Mod,
-                               llvm::FunctionAnalysisManager &FAM) {
-  Module Res{};
+                               llvm::FunctionAnalysisManager &FAM,
+                               TargetConfig C) {
+  Module Res{C};
 
   uint32_t FunctionIndexCounter = 0;
 

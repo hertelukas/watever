@@ -18,16 +18,11 @@ public:
   bool variable##_enabled() const { return variable##_enabled_; }              \
   void enable_##variable() { set_##variable##_enabled(true); }                 \
   void disable_##variable() { set_##variable##_enabled(false); }               \
-  void set_##variable##_enabled(bool value) {                                  \
-    variable##_enabled_ = value;                                               \
-    UpdateDependencies();                                                      \
-  }
+  void set_##variable##_enabled(bool value) { variable##_enabled_ = value; }
 #include "watever/feature.def"
 #undef WATEVER_FEATURE
 
 private:
-  void UpdateDependencies();
-
 #define WATEVER_FEATURE(variable, flag, default_, help)                        \
   bool variable##_enabled_ = default_;
 #include "watever/feature.def"
