@@ -132,6 +132,28 @@ bool BlockLowering::hasExternalUser(llvm::Value *Val) {
 
 void BlockLowering::handleIntrinsic(llvm::CallInst &CI) {
   switch (CI.getCalledFunction()->getIntrinsicID()) {
+  case llvm::Intrinsic::memset: {
+    if (!M.Config.EnabledFeatures.bulk_memory_enabled()) {
+      // Should have been handled during legalization
+      WATEVER_LOG_ERR("Cannot handle memset intrinsic without bulk_memory");
+    }
+    // TODO if Len == 0, WebAssembly traps, but it should be a no-op. This
+    // should either be handled in legalization or we somehow need a branch
+    // here.
+    auto *Len = CI.getArgOperand(2);
+    auto *Val = CI.getArgOperand(1);
+    auto *Dest = CI.getArgOperand(0);
+
+    Actions.Insts.emplace_back(Opcode::MemoryFill, 0);
+
+    WorkList.push_back(Dest);
+    // The argument might have been illegal, use the original i32
+    if (auto *TruncInst = llvm::dyn_cast<llvm::TruncInst>(Val)) {
+      WorkList.push_back(TruncInst->getOperand(0));
+    }
+    WorkList.push_back(Len);
+    break;
+  }
   default: {
     WATEVER_TODO("handle {} intrinsic",
                  CI.getCalledFunction()->getName().str());

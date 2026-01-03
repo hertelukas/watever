@@ -417,7 +417,7 @@ uint32_t Opcode::getSimdLaneCount() const {
 
 void Opcode::writeBytes(llvm::raw_ostream &OS) const {
   if (hasPrefix()) {
-    WATEVER_TODO("writeout prefix");
+    OS << getPrefix();
   }
   OS << getCode();
 }
