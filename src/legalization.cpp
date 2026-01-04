@@ -967,7 +967,7 @@ void FunctionLegalizer::visitCallInst(llvm::CallInst &CI) {
     }
   }
 
-  if (OldCalledFunc->getFunctionType()->isVarArg()) {
+  if (OldCalledFunc && OldCalledFunc->getFunctionType()->isVarArg()) {
     // TODO handle varargs
     NewArgs.push_back(llvm::Constant::getNullValue(PtrTy));
   }
