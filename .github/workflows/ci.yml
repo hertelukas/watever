@@ -38,8 +38,14 @@ jobs:
     
     steps:
     - name: Dependencies
-      run: pacman -Sy --noconfirm base-devel git cmake ninja llvm python wabt
+      run: pacman -Sy --noconfirm base-devel git cmake ninja llvm python wabt sudo wasmtime
 
+    - name: Install wasi-sdk-bin (AUR)
+      run: |
+        useradd -m builduser
+        echo "builduser ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+        su - builduser -c "git clone https://aur.archlinux.org/wasi-sdk-bin.git && cd wasi-sdk-bin && makepkg -si --noconfirm"
+	
     - uses: actions/checkout@v6
       with:
         submodules: recursive
@@ -54,8 +60,4 @@ jobs:
 
     - name: Test
       run: ninja -C build check-watever
-      
-
-          
-    
   
