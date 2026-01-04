@@ -137,9 +137,9 @@ void BlockLowering::handleIntrinsic(llvm::CallInst &CI) {
       // Should have been handled during legalization
       WATEVER_LOG_ERR("Cannot handle memset intrinsic without bulk_memory");
     }
-    // TODO if Len == 0, WebAssembly traps, but it should be a no-op. This
-    // should either be handled in legalization or we somehow need a branch
-    // here.
+    // TODO if Len == 0 and Dest invalid, WebAssembly traps, but it should be a
+    // no-op. This should either be handled in legalization or we somehow need a
+    // branch here.
     auto *Len = CI.getArgOperand(2);
     auto *Val = CI.getArgOperand(1);
     auto *Dest = CI.getArgOperand(0);

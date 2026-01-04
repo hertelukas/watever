@@ -191,6 +191,35 @@ void FunctionLegalizer::visitBranchInst(llvm::BranchInst &BI) {
   ValueMap[&BI] = Builder.CreateBr(NewSuccessor);
 }
 
+void FunctionLegalizer::visitSwitchInst(llvm::SwitchInst &SI) {
+  auto Cond = getMappedValue(SI.getCondition());
+  if (!Cond.isScalar()) {
+    WATEVER_UNIMPLEMENTED("switch on non-scalar value");
+  }
+
+  // TODO Handle non i32 conditions
+  assert(Cond[0]->getType()->isIntegerTy(32) && "condition must be 32-bit");
+  auto *CondVal = Cond[0];
+  if (SI.getCondition()->getType() != CondVal->getType()) {
+    CondVal = Builder.CreateAnd(
+        CondVal, llvm::APInt::getLowBitsSet(
+                     32, SI.getCondition()->getType()->getIntegerBitWidth()));
+  }
+  auto *DefaultDest =
+      llvm::dyn_cast<llvm::BasicBlock>(getMappedValue(SI.getDefaultDest())[0]);
+
+  auto *NewSI = Builder.CreateSwitch(CondVal, DefaultDest, SI.getNumCases());
+  for (auto Case : SI.cases()) {
+    LegalValue CaseConstant = legalizeConstant(Case.getCaseValue());
+    assert(CaseConstant.isScalar() && "case constant must be scalar");
+
+    auto *NewCase = llvm::dyn_cast<llvm::ConstantInt>(CaseConstant[0]);
+    auto *NewSucc = llvm::dyn_cast<llvm::BasicBlock>(
+        getMappedValue(Case.getCaseSuccessor())[0]);
+    NewSI->addCase(NewCase, NewSucc);
+  }
+  ValueMap[&SI] = LegalValue{NewSI};
+}
 //===----------------------------------------------------------------------===//
 // Unary Operations
 //===----------------------------------------------------------------------===//
