@@ -181,6 +181,24 @@ public:
   }
 };
 
+class MemCpyArg final : public InstArgument {
+  uint32_t FromMemory;
+  uint32_t ToMemory;
+
+public:
+  explicit MemCpyArg(uint32_t From, uint32_t To)
+      : FromMemory(From), ToMemory(To) {}
+
+  [[nodiscard]] std::string getString() const override {
+    return llvm::formatv("{} {}", FromMemory, ToMemory);
+  }
+
+  void encode(llvm::raw_ostream &OS) const override {
+    llvm::encodeULEB128(FromMemory, OS);
+    llvm::encodeULEB128(ToMemory, OS);
+  }
+};
+
 class WasmInst {
   using Storage =
       std::variant<std::monostate, int64_t, std::unique_ptr<InstArgument>>;
@@ -206,6 +224,9 @@ public:
 
   WasmInst(Opcode::Enum O, Function *F)
       : Arg(std::make_unique<RelocatableFuncArg>(F)), Op(O) {}
+
+  WasmInst(Opcode::Enum O, uint32_t From, uint32_t To)
+      : Arg(std::make_unique<MemCpyArg>(From, To)), Op(O) {}
 
   WasmInst(WasmInst &&) = default;
   WasmInst &operator=(WasmInst &&) = default;

@@ -134,10 +134,8 @@ bool BlockLowering::hasExternalUser(llvm::Value *Val) {
 void BlockLowering::handleIntrinsic(llvm::CallInst &CI) {
   switch (CI.getCalledFunction()->getIntrinsicID()) {
   case llvm::Intrinsic::memset: {
-    if (!Parent->FeatureSet.bulk_memory_enabled()) {
-      // Should have been handled during legalization
-      WATEVER_LOG_ERR("Cannot handle memset intrinsic without bulk_memory");
-    }
+    assert(Parent->FeatureSet.bulk_memory_enabled() &&
+           "cannot handle memset without bulk_memory");
     // TODO if Len == 0 and Dest invalid, WebAssembly traps, but it should be a
     // no-op. This should either be handled in legalization or we somehow need a
     // branch here.
@@ -152,6 +150,22 @@ void BlockLowering::handleIntrinsic(llvm::CallInst &CI) {
     if (auto *TruncInst = llvm::dyn_cast<llvm::TruncInst>(Val)) {
       WorkList.push_back(TruncInst->getOperand(0));
     }
+    WorkList.push_back(Len);
+    break;
+  }
+  case llvm::Intrinsic::memcpy: {
+    assert(Parent->FeatureSet.bulk_memory_enabled() &&
+           "cannot handle memcpy without bulk_memory");
+
+    // TODO if Len == 0 and any pointer invalid, WebAssembly traps, but it
+    // should be a no-op
+    auto *Dest = CI.getArgOperand(0);
+    auto *Src = CI.getArgOperand(1);
+    auto *Len = CI.getArgOperand(2);
+
+    Actions.Insts.emplace_back(Opcode::MemoryCopy, 0, 0);
+    WorkList.push_back(Dest);
+    WorkList.push_back(Src);
     WorkList.push_back(Len);
     break;
   }
