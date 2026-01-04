@@ -1,4 +1,5 @@
 #include "watever/ir.hpp"
+#include "watever/instructions.hpp"
 #include "watever/linking.hpp"
 #include "watever/opcode.hpp"
 #include "watever/printer.hpp"
@@ -816,7 +817,7 @@ void BlockLowering::visitCallInst(llvm::CallInst &CI) {
 }
 
 std::unique_ptr<WasmActions> BlockLowering::lower() {
-  WATEVER_LOG_TRACE("Lowering {}", BB->getName().str());
+  WATEVER_LOG_TRACE("Lowering {}", getBlockName(BB));
 
   auto Result = std::make_unique<WasmActions>();
 
@@ -959,7 +960,7 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
 
 std::unique_ptr<Wasm> FunctionLowering::doBranch(const llvm::BasicBlock *Source,
                                                  llvm::BasicBlock *Target,
-                                                 Context Ctx) {
+                                                 const Context &Ctx) {
 
   // Actions to be executed on the edge
   WasmActions PhiActions;
@@ -1086,8 +1087,24 @@ std::unique_ptr<Wasm> FunctionLowering::nodeWithin(
       WasmActions UnreachableAction;
       UnreachableAction.Insts.emplace_back(Opcode::Unreachable);
       Leaving = std::make_unique<WasmActions>(std::move(UnreachableAction));
+    } else if (auto *SI = llvm::dyn_cast<llvm::SwitchInst>(Term)) {
+      // TODO handle PHI nodes
+      WATEVER_LOG_TRACE("{} ends with a switch", getBlockName(Parent));
+      llvm::SmallVector<uint32_t> Targets;
+      for (auto &Case : SI->cases()) {
+        auto *Target = Case.getCaseSuccessor();
+        // TODO think about fall through (also for default case)
+        Targets.push_back(index(Target, Ctx));
+      }
+      auto *DefaultTarget = SI->getDefaultDest();
+      uint32_t DefaultIndex;
+      DefaultIndex = index(DefaultTarget, Ctx);
+      BranchTableArg Argument{std::move(Targets), DefaultIndex};
+      WasmActions BranchTable{};
+      BranchTable.Insts.emplace_back(
+          Opcode::BrTable, std::make_unique<BranchTableArg>(Argument));
+      Leaving = std::make_unique<WasmActions>(std::move(BranchTable));
     } else {
-      // TODO support switch
       WATEVER_UNREACHABLE("unsupported terminator: {}",
                           Parent->getTerminator()->getOpcodeName());
     }
@@ -1114,7 +1131,7 @@ std::unique_ptr<Wasm> FunctionLowering::nodeWithin(
       WasmSeq{std::move(First), std::move(Second)});
 }
 
-int FunctionLowering::index(const llvm::BasicBlock *BB, Context &Ctx) {
+int FunctionLowering::index(const llvm::BasicBlock *BB, const Context &Ctx) {
   int I = 0;
   // Iterate in reverse to find the innermost matching label (relative index 0)
   for (auto &It : std::ranges::reverse_view(Ctx)) {
@@ -1137,13 +1154,19 @@ void FunctionLowering::getMergeChildren(
     llvm::SmallVectorImpl<llvm::BasicBlock *> &Result) const {
   if (auto *Node = DT.getNode(R)) {
     for (const auto *Child : *Node) {
-      if (isMergeNode(Child->getBlock())) {
+      if (isMergeNode(Child->getBlock()) ||
+          llvm::isa<llvm::SwitchInst>(R->getTerminator())) {
         WATEVER_LOG_TRACE("{} is dominated merge",
                           getBlockName(Child->getBlock()));
         Result.push_back(Child->getBlock());
       }
     }
   }
+
+  std::ranges::sort(Result,
+                    [&](const llvm::BasicBlock *A, const llvm::BasicBlock *B) {
+                      return RPOOrdering.lookup(A) < RPOOrdering.lookup(B);
+                    });
 }
 
 static void applyFeatures(DefinedFunc *Fn, llvm::StringRef FeatureString) {

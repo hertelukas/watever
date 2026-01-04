@@ -9,6 +9,7 @@
 #include "watever/utils.hpp"
 #include <cstdint>
 #include <llvm/ADT/DenseMap.h>
+#include <llvm/ADT/PostOrderIterator.h>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/ADT/iterator_range.h>
 #include <llvm/Analysis/LoopInfo.h>
@@ -251,6 +252,10 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
     }
   };
 
+  void visitSwitchInst(llvm::SwitchInst &SI) {
+    WorkList.push_back(SI.getCondition());
+  }
+
   void visitUnreachableInst(llvm::UnreachableInst &) {}
 
   // Unary Operations
@@ -332,7 +337,8 @@ class FunctionLowering {
   Module &M;
 
   std::unique_ptr<Wasm> doBranch(const llvm::BasicBlock *SourceBlock,
-                                 llvm::BasicBlock *TargetBlock, Context Ctx);
+                                 llvm::BasicBlock *TargetBlock,
+                                 const Context &Ctx);
 
   // TODO MergeChildren needs better type
   std::unique_ptr<Wasm>
@@ -342,7 +348,7 @@ class FunctionLowering {
 
   std::unique_ptr<Wasm> doTree(llvm::BasicBlock *Root, Context Ctx);
 
-  static int index(const llvm::BasicBlock *BB, Context &Ctx);
+  static int index(const llvm::BasicBlock *BB, const Context &Ctx);
 
   std::unique_ptr<WasmActions> translateBB(llvm::BasicBlock *BB) const;
 
@@ -367,10 +373,20 @@ class FunctionLowering {
     return ForwardEdges >= 2;
   }
 
+  // reverse post order
+  llvm::DenseMap<llvm::BasicBlock *, uint64_t> RPOOrdering;
+
 public:
   FunctionLowering(DefinedFunc *F, llvm::DominatorTree &DT, llvm::LoopInfo &LI,
                    Module &M)
-      : F(F), DT(DT), LI(LI), M(M) {}
+      : F(F), DT(DT), LI(LI), M(M) {
+    uint64_t Idx = 0;
+    llvm::ReversePostOrderTraversal<llvm::Function *> PROT(
+        DT.getRoot()->getParent());
+    for (auto *BB : PROT) {
+      RPOOrdering[BB] = Idx++;
+    }
+  }
 
   void lower() {
     Context Ctx;

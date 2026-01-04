@@ -4,6 +4,7 @@
 #include "watever/opcode.hpp"
 #include "watever/symbol.hpp"
 #include <llvm/Support/FormatVariadic.h>
+#include <llvm/Support/LEB128.h>
 #include <llvm/Support/raw_ostream.h>
 
 namespace watever {
@@ -56,6 +57,29 @@ public:
   }
   void encode(llvm::raw_ostream &OS) const override {
     llvm::encodeULEB128(Lo->Index, OS);
+  }
+};
+
+class BranchTableArg final : public InstArgument {
+public:
+  llvm::SmallVector<uint32_t> Targets;
+  uint32_t DefaultTarget;
+
+  explicit BranchTableArg(llvm::SmallVector<uint32_t> T, uint32_t D)
+      : Targets(std::move(T)), DefaultTarget(D) {}
+
+  [[nodiscard]] std::string getString() const override {
+    return llvm::formatv("[{0:$[, ]}] : {1}",
+                         llvm::make_range(Targets.begin(), Targets.end()),
+                         DefaultTarget);
+  }
+
+  void encode(llvm::raw_ostream &OS) const override {
+    llvm::encodeULEB128(Targets.size(), OS);
+    for (auto &T : Targets) {
+      llvm::encodeULEB128(T, OS);
+    }
+    llvm::encodeULEB128(DefaultTarget, OS);
   }
 };
 
