@@ -35,7 +35,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     container: archlinux:latest
-    
+
     steps:
     - name: Dependencies
       run: pacman -Sy --noconfirm base-devel git cmake ninja llvm python wabt sudo wasmtime
@@ -45,7 +45,7 @@ jobs:
         useradd -m builduser
         echo "builduser ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
         su - builduser -c "git clone https://aur.archlinux.org/wasi-sdk-bin.git && cd wasi-sdk-bin && makepkg -si --noconfirm"
-	
+
     - uses: actions/checkout@v6
       with:
         submodules: recursive
@@ -54,10 +54,10 @@ jobs:
       uses: actions/download-artifact@v5
       with:
         path: build
-        
+ 
     - name: Fix Permissions
       run: chmod +x build/app/watever
 
     - name: Test
       run: ninja -C build check-watever
-  
+
