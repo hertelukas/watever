@@ -133,7 +133,7 @@ bool BlockLowering::hasExternalUser(llvm::Value *Val) {
 void BlockLowering::handleIntrinsic(llvm::CallInst &CI) {
   switch (CI.getCalledFunction()->getIntrinsicID()) {
   case llvm::Intrinsic::memset: {
-    if (!M.Config.EnabledFeatures.bulk_memory_enabled()) {
+    if (!Parent->FeatureSet.bulk_memory_enabled()) {
       // Should have been handled during legalization
       WATEVER_LOG_ERR("Cannot handle memset intrinsic without bulk_memory");
     }
@@ -1146,10 +1146,30 @@ void FunctionLowering::getMergeChildren(
   }
 }
 
+static void applyFeatures(DefinedFunc *Fn, llvm::StringRef FeatureString) {
+  llvm::SmallVector<llvm::StringRef, 8> Features;
+  FeatureString.split(Features, ',');
+
+  for (llvm::StringRef Feature : Features) {
+    Feature = Feature.trim();
+    if (Feature.empty())
+      continue;
+
+    bool Enable = Feature.starts_with("+");
+    llvm::StringRef Name = Feature.drop_front(1);
+
+#define WATEVER_FEATURE(VAR, NAME, DEFAULT, HELP)                              \
+  if (Name == #VAR)                                                            \
+    Fn->FeatureSet.set_##VAR##_enabled(Enable);
+#include "watever/feature.def"
+#undef WATEVER_FEATURE
+  }
+}
+
 Module ModuleLowering::convert(llvm::Module &Mod,
                                llvm::FunctionAnalysisManager &FAM,
                                TargetConfig C) {
-  Module Res{C};
+  Module Res{};
 
   uint32_t FunctionIndexCounter = 0;
 
@@ -1247,7 +1267,7 @@ Module ModuleLowering::convert(llvm::Module &Mod,
 
     auto FunctionPtr = std::make_unique<DefinedFunc>(
         Res.Symbols.size(), FuncTypeIndex, FunctionIndexCounter++,
-        static_cast<uint32_t>(F.arg_size()), F.getName());
+        static_cast<uint32_t>(F.arg_size()), F.getName(), C.EnabledFeatures);
 
     // TODO use correct flags
     FunctionPtr->setFlag(SymbolFlag::WASM_SYM_VISIBILITY_HIDDEN);
@@ -1256,12 +1276,19 @@ Module ModuleLowering::convert(llvm::Module &Mod,
     Res.Symbols.push_back(std::move(FunctionPtr));
   }
 
-  // Lower functions, which might involve adding a prolog to save the SP
+  // Lower functions, which might involve adding a prologue to save the SP
   for (auto &F : Mod) {
     if (F.isDeclaration()) {
       continue;
     }
     auto *WasmFunc = static_cast<DefinedFunc *>(Res.FunctionMap[&F]);
+
+    if (auto Attr = F.getFnAttribute("target-features"); Attr.isValid()) {
+      applyFeatures(WasmFunc, Attr.getValueAsString());
+    }
+    // The module must enable all features used by any function
+    Res.Config.EnabledFeatures.merge(WasmFunc->FeatureSet);
+
     WasmFunc->setupStackFrame(&F.front());
     auto &DT = FAM.getResult<llvm::DominatorTreeAnalysis>(F);
     auto &LI = FAM.getResult<llvm::LoopAnalysis>(F);

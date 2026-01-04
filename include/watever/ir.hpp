@@ -150,8 +150,6 @@ public:
   llvm::DenseMap<Function *, uint32_t> IndirectFunctionElementLookup;
   UndefinedTable *IndirectFunctionTable{};
 
-  explicit Module(TargetConfig C) : Config(C) {}
-
   uint32_t getOrAddType(const FuncType &Signature) {
     if (auto It = TypeLookup.find(Signature); It != TypeLookup.end()) {
       return It->second;

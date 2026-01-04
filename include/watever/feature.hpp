@@ -22,6 +22,15 @@ public:
 #include "watever/feature.def"
 #undef WATEVER_FEATURE
 
+  // Enables all features enabled in \p Other
+  void merge(Features &Other) {
+#define WATEVER_FEATURE(variable, flag, default_, help)                        \
+  if (Other.variable##_enabled_)                                               \
+    enable_##variable();
+#include "watever/feature.def"
+#undef WATEVER_FEATURE
+  }
+
 private:
 #define WATEVER_FEATURE(variable, flag, default_, help)                        \
   bool variable##_enabled_ = default_;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "watever/feature.hpp"
 #include "watever/linking.hpp"
 #include "watever/type.hpp"
 #include <cstdint>
@@ -125,6 +126,7 @@ class DefinedFunc final : public Function {
   uint32_t TotalLocals{};
 
 public:
+  Features FeatureSet;
   uint32_t Args{};
   std::unique_ptr<Wasm> Body{};
   llvm::DenseMap<llvm::Value *, Local *> LocalMapping;
@@ -134,7 +136,7 @@ public:
   Local *FP{};
   uint64_t FrameSize{};
   explicit DefinedFunc(uint32_t SymbolIdx, uint32_t TypeIdx, uint32_t FuncIdx,
-                       uint32_t Args, llvm::StringRef Name);
+                       uint32_t Args, llvm::StringRef Name, Features F);
 
   Local *getNewLocal(ValType Ty) {
     auto NewLocal = std::make_unique<Local>(TotalLocals++);

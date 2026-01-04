@@ -1,4 +1,5 @@
 #include "watever/symbol.hpp"
+#include "watever/feature.hpp"
 #include "watever/ir.hpp"
 #include "watever/type.hpp"
 #include <algorithm>
@@ -17,9 +18,9 @@ DefinedGlobal::DefinedGlobal(uint32_t SymbolIdx, uint32_t GlobalIdx, ValType Ty,
       Expr(std::move(Ex)) {}
 
 DefinedFunc::DefinedFunc(uint32_t SymbolIdx, uint32_t TypeIdx, uint32_t FuncIdx,
-                         uint32_t Args, llvm::StringRef Name)
+                         uint32_t Args, llvm::StringRef Name, Features F)
     : Function(Kind::DefinedFunc, SymbolIdx, TypeIdx, FuncIdx, Name.str()),
-      Args(Args) {}
+      FeatureSet(F), Args(Args) {}
 
 void DefinedFunc::visit(WasmVisitor &V) const { Body->accept(V); }
 
