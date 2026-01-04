@@ -967,6 +967,11 @@ void FunctionLegalizer::visitCallInst(llvm::CallInst &CI) {
     }
   }
 
+  if (OldCalledFunc->getFunctionType()->isVarArg()) {
+    // TODO handle varargs
+    NewArgs.push_back(llvm::Constant::getNullValue(PtrTy));
+  }
+
   assert(NewFuncTy->getNumParams() == NewArgs.size() &&
          "Argument count mismatch!");
 
