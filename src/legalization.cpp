@@ -3,6 +3,7 @@
 #include <llvm/ADT/DenseMapInfo.h>
 #include <llvm/ADT/STLExtras.h>
 #include <llvm/ADT/SmallVector.h>
+#include <llvm/IR/Attributes.h>
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/DerivedTypes.h>
@@ -943,6 +944,12 @@ void FunctionLegalizer::visitCallInst(llvm::CallInst &CI) {
   auto *NewCall = Builder.CreateCall(NewFuncTy, NewCallee, NewArgs);
   NewCall->setCallingConv(CI.getCallingConv());
 
+  if (CI.getAttributes().hasFnAttrs()) {
+    NewCall->setAttributes(llvm::AttributeList::get(
+        NewCall->getContext(), llvm::AttributeList::FunctionIndex,
+        CI.getAttributes().getFnAttrs()));
+  }
+
   ValueMap[&CI] = LegalValue{NewCall};
 }
 
@@ -951,6 +958,13 @@ llvm::Function *LegalizationPass::createLegalFunction(llvm::Module &Mod,
   llvm::Function *Fn =
       llvm::Function::Create(getLegalFunctionType(OldFunc->getFunctionType()),
                              OldFunc->getLinkage(), OldFunc->getName(), Mod);
+
+  // Copy all attributes of the function
+  // TODO maybe handle parametere attributes too - however, they cannot just be
+  // copied, as legalization potentially changes the signature
+  llvm::AttributeSet FnAttrs = OldFunc->getAttributes().getFnAttrs();
+  Fn->setAttributes(llvm::AttributeList::get(
+      Fn->getContext(), llvm::AttributeList::FunctionIndex, FnAttrs));
 
   bool IndirectReturn = getLegalType(OldFunc->getReturnType()).size() > 1;
 
