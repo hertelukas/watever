@@ -952,14 +952,16 @@ void FunctionLegalizer::visitCallInst(llvm::CallInst &CI) {
     }
   }
 
-  if (!LegalizationPass::getLegalType(CI.getType()).isScalar()) {
-    WATEVER_UNIMPLEMENTED("prepare indirect return value");
-  }
-
   auto *NewFuncTy =
       LegalizationPass::getLegalFunctionType(CI.getFunctionType());
 
   llvm::SmallVector<llvm::Value *> NewArgs;
+
+  // Handle indirect return value
+  if (!LegalizationPass::getLegalType(CI.getType()).isScalar()) {
+    NewArgs.push_back(Builder.CreateAlloca(CI.getType()));
+  }
+
   for (auto &OldArg : CI.args()) {
     LegalValue LegalArgs = getMappedValue(OldArg.get());
     for (auto *Val : LegalArgs) {
