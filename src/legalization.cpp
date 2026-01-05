@@ -1,11 +1,13 @@
 #include "watever/legalization.hpp"
 #include "watever/utils.hpp"
+#include <cstdint>
 #include <llvm/ADT/DenseMapInfo.h>
 #include <llvm/ADT/STLExtras.h>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/IR/Attributes.h>
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/Constants.h>
+#include <llvm/IR/DataLayout.h>
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/IRBuilder.h>
@@ -934,8 +936,10 @@ void FunctionLegalizer::visitCallInst(llvm::CallInst &CI) {
     return;
   }
 
+  // Resolve callee
   llvm::Value *NewCallee = nullptr;
-
+  // TODO For variadic functions, the call site might have a different type then
+  // our call instructions
   if (!OldCalledFunc) {
     // Indirect call
     auto CalledOp = getMappedValue(CI.getCalledOperand());
@@ -956,22 +960,70 @@ void FunctionLegalizer::visitCallInst(llvm::CallInst &CI) {
       LegalizationPass::getLegalFunctionType(CI.getFunctionType());
 
   llvm::SmallVector<llvm::Value *> NewArgs;
-
   // Handle indirect return value
   if (!LegalizationPass::getLegalType(CI.getType()).isScalar()) {
+    // TODO maybe allocate in entry block, so we can use a static allocation
     NewArgs.push_back(Builder.CreateAlloca(CI.getType()));
   }
 
-  for (auto &OldArg : CI.args()) {
-    LegalValue LegalArgs = getMappedValue(OldArg.get());
+  // Fixed arguments
+  uint32_t NumFixed = CI.getFunctionType()->getNumParams();
+  uint32_t ArgIdx = 0;
+  for (; ArgIdx < NumFixed; ++ArgIdx) {
+    LegalValue LegalArgs = getMappedValue(CI.getArgOperand(ArgIdx));
     for (auto *Val : LegalArgs) {
       NewArgs.push_back(Val);
     }
   }
 
-  if (OldCalledFunc && OldCalledFunc->getFunctionType()->isVarArg()) {
-    // TODO handle varargs
-    NewArgs.push_back(llvm::Constant::getNullValue(PtrTy));
+  // Variadic arguments
+  if (CI.getFunctionType()->isVarArg()) {
+    llvm::SmallVector<llvm::Value *> VarArgValues;
+    llvm::SmallVector<llvm::Type *> VarArgTypes;
+
+    for (; ArgIdx < CI.arg_size(); ++ArgIdx) {
+      LegalValue LegalArgs = getMappedValue(CI.getArgOperand(ArgIdx));
+      for (auto *Val : LegalArgs) {
+        VarArgValues.push_back(Val);
+        VarArgTypes.push_back(Val->getType());
+      }
+    }
+
+    if (VarArgValues.empty()) {
+      WATEVER_LOG_TRACE("vararg target {} with 0 variadic arguments",
+                        CI.getFunction()->getName());
+      NewArgs.push_back(llvm::Constant::getNullValue(PtrTy));
+    } else {
+      WATEVER_LOG_TRACE("vararg target {} with {} variadic arguments",
+                        CI.getFunction()->getName(), VarArgTypes.size());
+      llvm::StructType *VarArgsStructTy =
+          llvm::StructType::get(Builder.getContext(), VarArgTypes);
+
+      // Create static allocation in entry block
+      llvm::Function *ParentFunc = Builder.GetInsertBlock()->getParent();
+      llvm::IRBuilder<> EntryBuilder(&ParentFunc->getEntryBlock(),
+                                     ParentFunc->getEntryBlock().begin());
+      auto *VarArgsAlloca = EntryBuilder.CreateAlloca(VarArgsStructTy);
+
+      // Store values
+      auto &DL = CI.getModule()->getDataLayout();
+      const llvm::StructLayout *Layout = DL.getStructLayout(VarArgsStructTy);
+      llvm::Value *BaseInt = Builder.CreatePtrToInt(VarArgsAlloca, IntPtrTy);
+
+      for (size_t I = 0; I < VarArgValues.size(); ++I) {
+        uint64_t Offset = Layout->getElementOffset(I);
+        auto *AddrInt = BaseInt;
+        if (Offset != 0) {
+          AddrInt = Builder.CreateAdd(BaseInt,
+                                      llvm::ConstantInt::get(IntPtrTy, Offset));
+        }
+        llvm::Value *FieldPtr = Builder.CreateIntToPtr(AddrInt, PtrTy);
+        Builder.CreateAlignedStore(VarArgValues[I], FieldPtr,
+                                   DL.getABITypeAlign(VarArgTypes[I]));
+      }
+
+      NewArgs.push_back(VarArgsAlloca);
+    }
   }
 
   assert(NewFuncTy->getNumParams() == NewArgs.size() &&

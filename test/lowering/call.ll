@@ -23,6 +23,10 @@ define i128 @illegal_target(i128 %a) {
   ret i128 %a
 }
 
+define void @vararg_target(i32 %a, ...) {
+  ret void
+}
+
 define void @call_void() {
 ; CHECK-LABEL: $call_void
 ; CHECK-NEXT: call $void_target
@@ -79,5 +83,26 @@ define void @call_illegal() {
 ; CHECK-NEXT: i64.const 0
 ; CHECK-NEXT: call $illegal_target
   %1 = call i128 @illegal_target(i128 100)
+  ret void
+}
+
+define void @call_vararg() {
+; CHECK-LABEL: func $call_vararg
+; CHECK: i32.const 5
+; CHECK-NEXT: i32.const 0
+; CHECK-NEXT: call $vararg_target
+  call void (i32, ...) @vararg_target(i32 5)
+  ret void
+}
+
+define void @call_vararg_i32_i64() {
+; CHECK-LABEL: func $call_vararg_i32_i64
+; CHECK: global.get
+; CHECK-NEXT: i32.const 16
+; CHECK-NEXT: i32.sub
+; CHECK: i32.const 5
+; CHECK-NEXT: local.get
+; CHECK-NEXT: call $vararg_target
+  call void (i32, ...) @vararg_target(i32 5, i32 6, i64 7)
   ret void
 }
