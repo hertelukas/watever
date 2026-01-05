@@ -1,6 +1,7 @@
 #include "watever/legalization.hpp"
 #include "watever/utils.hpp"
 #include <cstdint>
+#include <llvm/ADT/APInt.h>
 #include <llvm/ADT/DenseMapInfo.h>
 #include <llvm/ADT/STLExtras.h>
 #include <llvm/ADT/SmallVector.h>
@@ -731,11 +732,25 @@ void FunctionLegalizer::visitTruncInst(llvm::TruncInst &TI) {
                         llvmToString(*TI.getDestTy()));
 }
 
-// TODO check when we need to and the upper bits
 void FunctionLegalizer::visitZExtInst(llvm::ZExtInst &ZI) {
   auto Arg = getMappedValue(ZI.getOperand(0));
+  const auto FromWidth = ZI.getSrcTy()->getIntegerBitWidth();
+  const auto ToWidth = ZI.getDestTy()->getIntegerBitWidth();
   if (Arg.isScalar()) {
-    ValueMap[&ZI] = Builder.CreateZExt(Arg[0], ZI.getDestTy());
+    auto *Val = Arg[0];
+    // If we currently filled only parts of a Wasm value, we have to ensure that
+    // the upper bits in the new value are clean
+    if (FromWidth != 32) {
+      Val = Builder.CreateAnd(
+          Val, llvm::APInt::getLowBitsSet(Val->getType()->getIntegerBitWidth(),
+                                          FromWidth));
+    }
+    // TODO support --enable-sign-extension
+    if (ToWidth > 32 && FromWidth <= 32) {
+      ValueMap[&ZI] = Builder.CreateZExt(Val, ZI.getDestTy());
+    } else {
+      ValueMap[&ZI] = Val;
+    }
     return;
   }
   WATEVER_UNIMPLEMENTED("non-scalar zext from {} to {}",
