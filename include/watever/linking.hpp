@@ -283,7 +283,6 @@ struct SymbolName {
 // For DATA
 struct SymbolData {
   std::string Name;
-  // TODO these are all optionals, see spec
   uint32_t Index{};
   uint32_t Offset{};
   uint32_t Size{};

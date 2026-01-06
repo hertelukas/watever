@@ -942,7 +942,7 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
             Actions.Insts.emplace_back(Opcode::I32Const, 0);
           }
         } else {
-          WATEVER_TODO("put {} on top of the stack", llvmToString(*Next));
+          WATEVER_UNIMPLEMENTED("put {} on top of the stack", llvmToString(*Next));
         }
       }
       std::ranges::reverse(Actions.Insts);
@@ -1107,7 +1107,6 @@ std::unique_ptr<Wasm> FunctionLowering::nodeWithin(
       llvm::SmallVector<uint32_t> Targets;
       for (auto &Case : SI->cases()) {
         auto *Target = Case.getCaseSuccessor();
-        // TODO think about fall through (also for default case)
         Targets.push_back(index(Target, Ctx));
       }
       auto *DefaultTarget = SI->getDefaultDest();

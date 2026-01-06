@@ -1166,7 +1166,6 @@ llvm::PreservedAnalyses LegalizationPass::run(llvm::Module &Mod,
   // Old Funcs -> New Funcs
   llvm::DenseMap<llvm::Function *, llvm::Function *> FuncMap;
   for (auto &F : Mod) {
-    // TODO handle declarations
     if (F.isDeclaration()) {
       continue;
     }
