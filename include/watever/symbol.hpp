@@ -134,7 +134,7 @@ public:
   llvm::DenseMap<llvm::Instruction *, uint32_t> StackSlots{};
 
   Local *FP{};
-  uint64_t FrameSize{};
+  int64_t FrameSize{};
   explicit DefinedFunc(uint32_t SymbolIdx, uint32_t TypeIdx, uint32_t FuncIdx,
                        uint32_t Args, llvm::StringRef Name, Features F);
 

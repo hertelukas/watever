@@ -200,8 +200,8 @@ public:
 };
 
 class WasmInst {
-  using Storage =
-      std::variant<std::monostate, int64_t, std::unique_ptr<InstArgument>>;
+  using Storage = std::variant<std::monostate, int64_t, float, double,
+                               std::unique_ptr<InstArgument>>;
   Storage Arg;
 
 public:
@@ -209,6 +209,8 @@ public:
 
   WasmInst(Opcode::Enum O) : Arg(std::monostate{}), Op(O) {}
   WasmInst(Opcode::Enum O, int64_t Imm) : Arg(Imm), Op(O) {}
+  WasmInst(Opcode::Enum O, float Imm) : Arg(Imm), Op(O) {}
+  WasmInst(Opcode::Enum O, double Imm) : Arg(Imm), Op(O) {}
   WasmInst(Opcode::Enum O, std::unique_ptr<InstArgument> Arg)
       : Arg(std::move(Arg)), Op(O) {}
 
@@ -241,9 +243,16 @@ public:
     return std::visit(
         Overloaded{
             [&](std::monostate) { return std::string(Name); },
-            [&](uint64_t Imm) {
+            [&](int64_t Imm) {
               return llvm::formatv("{0} {1}", Name, Imm).str();
             },
+            [&](float Imm) {
+              return llvm::formatv("{0} {1}", Name, Imm).str();
+            },
+            [&](double Imm) {
+              return llvm::formatv("{0} {1}", Name, Imm).str();
+            },
+
             [&](const std::unique_ptr<InstArgument> &Arg) {
               return llvm::formatv("{0} {1}", Name, Arg->getString()).str();
             },
@@ -255,15 +264,22 @@ public:
   void write(llvm::raw_ostream &OS, Relocation &Reloc) const {
     Opcode(Op).writeBytes(OS);
 
-    std::visit(Overloaded{
-                   [&](std::monostate) {},
-                   [&](int64_t Imm) { llvm::encodeSLEB128(Imm, OS); },
-                   [&](const std::unique_ptr<InstArgument> &Arg) {
-                     Arg->addRelocation(OS, Reloc);
-                     Arg->encode(OS);
-                   },
-               },
-               Arg);
+    std::visit(
+        Overloaded{
+            [&](std::monostate) {},
+            [&](int64_t Imm) { llvm::encodeSLEB128(Imm, OS); },
+            [&](float Imm) {
+              OS.write(reinterpret_cast<const char *>(&Imm), sizeof(Imm));
+            },
+            [&](double Imm) {
+              OS.write(reinterpret_cast<const char *>(&Imm), sizeof(Imm));
+            },
+            [&](const std::unique_ptr<InstArgument> &Arg) {
+              Arg->addRelocation(OS, Reloc);
+              Arg->encode(OS);
+            },
+        },
+        Arg);
   }
 };
 } // namespace watever

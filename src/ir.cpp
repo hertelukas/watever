@@ -143,7 +143,7 @@ void BlockLowering::handleIntrinsic(llvm::CallInst &CI) {
     auto *Val = CI.getArgOperand(1);
     auto *Dest = CI.getArgOperand(0);
 
-    Actions.Insts.emplace_back(Opcode::MemoryFill, 0);
+    Actions.Insts.emplace_back(Opcode::MemoryFill, int64_t{0});
 
     WorkList.push_back(Dest);
     // The argument might have been illegal, use the original i32
@@ -325,14 +325,14 @@ void BlockLowering::visitAllocaInst(llvm::AllocaInst &AI) {
   if (auto It = Parent->StackSlots.find(&AI); It != Parent->StackSlots.end()) {
     assert(Parent->FP && "no frame pointer defined");
     Actions.Insts.emplace_back(AddOp);
-    Actions.Insts.emplace_back(ConstOp, It->second);
+    Actions.Insts.emplace_back(ConstOp, static_cast<int64_t>(It->second));
     Actions.Insts.emplace_back(Opcode::LocalGet, Parent->FP);
     return;
   }
 
   // Dynamic allocation
   auto *AllocatedType = AI.getAllocatedType();
-  uint32_t Size =
+  int64_t Size =
       AI.getModule()->getDataLayout().getTypeAllocSize(AllocatedType);
 
   ImportedGlobal *StackPointer;
@@ -381,9 +381,9 @@ void BlockLowering::visitAllocaInst(llvm::AllocaInst &AI) {
     Actions.Insts.emplace_back(Opcode::LocalSet, TotalSizeLocal);
     // Align
     Actions.Insts.emplace_back(AndOp);
-    Actions.Insts.emplace_back(ConstOp, -16);
+    Actions.Insts.emplace_back(ConstOp, int64_t{-16});
     Actions.Insts.emplace_back(AddOp);
-    Actions.Insts.emplace_back(ConstOp, 15);
+    Actions.Insts.emplace_back(ConstOp, int64_t{15});
     // Calculate total size
     // TODO we probably can use a shl in most cases here
     Actions.Insts.emplace_back(MulOp);
@@ -738,7 +738,7 @@ void BlockLowering::visitFCmpInst(llvm::FCmpInst &FI) {
 
   switch (FI.getPredicate()) {
   case llvm::CmpInst::FCMP_FALSE: {
-    Actions.Insts.emplace_back(Opcode::I32Const, 0);
+    Actions.Insts.emplace_back(Opcode::I32Const, int64_t{0});
     break;
   }
   case llvm::CmpInst::FCMP_OEQ: {
@@ -766,7 +766,7 @@ void BlockLowering::visitFCmpInst(llvm::FCmpInst &FI) {
     break;
   }
   case llvm::CmpInst::FCMP_TRUE: {
-    Actions.Insts.emplace_back(Opcode::I32Const, 1);
+    Actions.Insts.emplace_back(Opcode::I32Const, int64_t{1});
     break;
   }
   case llvm::CmpInst::FCMP_ORD: {
@@ -903,8 +903,9 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
         // Otherwise, we can just load constants/arguments
         else if (const auto *Const = llvm::dyn_cast<llvm::ConstantInt>(Next)) {
           if (Const->getBitWidth() == 1) {
-            Actions.Insts.push_back(
-                WasmInst(Opcode::I32Const, Const->getValue().getZExtValue()));
+            Actions.Insts.push_back(WasmInst(
+                Opcode::I32Const,
+                static_cast<int64_t>(Const->getValue().getZExtValue())));
           } else if (Const->getBitWidth() == 32) {
             Actions.Insts.push_back(
                 WasmInst(Opcode::I32Const, Const->getValue().getSExtValue()));
@@ -918,14 +919,15 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
         } else if (const auto *FConst =
                        llvm::dyn_cast<llvm::ConstantFP>(Next)) {
           if (FConst->getType()->isFloatTy()) {
-            WATEVER_TODO("put float {} on top of the stack",
-                         FConst->getValue().convertToFloat());
+            Actions.Insts.emplace_back(Opcode::F32Const,
+                                       FConst->getValue().convertToFloat());
           } else if (FConst->getType()->isDoubleTy()) {
-            WATEVER_TODO("put double {} on top of the stack",
-                         FConst->getValue().convertToDouble());
+            Actions.Insts.emplace_back(Opcode::F64Const,
+                                       FConst->getValue().convertToDouble());
           }
         } else if (auto *Arg = llvm::dyn_cast<llvm::Argument>(Next)) {
-          Actions.Insts.push_back(WasmInst(Opcode::LocalGet, Arg->getArgNo()));
+          Actions.Insts.push_back(
+              WasmInst(Opcode::LocalGet, int64_t{Arg->getArgNo()}));
         } else if (auto *F = llvm::dyn_cast<llvm::Function>(Next)) {
           auto *WasmFunc = M.FunctionMap[F];
           M.addIndirectFunctionElement(WasmFunc);
@@ -937,12 +939,13 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
           }
         } else if (llvm::isa<llvm::ConstantPointerNull>(Next)) {
           if (BB->getDataLayout().getPointerSizeInBits() == 64) {
-            Actions.Insts.emplace_back(Opcode::I64Const, 0);
+            Actions.Insts.emplace_back(Opcode::I64Const, int64_t{0});
           } else {
-            Actions.Insts.emplace_back(Opcode::I32Const, 0);
+            Actions.Insts.emplace_back(Opcode::I32Const, int64_t{0});
           }
         } else {
-          WATEVER_UNIMPLEMENTED("put {} on top of the stack", llvmToString(*Next));
+          WATEVER_UNIMPLEMENTED("put {} on top of the stack",
+                                llvmToString(*Next));
         }
       }
       std::ranges::reverse(Actions.Insts);
@@ -987,7 +990,8 @@ std::unique_ptr<Wasm> FunctionLowering::doBranch(const llvm::BasicBlock *Source,
     WATEVER_LOG_TRACE("PHI node is: {}", llvmToString(Phi));
 
     if (auto *Arg = llvm::dyn_cast<llvm::Argument>(IncomingVal)) {
-      PhiActions.Insts.push_back(WasmInst(Opcode::LocalGet, Arg->getArgNo()));
+      PhiActions.Insts.push_back(
+          WasmInst(Opcode::LocalGet, int64_t{Arg->getArgNo()}));
     } else {
       Local *SourceLocal;
       if (auto It = F->LocalMapping.find(IncomingVal);
