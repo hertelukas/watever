@@ -1,7 +1,5 @@
 ; RUN: watever -l 0 --legal %s | FileCheck %s
 
-; TODO test with --enable-sign-extension
-
 define i32 @zext_i8_i32(i8 %a) {
 ; CHECK-LABEL: @zext_i8_i32
 ; CHECK-NEXT:   %1 = and i32 %a, 255

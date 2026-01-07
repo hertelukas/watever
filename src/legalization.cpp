@@ -745,7 +745,6 @@ void FunctionLegalizer::visitZExtInst(llvm::ZExtInst &ZI) {
           Val, llvm::APInt::getLowBitsSet(Val->getType()->getIntegerBitWidth(),
                                           FromWidth));
     }
-    // TODO support --enable-sign-extension
     if (ToWidth > 32 && FromWidth <= 32) {
       ValueMap[&ZI] = Builder.CreateZExt(Val, ZI.getDestTy());
     } else {
@@ -765,8 +764,37 @@ void FunctionLegalizer::visitSExtInst(llvm::SExtInst &SI) {
   const auto ToWidth = SI.getDestTy()->getIntegerBitWidth();
 
   if (Arg.isScalar()) {
-    // Supported natively
-    // TODO support --enable-sign-extension
+    const auto ArgWidth = Arg[0]->getType()->getIntegerBitWidth();
+    // The extension arguments take the lower bits of the argument and sign
+    // extend to the full type. However, they do not modify the underlying Wasm
+    // type.
+    if (Config.EnabledFeatures.sign_ext_enabled()) {
+      if (ToWidth == 32) {
+        // We cannot just emit a sext - as arg is already 32 bit. To force this,
+        // we trunc and than sext - which is a pattern recognized by the backend
+        if (FromWidth == 8 || FromWidth == 16) {
+          auto *NewArg = Builder.CreateTrunc(Arg[0], SI.getSrcTy());
+          ValueMap[&SI] = Builder.CreateSExt(NewArg, SI.getDestTy());
+          return;
+        }
+      } else if (ToWidth == 64) {
+        if (ArgWidth == 32 && (FromWidth == 8 || FromWidth == 16)) {
+          // This will result in an extend_i32_u followed by an i64_extend8_s
+          auto *NewArg = Builder.CreateTrunc(Arg[0], SI.getSrcTy());
+          ValueMap[&SI] = Builder.CreateSExt(NewArg, SI.getDestTy());
+          return;
+        }
+        // If the WebAssembly type is already 32 bit, it will be handled by the
+        // default extend instruction.
+        if (ArgWidth == 64 &&
+            (FromWidth == 8 || FromWidth == 16 || FromWidth == 32)) {
+          auto *NewArg = Builder.CreateTrunc(Arg[0], SI.getSrcTy());
+          ValueMap[&SI] = Builder.CreateSExt(NewArg, SI.getDestTy());
+          return;
+        }
+      }
+    }
+    // Natively supported - WebAssembly types match LLVM IR types
     if (FromWidth == 32 && ToWidth == 64) {
       ValueMap[&SI] = Builder.CreateSExt(Arg[0], SI.getDestTy());
       return;
