@@ -632,14 +632,62 @@ void BlockLowering::visitSExtInst(llvm::SExtInst &SI) {
   auto FromWidth = SI.getOperand(0)->getType()->getIntegerBitWidth();
   auto ToWidth = SI.getType()->getIntegerBitWidth();
 
-  addOperandsToWorklist(SI.operands());
-
-  // TODO support --enable-sign-extension
-  if (FromWidth != 32 || ToWidth != 64) {
-    WATEVER_UNREACHABLE("Can not expand from {} to {}", FromWidth, ToWidth);
+  if (FromWidth == 32 && ToWidth == 64) {
+    addOperandsToWorklist(SI.operands());
+    Actions.Insts.emplace_back(Opcode::I64ExtendI32S);
+    return;
   }
 
-  Actions.Insts.emplace_back(Opcode::I64ExtendI32S);
+  if (M.Config.EnabledFeatures.sign_ext_enabled()) {
+    if (auto *TruncInst = llvm::dyn_cast<llvm::TruncInst>(SI.getOperand(0))) {
+      addOperandsToWorklist(TruncInst->operands());
+      auto FromTrunc = TruncInst->getSrcTy()->getIntegerBitWidth();
+
+      // We want to expand a value of type FromTrunc with width FromWidth to
+      // ToWidth.
+      if (ToWidth == 64) {
+        if (FromWidth == 8) {
+          Actions.Insts.emplace_back(Opcode::I64Extend8S);
+        } else if (FromWidth == 16) {
+          Actions.Insts.emplace_back(Opcode::I64Extend16S);
+        } else if (FromWidth == 32) {
+          // Needed if we want to extend an I64 with only the lower 32-bits
+          // filled to a full I64. (This is not handled by default - note the
+          // missing I)
+          Actions.Insts.emplace_back(Opcode::I64Extend32S);
+        } else {
+          WATEVER_UNREACHABLE("illegal from width {} in sign-ext", FromWidth);
+        }
+
+        // However, if the origianl Wasm type was only 32-bit, we first need to
+        // extend that type on the stack.
+        if (FromTrunc == 32) {
+          Actions.Insts.emplace_back(Opcode::I64ExtendI32U);
+        } else if (FromTrunc != 64) {
+          WATEVER_UNREACHABLE("sign-ext to 64 on illegal type {}", FromTrunc);
+        }
+        return;
+      }
+      if (ToWidth == 32) {
+        assert(FromTrunc == 32 &&
+               "sign-ext to 32 can only be done on a 32-bit type");
+
+        if (FromWidth == 8) {
+          Actions.Insts.emplace_back(Opcode::I32Extend8S);
+        } else if (FromWidth == 16) {
+          Actions.Insts.emplace_back(Opcode::I32Extend16S);
+        } else {
+          WATEVER_UNREACHABLE("illegal from width {} in sign-ext", FromWidth);
+        }
+        return;
+      }
+
+    } else {
+      WATEVER_UNREACHABLE("sign-ext instructions expect a previous trunc");
+    }
+  }
+
+  WATEVER_UNREACHABLE("Can not expand from {} to {}", FromWidth, ToWidth);
 }
 
 //===----------------------------------------------------------------------===//

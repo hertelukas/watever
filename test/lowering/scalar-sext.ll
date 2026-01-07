@@ -1,45 +1,69 @@
 ; RUN: watever -l 0 %s | wasm2wat - | FileCheck %s
 
-; TODO test with --enable-sign-extension
+; TODO test without sign-ext feature
+
+define i32 @sext_i7_i32(i7 %a) {
+; CHECK-LABEL: $sext_i7_i32
+; CHECK:         local.get 0
+; CHECK-NEXT:    i32.const 25
+; CHECK-NEXT:    i32.shl
+; CHECK-NEXT:    i32.const 25
+; CHECK-NEXT:    i32.shr_s
+    %1 = sext i7 %a to i32
+    ret i32 %1
+}
 
 define i32 @sext_i8_i32(i8 %a) {
-; CHECK-LABEL: sext_i8_i32
-; CHECK-NEXT local.get 0
-; CHECK-NEXT i32.const 24
-; CHECK-NEXT i32.shl
-; CHECK-NEXT i32.const 24
-; CHECK-NEXT i32.shr_s
+; CHECK-LABEL: $sext_i8_i32
+; CHECK:         local.get 0
+; CHECK-NEXT:    i32.extend8_s
     %1 = sext i8 %a to i32
     ret i32 %1
 }
 
+define i32 @sext_i15_i32(i15 %a) {
+; CHECK-LABEL: $sext_i15_i32
+; CHECK:         local.get 0
+; CHECK-NEXT:    i32.const 17
+; CHECK-NEXT:    i32.shl
+; CHECK-NEXT:    i32.const 17
+; CHECK-NEXT:    i32.shr_s
+    %1 = sext i15 %a to i32
+    ret i32 %1
+}
+
+define i32 @sext_i16_i32(i16 %a) {
+; CHECK-LABEL: $sext_i16_i32
+; CHECK:         local.get 0
+; CHECK-NEXT:    i32.extend16_s
+    %1 = sext i16 %a to i32
+    ret i32 %1
+}
+
 define i64 @sext_i8_i64(i8 %a) {
-; CHECK-LABEL: sext_i8_i64
-; CHECK-NEXT local.get 0
-; CHECK-NEXT i64.extend_i32_u
-; CHECK-NEXT i64.const 56
-; CHECK-NEXT i64.shl
-; CHECK-NEXT i64.const 56
-; CHECK-NEXT i64.shr_s
+; CHECK-LABEL: $sext_i8_i64
+; CHECK:         local.get 0
+; CHECK-NEXT:    i64.extend_i32_u
+; CHECK-NEXT:    i64.extend8_s
     %1 = sext i8 %a to i64
     ret i64 %1
 }
 
 define i64 @sext_i32_i64(i32 %a) {
-; CHECK-LABEL: sext_i32_i64
-; CHECK-NEXT:  local.get 0
-; CHECK-NEXT:  i64.extend_i32_s
+; CHECK-LABEL: $sext_i32_i64
+; CHECK:         local.get 0
+; CHECK-NEXT:    i64.extend_i32_s
     %1 = sext i32 %a to i64
     ret i64 %1
 }
 
 define i64 @sext_i44_i64(i44 %a) {
-; CHECK-LABEL: sext_i44_i64
-; CHECK-NEXT local.get 0
-; CHECK-NEXT i64.const 20
-; CHECK-NEXT i64.shl
-; CHECK-NEXT i64.const 20
-; CHECK-NEXT i64.shr_s
+; CHECK-LABEL: $sext_i44_i64
+; CHECK:         local.get 0
+; CHECK-NEXT:    i64.const 20
+; CHECK-NEXT:    i64.shl
+; CHECK-NEXT:    i64.const 20
+; CHECK-NEXT:    i64.shr_s
     %1 = sext i44 %a to i64
     ret i64 %1
 }

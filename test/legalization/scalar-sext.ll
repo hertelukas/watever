@@ -1,6 +1,6 @@
 ; RUN: watever -l 0 --legal %s | FileCheck %s
 
-; TODO test without sign-extension
+; TODO test without sign-ext feature
 
 define i32 @sext_i7_i32(i7 %a) {
 ; CHECK-LABEL: @sext_i7_i32
