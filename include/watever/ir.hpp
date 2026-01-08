@@ -205,6 +205,10 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
 
   llvm::SmallVector<llvm::Value *> WorkList;
 
+  // Keeps track of indices in the worklist, where the alloca instruction should
+  // not emit add + offset, as the offset is already encoded in the load/store
+  llvm::SmallVector<size_t> AllocaSkipOffsetList;
+
   WasmActions Actions;
 
   /// Calculates the users of each value for the AST at \p Root.

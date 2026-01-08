@@ -324,8 +324,14 @@ void BlockLowering::visitAllocaInst(llvm::AllocaInst &AI) {
   // Static allocation
   if (auto It = Parent->StackSlots.find(&AI); It != Parent->StackSlots.end()) {
     assert(Parent->FP && "no frame pointer defined");
-    Actions.Insts.emplace_back(AddOp);
-    Actions.Insts.emplace_back(ConstOp, static_cast<int64_t>(It->second));
+    // Offset has already been applied
+    if (!AllocaSkipOffsetList.empty() &&
+        AllocaSkipOffsetList.back() == WorkList.size()) {
+      AllocaSkipOffsetList.pop_back();
+    } else if (It->second != 0) {
+      Actions.Insts.emplace_back(AddOp);
+      Actions.Insts.emplace_back(ConstOp, static_cast<int64_t>(It->second));
+    }
     Actions.Insts.emplace_back(Opcode::LocalGet, Parent->FP);
     return;
   }
@@ -424,6 +430,19 @@ void BlockLowering::doGreedyMemOp(llvm::Instruction &I, Opcode::Enum Op) {
       }
     }
   }
+
+  // If using a static stack slot, inline it based of the FP
+  if (auto *AI = llvm::dyn_cast<llvm::AllocaInst>(Ptr)) {
+    // Check if this is a static slot
+    if (Parent->StackSlots.contains(AI)) {
+      Actions.Insts.emplace_back(
+          Op, std::make_unique<MemArg>(0, Parent->StackSlots[AI]));
+      AllocaSkipOffsetList.push_back(WorkList.size());
+      WorkList.push_back(AI);
+      return;
+    }
+  }
+
   Actions.Insts.emplace_back(Op, std::make_unique<MemArg>());
   WorkList.push_back(Ptr);
 }
@@ -896,6 +915,22 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
       while (!WorkList.empty()) {
         auto *Next = WorkList.pop_back_val();
         WATEVER_LOG_TRACE("handling {}", llvmToString(*Next));
+
+        bool IsGreedyOptimization =
+            !AllocaSkipOffsetList.empty() &&
+            AllocaSkipOffsetList.back() == WorkList.size();
+
+        // If this instruction is using a stack slot, we don't want to get it
+        // from a potential local as we have already inlined the offset into the
+        // store/load
+        if (IsGreedyOptimization) {
+          if (auto *Inst = llvm::dyn_cast<llvm::AllocaInst>(Next)) {
+            visit(*Inst);
+            continue;
+          }
+          WATEVER_UNREACHABLE("trying to inline memory offset on non-alloca");
+        }
+
         // Check if an earlier instrucion has already produced this value
         // outside this AST (e.g., we might be the second user)
         if (auto It = Parent->LocalMapping.find(Next);
@@ -996,6 +1031,8 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
                                 llvmToString(*Next));
         }
       }
+      assert(AllocaSkipOffsetList.empty() &&
+             "empty worklist expects no remaining no-offset alloca");
       std::ranges::reverse(Actions.Insts);
       Result->Insts.insert(Result->Insts.end(),
                            std::make_move_iterator(Actions.Insts.begin()),
