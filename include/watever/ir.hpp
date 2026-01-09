@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <llvm/ADT/DenseMap.h>
 #include <llvm/ADT/PostOrderIterator.h>
+#include <llvm/ADT/SmallPtrSet.h>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/ADT/iterator_range.h>
 #include <llvm/Analysis/LoopInfo.h>
@@ -210,6 +211,8 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
   llvm::SmallVector<size_t> AllocaSkipOffsetList;
 
   WasmActions Actions;
+
+  llvm::SmallPtrSet<llvm::Instruction *, 16> Emitted;
 
   /// Calculates the users of each value for the AST at \p Root.
   [[nodiscard]] llvm::DenseMap<llvm::Value *, int>

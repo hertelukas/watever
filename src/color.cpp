@@ -1,6 +1,9 @@
 #include "watever/color.hpp"
+#include "watever/symbol.hpp"
+#include "watever/type.hpp"
 #include "watever/utils.hpp"
 #include <algorithm>
+#include <llvm/ADT/DenseSet.h>
 #include <llvm/IR/Argument.h>
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/CFG.h>
@@ -117,8 +120,85 @@ void FunctionColorer::dumpLiveness() {
 }
 #endif
 
-bool FunctionColorer::needsColor(llvm::Value *) { return true; }
-void FunctionColorer::color(llvm::BasicBlock *) {}
+Local *FunctionColorer::getFreeLocal(ValType Type,
+                                     const llvm::DenseSet<Local *> &Assigned) {
+  for (auto &L : Target->Locals[Type]) {
+    if (!Assigned.contains(L.get())) {
+      return L.get();
+    }
+  }
+
+  // Failed to find unused local
+  return Target->getNewLocal(Type);
+}
+
+bool FunctionColorer::needsColor(llvm::Instruction &I) {
+  if (llvm::isa<llvm::PHINode>(I)) {
+    return true;
+  }
+
+  if (I.getType()->isVoidTy()) {
+    return false;
+  }
+
+  // TODO this could be more precise. E.g., instructions with cross BB users
+  // also need locals
+  return I.mayHaveSideEffects();
+}
+
+void FunctionColorer::color(llvm::BasicBlock *BB) {
+  // TODO maybe it is cheaper to keep track of unassigned?
+  llvm::DenseSet<Local *> Assigned;
+
+  for (auto *Val : LiveIn[BB]) {
+    // Phi nodes are technically live-in but ignored by Hack
+    if (auto *Phi = llvm::dyn_cast<llvm::PHINode>(Val)) {
+      if (Phi->getParent() == BB)
+        continue;
+    }
+    // TODO this should be fixed; we want to reuse argument locals
+    if (llvm::isa<llvm::Argument>(Val))
+      continue;
+
+    // There might be values live-in which do not have a local
+    if (Target->LocalMapping.contains(Val)) {
+      Assigned.insert(Target->LocalMapping[Val]);
+    } else {
+      // This is generally okay, however, it will force the lowering to use a
+      // completely new local and should therefore not be the default. Can be
+      // prevented by handling this kind of value in needsColor
+      WATEVER_LOG_INFO("{} is live-in but has no local assigned to it",
+                       llvmToString(*Val));
+    }
+  }
+
+  for (auto &Inst : *BB) {
+    // Remove last uses
+    for (auto &_ : Inst.operands()) {
+      // Check if last use
+      // TODO this is not that easy to decide, as we reschedule instructions
+      // based on the tree build by instructions with side effects. A safe
+      // option would be to mark a mapping no-longer used at the end of this
+      // BB - and defer any decision until then, which is happening anyway, as
+      // these will never be live-in anymore.
+    }
+    if (needsColor(Inst)) {
+      auto LocalType = fromLLVMType(Inst.getType(), BB->getDataLayout());
+
+      auto *Local = getFreeLocal(LocalType, Assigned);
+      Target->LocalMapping[&Inst] = Local;
+      Assigned.insert(Local);
+
+      WATEVER_LOG_TRACE("Mapping {} to local {}", llvmToString(Inst),
+                        Target->LocalMapping[&Inst]->Index);
+    }
+  }
+
+  // Handle imm dominated children
+  for (auto *Child : *DT.getNode(BB)) {
+    color(Child->getBlock());
+  }
+}
 
 void FunctionColorer::run() {
   computeLiveSets();

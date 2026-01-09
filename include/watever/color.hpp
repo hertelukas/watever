@@ -1,9 +1,12 @@
 #pragma once
 
 #include "symbol.hpp"
+#include "watever/type.hpp"
 #include <llvm/ADT/DenseMap.h>
+#include <llvm/ADT/DenseSet.h>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/IR/BasicBlock.h>
+#include <llvm/IR/Dominators.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/Value.h>
 
@@ -11,6 +14,8 @@ namespace watever {
 class FunctionColorer {
   llvm::Function &Source;
   DefinedFunc *Target;
+
+  llvm::DominatorTree &DT;
 
   llvm::DenseMap<llvm::BasicBlock *, llvm::SmallVector<llvm::Value *>> LiveIn;
   llvm::DenseMap<llvm::BasicBlock *, llvm::SmallVector<llvm::Value *>> LiveOut;
@@ -24,11 +29,13 @@ class FunctionColorer {
   void dumpLiveness();
 #endif
 
-  bool needsColor(llvm::Value *Val);
+  Local *getFreeLocal(ValType Type, const llvm::DenseSet<Local *> &Assigned);
+  bool needsColor(llvm::Instruction &I);
   void color(llvm::BasicBlock *BB);
 
 public:
-  FunctionColorer(llvm::Function &F, DefinedFunc *T) : Source(F), Target(T) {}
+  FunctionColorer(llvm::Function &F, DefinedFunc *T, llvm::DominatorTree &DT)
+      : Source(F), Target(T), DT(DT) {}
   /// Tries to color Target by creating as few Target->Locals as possible. To
   /// get the mapped information, the targets LocalMapping is filled.
   void run();

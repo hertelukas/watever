@@ -936,9 +936,15 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
         // outside this AST (e.g., we might be the second user)
         if (auto It = Parent->LocalMapping.find(Next);
             It != Parent->LocalMapping.end()) {
-          Actions.Insts.emplace_back(Opcode::LocalGet, It->second);
-          WATEVER_LOG_TRACE("has already a local, loading");
-          continue;
+          auto *Inst = llvm::dyn_cast<llvm::Instruction>(Next);
+          // Only use the local if it comes from another BB or has been emitted
+          // in this BB in an earler AST
+          if (!Inst || llvm::isa<llvm::PHINode>(Inst) ||
+              Inst->getParent() != BB || Emitted.contains(Inst)) {
+            Actions.Insts.emplace_back(Opcode::LocalGet, It->second);
+            WATEVER_LOG_TRACE("has already a local, loading");
+            continue;
+          }
         }
 
         // There will come an instruction in the worklist materializing Next
@@ -950,9 +956,11 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
             Actions.Insts.emplace_back(Opcode::LocalGet, It->second);
             continue;
           }
-          // Create a local
-          auto *L = Parent->getNewLocal(
-              fromLLVMType(Next->getType(), BB->getDataLayout()));
+          // Create a local or get one from the colorer
+          auto *L = Parent->LocalMapping.contains(Next)
+                        ? Parent->LocalMapping[Next]
+                        : Parent->getNewLocal(fromLLVMType(
+                              Next->getType(), BB->getDataLayout()));
           Actions.Insts.emplace_back(Opcode::LocalGet, L);
           ASTLocals[Next] = L;
           continue;
@@ -966,13 +974,16 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
             if (auto It = ASTLocals.find(Next); It != ASTLocals.end()) {
               L = It->second;
             } else {
-              L = Parent->getNewLocal(
-                  fromLLVMType(Next->getType(), BB->getDataLayout()));
+              L = Parent->LocalMapping.contains(Next)
+                      ? Parent->LocalMapping[Next]
+                      : Parent->getNewLocal(
+                            fromLLVMType(Next->getType(), BB->getDataLayout()));
             }
             Actions.Insts.emplace_back(Opcode::LocalTee, L);
             Parent->LocalMapping[Next] = L;
           }
           visit(*Inst);
+          Emitted.insert(Inst);
         } else if (auto *GV = llvm::dyn_cast<llvm::GlobalVariable>(Next)) {
           auto *WasmData = M.DataMap[GV];
           if (!WasmData) {
@@ -1046,8 +1057,10 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
       // If the instruction has users, ensure that is in a local, so it will
       // never be materialized as a dependency again
       if (Inst.getNumUses() > 0) {
-        auto *L = Parent->getNewLocal(
-            fromLLVMType(Inst.getType(), BB->getDataLayout()));
+        auto *L = Parent->LocalMapping.contains(&Inst)
+                      ? Parent->LocalMapping[&Inst]
+                      : Parent->getNewLocal(
+                            fromLLVMType(Inst.getType(), BB->getDataLayout()));
         Parent->LocalMapping[&Inst] = L;
         Result->Insts.emplace_back(Opcode::LocalSet, L);
       } else {
@@ -1419,7 +1432,7 @@ Module ModuleLowering::convert(llvm::Module &Mod,
     auto &DT = FAM.getResult<llvm::DominatorTreeAnalysis>(F);
     auto &LI = FAM.getResult<llvm::LoopAnalysis>(F);
 
-    FunctionColorer FC{F, WasmFunc};
+    FunctionColorer FC{F, WasmFunc, DT};
     WATEVER_LOG_DBG("Coloring function {}", F.getName().str());
     FC.run();
 
