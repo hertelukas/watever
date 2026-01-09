@@ -1,4 +1,5 @@
 #include "watever/ir.hpp"
+#include "watever/color.hpp"
 #include "watever/instructions.hpp"
 #include "watever/linking.hpp"
 #include "watever/opcode.hpp"
@@ -1417,6 +1418,10 @@ Module ModuleLowering::convert(llvm::Module &Mod,
     WasmFunc->setupStackFrame(&F.front());
     auto &DT = FAM.getResult<llvm::DominatorTreeAnalysis>(F);
     auto &LI = FAM.getResult<llvm::LoopAnalysis>(F);
+
+    FunctionColorer FC{F, WasmFunc};
+    WATEVER_LOG_DBG("Coloring function {}", F.getName().str());
+    FC.run();
 
     FunctionLowering FL{WasmFunc, DT, LI, Res};
     WATEVER_LOG_DBG("Lowering function {}", F.getName().str());

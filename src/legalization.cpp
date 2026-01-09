@@ -1079,7 +1079,8 @@ void FunctionLegalizer::visitCallInst(llvm::CallInst &CI) {
   assert(NewFuncTy->getNumParams() == NewArgs.size() &&
          "Argument count mismatch!");
 
-  auto *NewCall = Builder.CreateCall(NewFuncTy, NewCallee, NewArgs);
+  auto *NewCall =
+      Builder.CreateCall(NewFuncTy, NewCallee, NewArgs, CI.getName());
   NewCall->setCallingConv(CI.getCallingConv());
 
   if (CI.getAttributes().hasFnAttrs()) {

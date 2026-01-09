@@ -1,0 +1,36 @@
+#pragma once
+
+#include "symbol.hpp"
+#include <llvm/ADT/DenseMap.h>
+#include <llvm/ADT/SmallVector.h>
+#include <llvm/IR/BasicBlock.h>
+#include <llvm/IR/Function.h>
+#include <llvm/IR/Value.h>
+
+namespace watever {
+class FunctionColorer {
+  llvm::Function &Source;
+  DefinedFunc *Target;
+
+  llvm::DenseMap<llvm::BasicBlock *, llvm::SmallVector<llvm::Value *>> LiveIn;
+  llvm::DenseMap<llvm::BasicBlock *, llvm::SmallVector<llvm::Value *>> LiveOut;
+
+  bool isDefinedInBlock(llvm::Value *Val, llvm::BasicBlock *BB);
+  void upAndMark(llvm::BasicBlock *BB, llvm::Value *Val);
+  // This uses Florian Bradner et al, Computing Liveness Swts for SSA-Form
+  // Programs, algorithm 6
+  void computeLiveSets();
+#ifdef WATEVER_LOGGING
+  void dumpLiveness();
+#endif
+
+  bool needsColor(llvm::Value *Val);
+  void color(llvm::BasicBlock *BB);
+
+public:
+  FunctionColorer(llvm::Function &F, DefinedFunc *T) : Source(F), Target(T) {}
+  /// Tries to color Target by creating as few Target->Locals as possible. To
+  /// get the mapped information, the targets LocalMapping is filled.
+  void run();
+};
+} // namespace watever
