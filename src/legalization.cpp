@@ -332,7 +332,7 @@ void FunctionLegalizer::visitBinaryOperator(llvm::BinaryOperator &BO) {
       WATEVER_UNREACHABLE("Illegal opcode encountered: {}", BO.getOpcodeName());
     }
 
-    ValueMap[&BO] = Builder.CreateBinOp(BO.getOpcode(), LHS, RHS);
+    ValueMap[&BO] = Builder.CreateBinOp(BO.getOpcode(), LHS, RHS, BO.getName());
 
     return;
   }
@@ -399,8 +399,8 @@ void FunctionLegalizer::visitAllocaInst(llvm::AllocaInst &AI) {
     ArraySize = getMappedValue(ArraySize)[0];
   }
 
-  ValueMap[&AI] = Builder.CreateAlloca(AI.getAllocatedType(),
-                                       AI.getAddressSpace(), ArraySize);
+  ValueMap[&AI] = Builder.CreateAlloca(
+      AI.getAllocatedType(), AI.getAddressSpace(), ArraySize, AI.getName());
 }
 
 void FunctionLegalizer::visitLoadInst(llvm::LoadInst &LI) {
@@ -412,8 +412,8 @@ void FunctionLegalizer::visitLoadInst(llvm::LoadInst &LI) {
 
     // We can just load the int
     if (Width == 32 || Width == 64) {
-      ValueMap[&LI] =
-          Builder.CreateAlignedLoad(ResultType, Pointer, LI.getAlign());
+      ValueMap[&LI] = Builder.CreateAlignedLoad(ResultType, Pointer,
+                                                LI.getAlign(), LI.getName());
       return;
     }
     if (Width > 64) {
@@ -439,8 +439,8 @@ void FunctionLegalizer::visitLoadInst(llvm::LoadInst &LI) {
     }
 
     if (TypeToLoad) {
-      llvm::Value *Result =
-          Builder.CreateAlignedLoad(TypeToLoad, Pointer, LI.getAlign());
+      llvm::Value *Result = Builder.CreateAlignedLoad(
+          TypeToLoad, Pointer, LI.getAlign(), LI.getName());
 
       if (TypeToLoad != TargetType) {
         Result = Builder.CreateZExt(Result, TargetType);
@@ -507,8 +507,8 @@ void FunctionLegalizer::visitLoadInst(llvm::LoadInst &LI) {
   }
   if (ResultType->isFloatingPointTy()) {
     if (ResultType->isDoubleTy() || ResultType->isFloatTy()) {
-      ValueMap[&LI] =
-          Builder.CreateAlignedLoad(ResultType, Pointer, LI.getAlign());
+      ValueMap[&LI] = Builder.CreateAlignedLoad(ResultType, Pointer,
+                                                LI.getAlign(), LI.getName());
       return;
     }
     WATEVER_UNIMPLEMENTED("handle load of unsupported floating point type",
@@ -516,7 +516,8 @@ void FunctionLegalizer::visitLoadInst(llvm::LoadInst &LI) {
     return;
   }
   if (ResultType->isPointerTy()) {
-    ValueMap[&LI] = Builder.CreateAlignedLoad(PtrTy, Pointer, LI.getAlign());
+    ValueMap[&LI] =
+        Builder.CreateAlignedLoad(PtrTy, Pointer, LI.getAlign(), LI.getName());
     return;
   }
 }
@@ -718,7 +719,7 @@ void FunctionLegalizer::visitTruncInst(llvm::TruncInst &TI) {
   if (Arg.isScalar()) {
     // Emit a wrap
     if (FromWidth > 32 && ToWidth <= 32) {
-      ValueMap[&TI] = Builder.CreateTrunc(Arg[0], Int32Ty);
+      ValueMap[&TI] = Builder.CreateTrunc(Arg[0], Int32Ty, TI.getName());
     }
     // Otherwise, this is a no-op
     else {
@@ -774,14 +775,16 @@ void FunctionLegalizer::visitSExtInst(llvm::SExtInst &SI) {
         // we trunc and than sext - which is a pattern recognized by the backend
         if (FromWidth == 8 || FromWidth == 16) {
           auto *NewArg = Builder.CreateTrunc(Arg[0], SI.getSrcTy());
-          ValueMap[&SI] = Builder.CreateSExt(NewArg, SI.getDestTy());
+          ValueMap[&SI] =
+              Builder.CreateSExt(NewArg, SI.getDestTy(), SI.getName());
           return;
         }
       } else if (ToWidth == 64) {
         if (ArgWidth == 32 && (FromWidth == 8 || FromWidth == 16)) {
           // This will result in an extend_i32_u followed by an i64_extend8_s
           auto *NewArg = Builder.CreateTrunc(Arg[0], SI.getSrcTy());
-          ValueMap[&SI] = Builder.CreateSExt(NewArg, SI.getDestTy());
+          ValueMap[&SI] =
+              Builder.CreateSExt(NewArg, SI.getDestTy(), SI.getName());
           return;
         }
         // If the WebAssembly type is already 32 bit, it will be handled by the
@@ -789,14 +792,15 @@ void FunctionLegalizer::visitSExtInst(llvm::SExtInst &SI) {
         if (ArgWidth == 64 &&
             (FromWidth == 8 || FromWidth == 16 || FromWidth == 32)) {
           auto *NewArg = Builder.CreateTrunc(Arg[0], SI.getSrcTy());
-          ValueMap[&SI] = Builder.CreateSExt(NewArg, SI.getDestTy());
+          ValueMap[&SI] =
+              Builder.CreateSExt(NewArg, SI.getDestTy(), SI.getName());
           return;
         }
       }
     }
     // Natively supported - WebAssembly types match LLVM IR types
     if (FromWidth == 32 && ToWidth == 64) {
-      ValueMap[&SI] = Builder.CreateSExt(Arg[0], SI.getDestTy());
+      ValueMap[&SI] = Builder.CreateSExt(Arg[0], SI.getDestTy(), SI.getName());
       return;
     }
 
@@ -813,7 +817,7 @@ void FunctionLegalizer::visitSExtInst(llvm::SExtInst &SI) {
     const auto ShiftAmount = TargetWidth - FromWidth;
     // Fill upper bits with 1, if needed
     From = Builder.CreateShl(From, ShiftAmount);
-    ValueMap[&SI] = Builder.CreateAShr(From, ShiftAmount);
+    ValueMap[&SI] = Builder.CreateAShr(From, ShiftAmount, SI.getName());
     return;
   }
   WATEVER_UNIMPLEMENTED("non-scalar zext from {} to {}",
@@ -830,7 +834,8 @@ void FunctionLegalizer::visitICmpInst(llvm::ICmpInst &ICI) {
   auto RHS = getMappedValue(ICI.getOperand(1));
 
   if (LHS.isScalar()) {
-    ValueMap[&ICI] = Builder.CreateICmp(ICI.getPredicate(), LHS[0], RHS[0]);
+    ValueMap[&ICI] =
+        Builder.CreateICmp(ICI.getPredicate(), LHS[0], RHS[0], ICI.getName());
     return;
   }
 
@@ -852,19 +857,20 @@ void FunctionLegalizer::visitFCmpInst(llvm::FCmpInst &FCI) {
     case llvm::CmpInst::FCMP_OLE:
     case llvm::CmpInst::FCMP_UNE:
     case llvm::CmpInst::FCMP_TRUE:
-      ValueMap[&FCI] = Builder.CreateFCmp(FCI.getPredicate(), LHS[0], RHS[0]);
+      ValueMap[&FCI] =
+          Builder.CreateFCmp(FCI.getPredicate(), LHS[0], RHS[0], FCI.getName());
       break;
     // These are not
     case llvm::CmpInst::FCMP_ONE: {
       auto *GT = Builder.CreateFCmpOGT(LHS[0], RHS[0]);
       auto *LT = Builder.CreateFCmpOLT(LHS[0], RHS[0]);
-      ValueMap[&FCI] = Builder.CreateOr(GT, LT);
+      ValueMap[&FCI] = Builder.CreateOr(GT, LT, FCI.getName());
       break;
     }
     case llvm::CmpInst::FCMP_ORD: {
       auto *FirstEQ = Builder.CreateFCmpOEQ(LHS[0], LHS[0]);
       auto *SecondEQ = Builder.CreateFCmpOEQ(RHS[0], RHS[0]);
-      ValueMap[&FCI] = Builder.CreateAnd(FirstEQ, SecondEQ);
+      ValueMap[&FCI] = Builder.CreateAnd(FirstEQ, SecondEQ, FCI.getName());
       break;
     }
     case llvm::CmpInst::FCMP_UNO: {
@@ -877,27 +883,27 @@ void FunctionLegalizer::visitFCmpInst(llvm::FCmpInst &FCI) {
       auto *GT = Builder.CreateFCmpOGT(LHS[0], RHS[0]);
       auto *LT = Builder.CreateFCmpOLT(LHS[0], RHS[0]);
       auto *LTorGT = Builder.CreateOr(GT, LT);
-      ValueMap[&FCI] = Builder.CreateXor(LTorGT, 1);
+      ValueMap[&FCI] = Builder.CreateXor(LTorGT, 1, FCI.getName());
       break;
     }
     case llvm::CmpInst::FCMP_UGT: {
       auto *LE = Builder.CreateFCmpOLE(LHS[0], RHS[0]);
-      ValueMap[&FCI] = Builder.CreateXor(LE, 1);
+      ValueMap[&FCI] = Builder.CreateXor(LE, 1, FCI.getName());
       break;
     }
     case llvm::CmpInst::FCMP_UGE: {
       auto *LT = Builder.CreateFCmpOLT(LHS[0], RHS[0]);
-      ValueMap[&FCI] = Builder.CreateXor(LT, 1);
+      ValueMap[&FCI] = Builder.CreateXor(LT, 1, FCI.getName());
       break;
     }
     case llvm::CmpInst::FCMP_ULT: {
       auto *GE = Builder.CreateFCmpOGE(LHS[0], RHS[0]);
-      ValueMap[&FCI] = Builder.CreateXor(GE, 1);
+      ValueMap[&FCI] = Builder.CreateXor(GE, 1, FCI.getName());
       break;
     }
     case llvm::CmpInst::FCMP_ULE: {
       auto *GT = Builder.CreateFCmpOGT(LHS[0], RHS[0]);
-      ValueMap[&FCI] = Builder.CreateXor(GT, 1);
+      ValueMap[&FCI] = Builder.CreateXor(GT, 1, FCI.getName());
       break;
     }
     default:
@@ -914,7 +920,7 @@ void FunctionLegalizer::visitPHINode(llvm::PHINode &PN) {
   unsigned NumIncoming = PN.getNumIncomingValues();
   llvm::SmallVector<llvm::Value *, 2> NewPHIs;
   for (llvm::Type *PartTy : LegalTy) {
-    auto *NewPHI = Builder.CreatePHI(PartTy, NumIncoming);
+    auto *NewPHI = Builder.CreatePHI(PartTy, NumIncoming, PN.getName());
     NewPHIs.push_back(NewPHI);
   }
   ValueMap[&PN] = LegalValue(NewPHIs);
@@ -935,7 +941,8 @@ void FunctionLegalizer::visitSelectInst(llvm::SelectInst &SI) {
   Condition = Builder.CreateTrunc(Condition, Int1Ty);
 
   if (True.isScalar()) {
-    ValueMap[&SI] = Builder.CreateSelect(Condition, True[0], False[0]);
+    ValueMap[&SI] =
+        Builder.CreateSelect(Condition, True[0], False[0], SI.getName());
     return;
   }
 
