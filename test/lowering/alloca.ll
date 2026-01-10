@@ -32,11 +32,10 @@ define void @alloca_i32() {
 ; CHECK: global.get
 ; CHECK-NEXT: i32.const 16
 ; CHECK-NEXT: i32.sub
-; CHECK-NEXT: global.set [[SP:[0-9]+]]
 ;
-; Set FP
-; CHECK-NEXT: global.get [[SP]]
-; CHECK-NEXT: local.set [[FP:[0-9]+]]
+; Set FP & SP
+; CHECK-NEXT: local.tee [[FP:[0-9]+]]
+; CHECK-NEXT: global.set [[SP:[0-9]+]]
 ;
 ; Do store
 ; CHECK: local.get [[FP]]
@@ -73,11 +72,10 @@ define void @alloca_i32_i64_i64() {
 ; CHECK: global.get
 ; CHECK-NEXT: i32.const 32
 ; CHECK-NEXT: i32.sub
-; CHECK-NEXT: global.set [[SP:[0-9]+]]
 ;
-; Set FP
-; CHECK-NEXT: global.get [[SP]]
-; CHECK-NEXT: local.set [[FP:[0-9]+]]
+; Set FP & SP
+; CHECK-NEXT: local.tee [[FP:[0-9]+]]
+; CHECK-NEXT: global.set [[SP:[0-9]+]]
 ;
 ; Do stores
 ; CHECK: local.get [[FP]]
@@ -110,11 +108,10 @@ define void @alloca_i32_dynamic(i32 %n) {
 ; CHECK: global.get
 ; CHECK-NEXT: i32.const 16
 ; CHECK-NEXT: i32.sub
-; CHECK-NEXT: global.set [[SP:[0-9]+]]
 ;
-; Set FP
-; CHECK-NEXT: global.get [[SP]]
-; CHECK-NEXT: local.set [[FP:[0-9]+]]
+; Set FP & SP
+; CHECK-NEXT: local.tee [[FP:[0-9]+]]
+; CHECK-NEXT: global.set [[SP:[0-9]+]]
 ;
 ; Materialize first argument on the stack
 ; CHECK: local.get [[FP]]
@@ -162,11 +159,10 @@ define void @alloca_dynamic_i32(i32 %n) {
 ; CHECK: global.get
 ; CHECK-NEXT: i32.const 16
 ; CHECK-NEXT: i32.sub
-; CHECK-NEXT: global.set [[SP:[0-9]+]]
 ;
-; Set FP
-; CHECK-NEXT: global.get [[SP]]
-; CHECK-NEXT: local.set [[FP:[0-9]+]]
+; Set FP & SP
+; CHECK-NEXT: local.tee [[FP:[0-9]+]]
+; CHECK-NEXT: global.set [[SP:[0-9]+]]
 ;
 ; Materialize first argument on the stack
 ; CHECK: local.get [[FP]]
@@ -213,11 +209,10 @@ define void @alloca_conditional(i1 %cond) {
 ; CHECK: global.get
 ; CHECK-NEXT: i32.const 16
 ; CHECK-NEXT: i32.sub
-; CHECK-NEXT: global.set [[SP:[0-9]+]]
 ;
-; Set FP
-; CHECK-NEXT: global.get [[SP]]
-; CHECK-NEXT: local.set [[FP:[0-9]+]]
+; Set FP & SP
+; CHECK-NEXT: local.tee [[FP:[0-9]+]]
+; CHECK-NEXT: global.set [[SP:[0-9]+]]
 ;
 ; Do not allocate anything else statically
 ; CHECK-NEXT: block

@@ -1454,9 +1454,8 @@ Module ModuleLowering::convert(llvm::Module &Mod,
       Prologue->Insts.emplace_back(Opcode::GlobalGet, Res.StackPointer);
       Prologue->Insts.emplace_back(ConstOp, WasmFunc->FrameSize);
       Prologue->Insts.emplace_back(SubOp);
+      Prologue->Insts.emplace_back(Opcode::LocalTee, WasmFunc->FP);
       Prologue->Insts.emplace_back(Opcode::GlobalSet, Res.StackPointer);
-      Prologue->Insts.emplace_back(Opcode::GlobalGet, Res.StackPointer);
-      Prologue->Insts.emplace_back(Opcode::LocalSet, WasmFunc->FP);
       WasmFunc->Body = std::make_unique<WasmSeq>(std::move(Prologue),
                                                  std::move(WasmFunc->Body));
     }
