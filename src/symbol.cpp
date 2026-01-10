@@ -18,9 +18,19 @@ DefinedGlobal::DefinedGlobal(uint32_t SymbolIdx, uint32_t GlobalIdx, ValType Ty,
       Expr(std::move(Ex)) {}
 
 DefinedFunc::DefinedFunc(uint32_t SymbolIdx, uint32_t TypeIdx, uint32_t FuncIdx,
-                         uint32_t Args, llvm::StringRef Name, Features F)
-    : Function(Kind::DefinedFunc, SymbolIdx, TypeIdx, FuncIdx, Name.str()),
-      FeatureSet(F), Args(Args) {}
+                         llvm::Function *F, Features Feat)
+    : Function(Kind::DefinedFunc, SymbolIdx, TypeIdx, FuncIdx,
+               F->getName().str()),
+      TotalArgs(F->arg_size()), FeatureSet(Feat) {
+  for (auto &Arg : F->args()) {
+    auto ArgType = fromLLVMType(Arg.getType(), F->getDataLayout());
+    auto NewLocal = std::make_unique<Local>(TotalLocals++);
+    auto *Result = NewLocal.get();
+    AllLocals.push_back(std::move(NewLocal));
+    Arguments[ArgType].push_back(Result);
+    LocalMapping[&Arg] = Result;
+  }
+}
 
 void DefinedFunc::visit(WasmVisitor &V) const { Body->accept(V); }
 

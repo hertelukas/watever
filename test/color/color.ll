@@ -28,13 +28,35 @@ exit:
   ret i32 %z
 }
 
-define i32 @no_arg_reuse(i32 %arg) {
-; CHECK-LABEL: Coloring function no_arg_reuse
+define i32 @arg_reuse(i32 %arg) {
+; CHECK-LABEL: Coloring function arg_reuse
 ; CHECK: Coloring block entry
 ; CHECK-NEXT: Mapping x to local 0
 ; CHECK-NEXT: Coloring block next
 ; CHECK-NEXT: Coloring block exit
 ; CHECK-NEXT: Mapping z to local 0
+entry:
+  %x = call i32 @start()
+  br label %next
+
+next:
+  %y = add i32 %x, 2
+  call void @sink(i32 %y)
+  br label %exit
+
+exit:
+  %z = call i32 @start()
+  call void @sink(i32 %z)
+  ret i32 %z
+}
+
+define i32 @no_arg_reuse(i32 %arg) {
+; CHECK-LABEL: Coloring function no_arg_reuse
+; CHECK: Coloring block entry
+; CHECK-NEXT: Mapping x to local 1
+; CHECK-NEXT: Coloring block next
+; CHECK-NEXT: Coloring block exit
+; CHECK-NEXT: Mapping z to local 1
 entry:
   %x = call i32 @start()
   br label %next

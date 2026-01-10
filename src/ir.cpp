@@ -1405,8 +1405,8 @@ Module ModuleLowering::convert(llvm::Module &Mod,
     const uint32_t FuncTypeIndex = Res.getOrAddType(WasmFuncTy);
 
     auto FunctionPtr = std::make_unique<DefinedFunc>(
-        Res.Symbols.size(), FuncTypeIndex, FunctionIndexCounter++,
-        static_cast<uint32_t>(F.arg_size()), F.getName(), C.EnabledFeatures);
+        Res.Symbols.size(), FuncTypeIndex, FunctionIndexCounter++, &F,
+        C.EnabledFeatures);
 
     // TODO use correct flags
     FunctionPtr->setFlag(SymbolFlag::WASM_SYM_VISIBILITY_HIDDEN);

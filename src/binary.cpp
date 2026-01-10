@@ -4,6 +4,7 @@
 #include "watever/linking.hpp"
 #include "watever/opcode.hpp"
 #include "watever/symbol.hpp"
+#include "watever/utils.hpp"
 #include <cstdint>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/Support/Casting.h>
@@ -132,10 +133,10 @@ void BinaryWriter::writeCode() {
     size_t RelocationStart = CodeRelocation.Entries.size();
     // list(locals)
     llvm::encodeULEB128(F->Locals.size(), CodeOS);
-    uint32_t CurrentLocal = F->Args;
+    uint32_t CurrentLocal = F->TotalArgs;
     // Locals
     for (const auto &[Ty, LocalList] : F->Locals) {
-      // Assign new locals, based on type
+      // Assign local indices, based on type
       for (auto &Local : LocalList) {
         Local->Index = CurrentLocal++;
       }

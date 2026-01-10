@@ -5,6 +5,7 @@
 #include "watever/type.hpp"
 #include <cstdint>
 #include <llvm/ADT/DenseMap.h>
+#include <llvm/ADT/SmallPtrSet.h>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/Instruction.h>
@@ -123,25 +124,32 @@ struct Local {
 
 class DefinedFunc final : public Function {
   friend class FunctionLowering;
+  // This is only used for debugging, to assign inideces to locals. The final
+  // index has to be ordered by local type, so cannot be arbitrary and will get
+  // replaced when writing out to the binary
   uint32_t TotalLocals{};
 
 public:
+  uint32_t TotalArgs{};
   Features FeatureSet;
-  uint32_t Args{};
   std::unique_ptr<Wasm> Body{};
   llvm::DenseMap<llvm::Value *, Local *> LocalMapping;
-  llvm::DenseMap<ValType, llvm::SmallVector<std::unique_ptr<Local>>> Locals{};
+  // Alllocals, consisting of arguments and extra locals
+  llvm::SmallVector<std::unique_ptr<Local>> AllLocals{};
+  llvm::DenseMap<ValType, llvm::SmallVector<Local *>> Locals{};
+  llvm::DenseMap<ValType, llvm::SmallVector<Local *>> Arguments{};
   llvm::DenseMap<llvm::Instruction *, uint32_t> StackSlots{};
 
   Local *FP{};
   int64_t FrameSize{};
   explicit DefinedFunc(uint32_t SymbolIdx, uint32_t TypeIdx, uint32_t FuncIdx,
-                       uint32_t Args, llvm::StringRef Name, Features F);
+                       llvm::Function *F, Features Feat);
 
   Local *getNewLocal(ValType Ty) {
     auto NewLocal = std::make_unique<Local>(TotalLocals++);
     auto *Result = NewLocal.get();
-    Locals[Ty].push_back(std::move(NewLocal));
+    AllLocals.push_back(std::move(NewLocal));
+    Locals[Ty].push_back(Result);
     return Result;
   }
 

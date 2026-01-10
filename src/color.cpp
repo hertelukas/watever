@@ -123,9 +123,15 @@ void FunctionColorer::dumpLiveness() {
 
 Local *FunctionColorer::getFreeLocal(ValType Type,
                                      const llvm::DenseSet<Local *> &Assigned) {
+  for (auto &L : Target->Arguments[Type]) {
+    if (!Assigned.contains(L)) {
+      return L;
+    }
+  }
+
   for (auto &L : Target->Locals[Type]) {
-    if (!Assigned.contains(L.get())) {
-      return L.get();
+    if (!Assigned.contains(L)) {
+      return L;
     }
   }
 
@@ -169,9 +175,6 @@ void FunctionColorer::color(llvm::BasicBlock *BB) {
       if (Phi->getParent() == BB)
         continue;
     }
-    // TODO this should be fixed; we want to reuse argument locals
-    if (llvm::isa<llvm::Argument>(Val))
-      continue;
 
     // There might be values live-in which do not have a local
     if (Target->LocalMapping.contains(Val)) {
