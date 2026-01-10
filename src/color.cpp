@@ -159,6 +159,7 @@ bool FunctionColorer::needsColor(llvm::Instruction &I) {
 }
 
 void FunctionColorer::color(llvm::BasicBlock *BB) {
+  WATEVER_LOG_TRACE("Coloring block {}", getBlockName(BB));
   // TODO maybe it is cheaper to keep track of unassigned?
   llvm::DenseSet<Local *> Assigned;
 
@@ -180,7 +181,7 @@ void FunctionColorer::color(llvm::BasicBlock *BB) {
       // completely new local and should therefore not be the default. Can be
       // prevented by handling this kind of value in needsColor
       WATEVER_LOG_INFO("{} is live-in but has no local assigned to it",
-                       llvmToString(*Val));
+                       Val->getNameOrAsOperand());
     }
   }
 
@@ -201,7 +202,7 @@ void FunctionColorer::color(llvm::BasicBlock *BB) {
       Target->LocalMapping[&Inst] = Local;
       Assigned.insert(Local);
 
-      WATEVER_LOG_TRACE("Mapping {} to local {}", llvmToString(Inst),
+      WATEVER_LOG_TRACE("Mapping {} to local {}", Inst.getNameOrAsOperand(),
                         Target->LocalMapping[&Inst]->Index);
     }
   }

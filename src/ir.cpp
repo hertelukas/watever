@@ -1428,13 +1428,14 @@ Module ModuleLowering::convert(llvm::Module &Mod,
     // The module must enable all features used by any function
     Res.Config.EnabledFeatures.merge(WasmFunc->FeatureSet);
 
-    WasmFunc->setupStackFrame(&F.front());
     auto &DT = FAM.getResult<llvm::DominatorTreeAnalysis>(F);
     auto &LI = FAM.getResult<llvm::LoopAnalysis>(F);
 
     FunctionColorer FC{F, WasmFunc, DT};
     WATEVER_LOG_DBG("Coloring function {}", F.getName().str());
     FC.run();
+
+    WasmFunc->setupStackFrame(&F.front());
 
     FunctionLowering FL{WasmFunc, DT, LI, Res};
     WATEVER_LOG_DBG("Lowering function {}", F.getName().str());
