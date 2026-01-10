@@ -142,7 +142,7 @@ bool FunctionColorer::needsColor(llvm::Instruction &I) {
     return false;
   }
 
-  if (I.mayHaveSideEffects()) {
+  if (I.mayHaveSideEffects() && I.getNumUses()) {
     return true;
   }
 
