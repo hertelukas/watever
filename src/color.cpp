@@ -11,6 +11,7 @@
 #include <llvm/IR/Instruction.h>
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/User.h>
+#include <llvm/Support/Casting.h>
 #include <llvm/Support/raw_ostream.h>
 
 using namespace watever;
@@ -141,9 +142,20 @@ bool FunctionColorer::needsColor(llvm::Instruction &I) {
     return false;
   }
 
-  // TODO this could be more precise. E.g., instructions with cross BB users
-  // also need locals
-  return I.mayHaveSideEffects();
+  if (I.mayHaveSideEffects()) {
+    return true;
+  }
+
+  auto *Parent = I.getParent();
+  for (auto *U : I.users()) {
+    if (auto *UserInst = llvm::dyn_cast<llvm::Instruction>(U)) {
+      if (UserInst->getParent() != Parent) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 void FunctionColorer::color(llvm::BasicBlock *BB) {
