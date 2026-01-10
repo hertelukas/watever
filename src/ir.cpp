@@ -122,6 +122,14 @@ BlockLowering::getDependencyTreeUserCount(llvm::Instruction *Root) const {
 }
 
 bool BlockLowering::hasExternalUser(llvm::Value *Val) {
+  // If this instruction is a promoted alloca, it alrady has a local and does
+  // not need to be materialized for external users
+  if (auto *AI = llvm::dyn_cast<llvm::AllocaInst>(Val)) {
+    if (Parent->PromotedAllocas.contains(AI)) {
+      return false;
+    }
+  }
+
   for (auto *User : Val->users()) {
     if (auto *Inst = llvm::dyn_cast<llvm::Instruction>(User)) {
       if (Inst->getParent() != BB || llvm::isa<llvm::PHINode>(Inst)) {
@@ -313,6 +321,10 @@ void BlockLowering::visitBinaryOperator(llvm::BinaryOperator &BO) {
 //===----------------------------------------------------------------------===//
 
 void BlockLowering::visitAllocaInst(llvm::AllocaInst &AI) {
+  if (Parent->PromotedAllocas.contains(&AI)) {
+    return;
+  }
+
   const bool Is64Bit =
       AI.getModule()->getDataLayout().getPointerSizeInBits() == 64;
   const auto PtrTy = Is64Bit ? ValType::I64 : ValType::I32;
@@ -449,6 +461,15 @@ void BlockLowering::doGreedyMemOp(llvm::Instruction &I, Opcode::Enum Op) {
 }
 
 void BlockLowering::visitLoadInst(llvm::LoadInst &LI) {
+  // Check, if we use a promoted alloca
+  if (auto *Alloca = llvm::dyn_cast<llvm::AllocaInst>(LI.getPointerOperand())) {
+    if (Parent->PromotedAllocas.contains(Alloca)) {
+      auto *Local = Parent->PromotedAllocas[Alloca];
+      Actions.Insts.emplace_back(Opcode::LocalGet, Local);
+      return;
+    }
+  }
+
   // Loads should happen in sext or zext, if they need to get extended.
   auto *LoadType = LI.getType();
   // uint32_t Alignment = LI.getAlign().value();
@@ -495,6 +516,16 @@ void BlockLowering::visitLoadInst(llvm::LoadInst &LI) {
 }
 
 void BlockLowering::visitStoreInst(llvm::StoreInst &SI) {
+  // Check, if we use a promoted alloca
+  if (auto *Alloca = llvm::dyn_cast<llvm::AllocaInst>(SI.getPointerOperand())) {
+    if (Parent->PromotedAllocas.contains(Alloca)) {
+      auto *Local = Parent->PromotedAllocas[Alloca];
+      Actions.Insts.emplace_back(Opcode::LocalSet, Local);
+      WorkList.push_back(SI.getValueOperand());
+      return;
+    }
+  }
+
   auto *StoreType = SI.getOperand(0)->getType();
 
   if (StoreType->isIntegerTy()) {
@@ -969,6 +1000,9 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
         // Next needs to be materialized
         if (auto *Inst = llvm::dyn_cast<llvm::Instruction>(Next)) {
           // Save to local, if we have a later user
+          // TODO this might lead to unnecessary emissions:
+          // - If Inst is AllocaInst, and is otherwise always inlined
+          // (IsGreedyOptimization)
           if (Inst->getNumUses() > 1) {
             Local *L;
             if (auto It = ASTLocals.find(Next); It != ASTLocals.end()) {

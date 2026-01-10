@@ -9,6 +9,7 @@
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/Instruction.h>
+#include <llvm/IR/Instructions.h>
 
 namespace watever {
 
@@ -129,6 +130,8 @@ class DefinedFunc final : public Function {
   // replaced when writing out to the binary
   uint32_t TotalLocals{};
 
+  bool canBePromoted(llvm::AllocaInst *AI);
+
 public:
   uint32_t TotalArgs{};
   Features FeatureSet;
@@ -140,6 +143,8 @@ public:
   llvm::DenseMap<ValType, llvm::SmallVector<Local *>> Arguments{};
   llvm::DenseMap<llvm::Instruction *, uint32_t> StackSlots{};
 
+  llvm::DenseMap<llvm::AllocaInst *, Local *> PromotedAllocas{};
+  
   Local *FP{};
   int64_t FrameSize{};
   explicit DefinedFunc(uint32_t SymbolIdx, uint32_t TypeIdx, uint32_t FuncIdx,

@@ -161,6 +161,7 @@ bool FunctionColorer::needsColor(llvm::Instruction &I) {
     }
   }
 
+  // TODO would be nice to have colors for promoted stack slots
   return false;
 }
 

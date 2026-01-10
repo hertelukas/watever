@@ -23,7 +23,8 @@ target triple = "wasm32-unknown-unknown"
 ; |     Padding          |  Offset: 0
 ; +----------------------+ <--- FP
 
-declare void @sink(ptr, ptr)
+declare void @sink_ptr(ptr)
+declare void @sink_ptr_ptr(ptr, ptr)
 
 define void @alloca_i32() {
 ; CHECK-LABEL: alloca_i32
@@ -42,6 +43,12 @@ define void @alloca_i32() {
 ; CHECK-NEXT: i32.const 3
 ; CHECK-NEXT: i32.store offset=12
 ;
+; Sink (to prevent optimization)
+; CHECK: local.get 0
+; CHECK-NEXT: i32.const 12
+; CHECK-NEXT: i32.add
+; CHECK: call 
+;
 ; Restore SP
 ; CHECK: local.get [[FP]]
 ; CHECK-NEXT: i32.const 16
@@ -49,7 +56,21 @@ define void @alloca_i32() {
 ; CHECK-NEXT: global.set [[SP]]
     %1 = alloca i32
     store i32 3, ptr %1
+    call void @sink_ptr(ptr %1)
     ret void
+}
+
+define i32 @alloca_i32_promoted() {
+; CHECK-LABEL: alloca_i32_promoted
+;
+; CHECK-NOT: global.get
+; CHECK: i32.const 3
+; CHECK-NEXT: local.set [[PROMOTED:[0-9]+]]
+; CHECK-NEXT: local.get [[PROMOTED]]
+    %1 = alloca i32
+    store i32 3, ptr %1
+    %2 = load i32, ptr %1
+    ret i32 %2
 }
 
 define void @alloca_i32_i64() {
@@ -58,6 +79,20 @@ define void @alloca_i32_i64() {
 ; CHECK-NEXT: i32.store offset=4
 ; CHECK: i64.const 4
 ; CHECK-NEXT: i64.store offset=8
+    %1 = alloca i32
+    %2 = alloca i64
+    store i32 3, ptr %1
+    store i64 4, ptr %2
+    call void @sink_ptr_ptr(ptr %1, ptr %2)
+    ret void
+}
+
+define void @alloca_i32_i64_promoted() {
+; CHECK-LABEL: alloca_i32_i64_promoted
+; CHECK: i32.const 3
+; CHECK-NEXT: local.set
+; CHECK: i64.const 4
+; CHECK-NEXT: local.set
     %1 = alloca i32
     %2 = alloca i64
     store i32 3, ptr %1
@@ -88,6 +123,9 @@ define void @alloca_i32_i64_i64() {
 ; CHECK-NEXT: i64.const 5
 ; CHECK-NEXT: i64.store offset=16
 ;
+; CHECK: call
+; CHECK: call
+;
 ; Restore SP
 ; CHECK: local.get [[FP]]
 ; CHECK-NEXT: i32.const 32
@@ -99,6 +137,8 @@ define void @alloca_i32_i64_i64() {
     store i32 3, ptr %1
     store i64 4, ptr %2
     store i64 5, ptr %3
+    call void @sink_ptr(ptr %1)
+    call void @sink_ptr_ptr(ptr %2, ptr %3)
     ret void
 }
 
@@ -148,7 +188,7 @@ define void @alloca_i32_dynamic(i32 %n) {
   %static = alloca i32
   %dynamic = alloca i8, i32 %n
   
-  call void @sink(ptr %static, ptr %dynamic)
+  call void @sink_ptr_ptr(ptr %static, ptr %dynamic)
   ret void
 }
 
@@ -199,7 +239,7 @@ define void @alloca_dynamic_i32(i32 %n) {
   %dynamic = alloca i8, i32 %n
   %static = alloca i32
   
-  call void @sink(ptr %static, ptr %dynamic)
+  call void @sink_ptr_ptr(ptr %static, ptr %dynamic)
   ret void
 }
 
@@ -233,7 +273,7 @@ entry:
 
 then:
   %dynamic = alloca i32
-  call void @sink(ptr %static, ptr %dynamic)
+  call void @sink_ptr_ptr(ptr %static, ptr %dynamic)
   br label %merge
 
 merge:
