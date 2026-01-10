@@ -35,14 +35,15 @@ int main(int argc, char *argv[]) {
       ">5=TRACE",
       {'l', "log-level"}, 2);
 
-  args::Positional<std::string> IRPath(
-      Parser, "IRPath", "Path to the input IR file", args::Options::Required);
-
   args::ValueFlag<std::string> OutputPath(
       Parser, "output_path", "Path to the output file", {'o', "output"});
 
   args::Flag LegalOnly(Parser, "legal", "Run only legalization and print IR",
                        {"legal"});
+
+  args::Flag DisableColoring(Parser, "Disable Coloring Pass",
+                             "Skip coloring pass and assign locals greedily",
+                             {"disable-coloring"}, false);
 
   args::Group FeatureGroup(
       Parser, "WebAssembly Features (--disable-<feature> to disable)");
@@ -65,6 +66,9 @@ int main(int argc, char *argv[]) {
 
 #include "watever/feature.def"
 #undef WATEVER_FEATURE
+
+  args::Positional<std::string> IRPath(
+      Parser, "IRPath", "Path to the input IR file", args::Options::Required);
 
   Parser.ParseCLI(argc, argv);
   if (Parser.GetError() == args::Error::Help) {
@@ -105,6 +109,7 @@ int main(int argc, char *argv[]) {
   }
 #endif
   watever::TargetConfig Config{};
+  Config.DoColoring = !DisableColoring.Get();
 
 #define WATEVER_FEATURE(VAR, NAME, DEFAULT, HELP)                              \
   {                                                                            \

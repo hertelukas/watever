@@ -4,5 +4,6 @@
 namespace watever {
 struct TargetConfig {
   Features EnabledFeatures;
+  bool DoColoring = true;
 };
 } // namespace watever

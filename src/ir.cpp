@@ -1431,9 +1431,11 @@ Module ModuleLowering::convert(llvm::Module &Mod,
     auto &DT = FAM.getResult<llvm::DominatorTreeAnalysis>(F);
     auto &LI = FAM.getResult<llvm::LoopAnalysis>(F);
 
-    FunctionColorer FC{F, WasmFunc, DT};
-    WATEVER_LOG_DBG("Coloring function {}", F.getName().str());
-    FC.run();
+    if (C.DoColoring) {
+      FunctionColorer FC{F, WasmFunc, DT};
+      WATEVER_LOG_DBG("Coloring function {}", F.getName().str());
+      FC.run();
+    }
 
     WasmFunc->setupStackFrame(&F.front());
 
