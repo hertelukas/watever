@@ -138,3 +138,74 @@ merge:
   %z = add i32 %x, 5
   ret i32 %z
 }
+
+define i32 @promoted_alloca(i1 %cond, i32 %val) {
+; CHECK-LABEL: liveness for promoted_alloca
+;
+; Promoted allocas live from the NCD of their users to their last
+;
+; CHECK: block entry
+; CHECK-NEXT: Live In {
+; CHECK-NEXT: %cond
+; CHECK-NEXT: %val
+; CHECK-NEXT: }
+; CHECK: Live Out {
+; CHECK-NEXT: %cond
+; CHECK-NEXT: %ptr2
+; CHECK-NEXT: }
+;
+; CHECK: block head
+; CHECK-NEXT: Live In {
+; CHECK-NEXT: %cond
+; CHECK-NEXT: %ptr2
+; CHECK-NEXT: }
+; CHECK: Live Out {
+; CHECK-NEXT: %ptr1
+; CHECK-NEXT: %ptr2
+; CHECK-NEXT: }
+;
+; CHECK: block if
+; CHECK-NEXT: Live In {
+; CHECK-NEXT: %ptr1
+
+; CHECK: Live Out {
+; CHECK-NEXT: %ptr1
+; CHECK-NEXT: }
+;
+; CHECK: block else
+; CHECK-NEXT: Live In {
+; CHECK-NEXT: %ptr1
+; CHECK-NEXT: %ptr2
+; CHECK-NEXT: }
+; CHECK: Live Out {
+; CHECK-NEXT: %ptr1
+; CHECK-NEXT: }
+;
+; CHECK: block merge
+; CHECK-NEXT: Live In {
+; CHECK-NEXT: %ptr1
+; CHECK-NEXT: }
+; CHECK: Live Out {
+; CHECK-NEXT: }
+entry:
+  %ptr1 = alloca i32
+  %ptr2 = alloca i32
+  store i32 %val, ptr %ptr2
+  br label %head
+
+head:
+  br i1 %cond, label %if, label %else
+
+if:
+  store i32 2, ptr %ptr1
+  br label %merge
+
+else:
+  %0 = load i32, ptr %ptr2
+  store i32 %0, ptr %ptr1
+  br label %merge
+
+merge:
+  %res = load i32, ptr %ptr1
+  ret i32 %res
+}

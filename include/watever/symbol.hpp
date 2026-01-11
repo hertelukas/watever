@@ -130,7 +130,6 @@ class DefinedFunc final : public Function {
   // replaced when writing out to the binary
   uint32_t TotalLocals{};
 
-  bool canBePromoted(llvm::AllocaInst *AI);
 
 public:
   uint32_t TotalArgs{};

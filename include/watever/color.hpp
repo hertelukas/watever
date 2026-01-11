@@ -4,10 +4,12 @@
 #include "watever/type.hpp"
 #include <llvm/ADT/DenseMap.h>
 #include <llvm/ADT/DenseSet.h>
+#include <llvm/ADT/SmallPtrSet.h>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/Dominators.h>
 #include <llvm/IR/Function.h>
+#include <llvm/IR/Instructions.h>
 #include <llvm/IR/Value.h>
 
 namespace watever {
@@ -19,7 +21,11 @@ class FunctionColorer {
 
   llvm::DenseMap<llvm::BasicBlock *, llvm::SmallVector<llvm::Value *>> LiveIn;
   llvm::DenseMap<llvm::BasicBlock *, llvm::SmallVector<llvm::Value *>> LiveOut;
+  llvm::DenseMap<llvm::AllocaInst *, llvm::BasicBlock *> PromotedAIStartBlocks;
+  llvm::DenseMap<llvm::BasicBlock *, llvm::SmallVector<llvm::AllocaInst *>>
+      AllocsStartingAt;
 
+  llvm::BasicBlock *canBePromoted(llvm::AllocaInst *AI);
   bool isDefinedInBlock(llvm::Value *Val, llvm::BasicBlock *BB);
   void upAndMark(llvm::BasicBlock *BB, llvm::Value *Val);
   // This uses Florian Bradner et al, Computing Liveness Swts for SSA-Form

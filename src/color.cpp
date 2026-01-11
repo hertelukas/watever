@@ -10,16 +10,79 @@
 #include <llvm/IR/InstIterator.h>
 #include <llvm/IR/Instruction.h>
 #include <llvm/IR/Instructions.h>
+#include <llvm/IR/Type.h>
 #include <llvm/IR/User.h>
 #include <llvm/Support/Casting.h>
 #include <llvm/Support/raw_ostream.h>
 
 using namespace watever;
 
+llvm::BasicBlock *FunctionColorer::canBePromoted(llvm::AllocaInst *AI) {
+  if (!AI->isStaticAlloca())
+    return nullptr;
+
+  // Only promote legal Wasm types
+  auto *Ty = AI->getAllocatedType();
+  if (!Ty->isIntegerTy(32) && !Ty->isIntegerTy(64) && !Ty->isPointerTy() &&
+      !Ty->isDoubleTy() && !Ty->isFloatTy()) {
+    return nullptr;
+  }
+
+  // We need a common denominator to ensure that all uses are dominated by their
+  // definition. One could also treat stores as definitions; this however would
+  // introduce new PHI nodes, as some paths might then use a different color for
+  // the same underlying memory location.
+  // Note that the current solution also violates SSA, as it allows us to assign
+  // to locals multiple times.
+  llvm::BasicBlock *CommonDom = nullptr;
+
+  for (llvm::Use &Use : AI->uses()) {
+    auto *UserInst = llvm::dyn_cast<llvm::Instruction>(Use.getUser());
+    if (!UserInst)
+      return nullptr;
+    // The user must use AI as pointer (not as argument)
+    // TODO check if we should check against ->isVolatile
+    if (auto *LI = llvm::dyn_cast<llvm::LoadInst>(UserInst)) {
+      if (LI->getPointerOperand() != AI)
+        return nullptr;
+    } else if (auto *SI = llvm::dyn_cast<llvm::StoreInst>(UserInst)) {
+      if (SI->getPointerOperand() != AI)
+        return nullptr;
+    } else {
+      return nullptr;
+    }
+
+    // Nearest common denominator
+    llvm::BasicBlock *UseBlock = nullptr;
+    if (auto *Phi = llvm::dyn_cast<llvm::PHINode>(UserInst)) {
+      UseBlock = Phi->getIncomingBlock(Use);
+    } else {
+      UseBlock = UserInst->getParent();
+    }
+
+    if (!CommonDom) {
+      CommonDom = UseBlock;
+    } else {
+      CommonDom = DT.findNearestCommonDominator(CommonDom, UseBlock);
+    }
+  }
+  assert(CommonDom && "no start block of promoted AI found");
+  WATEVER_LOG_TRACE("Promoting {} (StartBlock: {})", AI->getNameOrAsOperand(),
+                    getBlockName(CommonDom));
+  return CommonDom;
+}
+
 bool FunctionColorer::isDefinedInBlock(llvm::Value *Val, llvm::BasicBlock *BB) {
   // PHIs and arguments are already live-in to their respective blocks
   if (llvm::isa<llvm::PHINode>(Val) || llvm::isa<llvm::Argument>(Val)) {
     return false;
+  }
+
+  if (auto *AI = llvm::dyn_cast<llvm::AllocaInst>(Val)) {
+    if (auto It = PromotedAIStartBlocks.find(AI);
+        It != PromotedAIStartBlocks.end()) {
+      return It->second == BB;
+    }
   }
 
   if (auto *Inst = llvm::dyn_cast<llvm::Instruction>(Val)) {
@@ -29,6 +92,8 @@ bool FunctionColorer::isDefinedInBlock(llvm::Value *Val, llvm::BasicBlock *BB) {
   return false;
 }
 
+// If \p Val is used in \p BB, marks \p Val as live-in/live-out on all paths
+// from \p def(Val) to \p BB.
 void FunctionColorer::upAndMark(llvm::BasicBlock *BB, llvm::Value *Val) {
   if (isDefinedInBlock(Val, BB)) {
     return;
@@ -53,7 +118,17 @@ void FunctionColorer::upAndMark(llvm::BasicBlock *BB, llvm::Value *Val) {
     upAndMark(Pred, Val);
   }
 }
+
 void FunctionColorer::computeLiveSets() {
+  for (auto &Inst : Source.getEntryBlock()) {
+    if (auto *AI = llvm::dyn_cast<llvm::AllocaInst>(&Inst)) {
+      if (auto *StartBlock = canBePromoted(AI)) {
+        PromotedAIStartBlocks[AI] = StartBlock;
+        AllocsStartingAt[StartBlock].push_back(AI);
+      }
+    }
+  }
+
   auto HandleVariable = [&](llvm::Value &V) {
     for (llvm::Use &U : V.uses()) {
       auto *UserInst = llvm::cast<llvm::Instruction>(U.getUser());
@@ -144,6 +219,12 @@ bool FunctionColorer::needsColor(llvm::Instruction &I) {
     return true;
   }
 
+  if (auto *AI = llvm::dyn_cast<llvm::AllocaInst>(&I)) {
+    if (PromotedAIStartBlocks.contains(AI)) {
+      return false;
+    }
+  }
+
   if (I.getType()->isVoidTy()) {
     return false;
   }
@@ -186,6 +267,23 @@ void FunctionColorer::color(llvm::BasicBlock *BB) {
       // prevented by handling this kind of value in needsColor
       WATEVER_LOG_INFO("{} is live-in but has no local assigned to it",
                        Val->getNameOrAsOperand());
+    }
+  }
+
+  // There might be alloca's who's lifetime start now, even though they are
+  // never used in this block, as this might be the NCD.
+  if (auto It = AllocsStartingAt.find(BB); It != AllocsStartingAt.end()) {
+    for (auto *AI : It->second) {
+      auto LocalType =
+          fromLLVMType(AI->getAllocatedType(), BB->getDataLayout());
+      auto *Local = getFreeLocal(LocalType, Assigned);
+
+      Target->LocalMapping[AI] = Local;
+      Target->PromotedAllocas[AI] = Local;
+      Assigned.insert(Local);
+
+      WATEVER_LOG_TRACE("Mapping promoted {} to local {}",
+                        AI->getNameOrAsOperand(), Local->Index);
     }
   }
 

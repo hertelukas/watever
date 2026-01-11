@@ -35,36 +35,13 @@ DefinedFunc::DefinedFunc(uint32_t SymbolIdx, uint32_t TypeIdx, uint32_t FuncIdx,
 
 void DefinedFunc::visit(WasmVisitor &V) const { Body->accept(V); }
 
-bool DefinedFunc::canBePromoted(llvm::AllocaInst *AI) {
-  assert(AI->isStaticAlloca() &&
-         "can only check statatic AI for promotability ");
-  auto *Ty = AI->getAllocatedType();
-
-  // Only promote legal Wasm types
-  if (!Ty->isIntegerTy(32) && !Ty->isIntegerTy(64) && !Ty->isPointerTy() &&
-      !Ty->isDoubleTy() && !Ty->isFloatTy()) {
-    return false;
-  }
-
-  for (auto *User : AI->users()) {
-    if (!llvm::isa<llvm::LoadInst>(User) && !llvm::isa<llvm::StoreInst>(User)) {
-      return false;
-    }
-  }
-  WATEVER_LOG_TRACE("Promoting {}", AI->getNameOrAsOperand());
-  return true;
-}
-
 void DefinedFunc::setupStackFrame(llvm::BasicBlock *Entry) {
   llvm::SmallVector<llvm::AllocaInst *> StaticAllocas;
 
   for (auto &Inst : *Entry) {
     if (auto *AI = llvm::dyn_cast<llvm::AllocaInst>(&Inst)) {
       if (AI->isStaticAlloca()) {
-        if (canBePromoted(AI)) {
-          PromotedAllocas[AI] = getNewLocal(
-              fromLLVMType(AI->getAllocatedType(), Entry->getDataLayout()));
-        } else {
+        if (!PromotedAllocas.contains(AI)) {
           StaticAllocas.push_back(AI);
         }
       }
