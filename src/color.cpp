@@ -28,7 +28,7 @@ llvm::BasicBlock *FunctionColorer::canBePromoted(llvm::AllocaInst *AI) {
     return nullptr;
   }
 
-  // We need a common denominator to ensure that all uses are dominated by their
+  // We need a common dominator to ensure that all uses are dominated by their
   // definition. One could also treat stores as definitions; this however would
   // introduce new PHI nodes, as some paths might then use a different color for
   // the same underlying memory location.
@@ -41,18 +41,17 @@ llvm::BasicBlock *FunctionColorer::canBePromoted(llvm::AllocaInst *AI) {
     if (!UserInst)
       return nullptr;
     // The user must use AI as pointer (not as argument)
-    // TODO check if we should check against ->isVolatile
     if (auto *LI = llvm::dyn_cast<llvm::LoadInst>(UserInst)) {
-      if (LI->getPointerOperand() != AI)
+      if (LI->getPointerOperand() != AI || LI->isVolatile())
         return nullptr;
     } else if (auto *SI = llvm::dyn_cast<llvm::StoreInst>(UserInst)) {
-      if (SI->getPointerOperand() != AI)
+      if (SI->getPointerOperand() != AI || SI->isVolatile())
         return nullptr;
     } else {
       return nullptr;
     }
 
-    // Nearest common denominator
+    // Nearest common dominator
     llvm::BasicBlock *UseBlock = nullptr;
     if (auto *Phi = llvm::dyn_cast<llvm::PHINode>(UserInst)) {
       UseBlock = Phi->getIncomingBlock(Use);
@@ -241,8 +240,6 @@ bool FunctionColorer::needsColor(llvm::Instruction &I) {
       }
     }
   }
-
-  // TODO would be nice to have colors for promoted stack slots
   return false;
 }
 

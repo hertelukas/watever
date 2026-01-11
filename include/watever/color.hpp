@@ -25,10 +25,13 @@ class FunctionColorer {
   llvm::DenseMap<llvm::BasicBlock *, llvm::SmallVector<llvm::AllocaInst *>>
       AllocsStartingAt;
 
+  /// Checks whether all uses of \p AI can be realized with set/get operations on
+  /// locals. Returns the NCD block of all load/stores \p AI is used in, or
+  /// nullptr, if promotion is not possible.
   llvm::BasicBlock *canBePromoted(llvm::AllocaInst *AI);
   bool isDefinedInBlock(llvm::Value *Val, llvm::BasicBlock *BB);
   void upAndMark(llvm::BasicBlock *BB, llvm::Value *Val);
-  // This uses Florian Bradner et al, Computing Liveness Swts for SSA-Form
+  // This uses Florian Bradner et al, Computing Liveness Sets for SSA-Form
   // Programs, algorithm 6
   void computeLiveSets();
 #ifdef WATEVER_LOGGING

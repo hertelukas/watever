@@ -2,7 +2,6 @@
 #include "watever/feature.hpp"
 #include "watever/ir.hpp"
 #include "watever/type.hpp"
-#include "watever/utils.hpp"
 #include <algorithm>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/IR/Constants.h>
