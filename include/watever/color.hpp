@@ -42,6 +42,9 @@ class FunctionColorer {
   bool needsColor(llvm::Instruction &I);
   void color(llvm::BasicBlock *BB);
 
+  /// Returns true, iff the \p A is live in a block in which \p B is also live
+  bool interfere(llvm::Instruction *A, llvm::Instruction *B);
+
 public:
   FunctionColorer(llvm::Function &F, DefinedFunc *T, llvm::DominatorTree &DT)
       : Source(F), Target(T), DT(DT) {}

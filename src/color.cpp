@@ -312,6 +312,37 @@ void FunctionColorer::color(llvm::BasicBlock *BB) {
   }
 }
 
+bool FunctionColorer::interfere(llvm::Instruction *A, llvm::Instruction *B) {
+  auto *AParent = A->getParent();
+  auto *BParent = B->getParent();
+  llvm::Instruction *First = nullptr;
+  llvm::Instruction *Second = nullptr;
+
+  // If defined in the same block, the instructions interfere
+  if (AParent == BParent) {
+    return true;
+  }
+
+  if (DT.dominates(BParent, AParent)) {
+    First = B;
+    Second = A;
+  } else if (DT.dominates(AParent, BParent)) {
+    First = A;
+    Second = B;
+  } else {
+    return false;
+  }
+
+  // If the value of first is live-in the defining  block of last, we interfere
+  for (llvm::Value *LiveIn : LiveIn[Second->getParent()]) {
+    if (LiveIn == First) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 void FunctionColorer::run() {
   computeLiveSets();
   WATEVER_LOG_DBG("Calculated liveness for {}", Source.getName().str());
