@@ -11,6 +11,7 @@ define i32 @reuse_simple() {
 ; CHECK: Coloring block entry
 ; CHECK-NEXT: Mapping x to local 0
 ; CHECK-NEXT: Coloring block next
+; CHECK-NEXT: Unmapping x
 ; CHECK-NEXT: Coloring block exit
 ; CHECK-NEXT: Mapping z to local 0
 entry:
@@ -33,6 +34,7 @@ define i32 @arg_reuse(i32 %arg) {
 ; CHECK: Coloring block entry
 ; CHECK-NEXT: Mapping x to local 0
 ; CHECK-NEXT: Coloring block next
+; CHECK-NEXT: Unmapping x
 ; CHECK-NEXT: Coloring block exit
 ; CHECK-NEXT: Mapping z to local 0
 entry:
@@ -55,6 +57,7 @@ define i32 @no_arg_reuse(i32 %arg) {
 ; CHECK: Coloring block entry
 ; CHECK-NEXT: Mapping x to local 1
 ; CHECK-NEXT: Coloring block next
+; CHECK-NEXT: Unmapping x
 ; CHECK-NEXT: Coloring block exit
 ; CHECK-NEXT: Mapping z to local 1
 entry:
@@ -77,17 +80,14 @@ define i32 @promoted_alloca(i1 %cond, i32 %val) {
 ; CHECK-LABEL: Coloring function promoted_alloca
 ;
 ; CHECK: Coloring block entry
-; CHECK-NEXT: Mapping promoted ptr2 to local 2
-;
-; CHECK-NEXT: Coloring block head
-; CHECK-NEXT: Mapping promoted ptr1 to local 1
+; CHECK-NEXT: Unmapping val
+; CHECK-NEXT: Mapping promoted ptr2 to local 1
+; CHECK-NEXT: Unmapping cond
+; CHECK-NEXT: Mapping promoted ptr1 to local 0
 entry:
   %ptr1 = alloca i32
   %ptr2 = alloca i32
   store i32 %val, ptr %ptr2
-  br label %head
-
-head:
   br i1 %cond, label %if, label %else
 
 if:
