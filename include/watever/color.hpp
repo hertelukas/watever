@@ -4,6 +4,7 @@
 #include "watever/type.hpp"
 #include <llvm/ADT/DenseMap.h>
 #include <llvm/ADT/DenseSet.h>
+#include <llvm/ADT/EquivalenceClasses.h>
 #include <llvm/ADT/SmallPtrSet.h>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/IR/BasicBlock.h>
@@ -41,6 +42,7 @@ class FunctionColorer {
   llvm::DenseMap<llvm::BasicBlock *, llvm::SmallVector<llvm::AllocaInst *>>
       AllocsStartingAt;
 
+  llvm::EquivalenceClasses<llvm::Value *> Chunks;
   llvm::SmallVector<AffinityEdge> Affinities;
 
   /// Checks whether all uses of \p AI can be realized with set/get operations
@@ -61,9 +63,11 @@ class FunctionColorer {
   void color(llvm::BasicBlock *BB);
 
   /// Returns true, iff the \p A is live in a block in which \p B is also live
-  bool interfere(llvm::Instruction *A, llvm::Instruction *B);
+  bool interfere(llvm::Value *A, llvm::Value *B);
 
   void computeAffinityGraph();
+  void buildChunks();
+  void coalesce();
 
 public:
   FunctionColorer(llvm::Function &F, DefinedFunc *T, llvm::DominatorTree &DT,

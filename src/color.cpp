@@ -315,11 +315,21 @@ void FunctionColorer::color(llvm::BasicBlock *BB) {
   }
 }
 
-bool FunctionColorer::interfere(llvm::Instruction *A, llvm::Instruction *B) {
-  auto *AParent = A->getParent();
-  auto *BParent = B->getParent();
-  llvm::Instruction *First = nullptr;
-  llvm::Instruction *Second = nullptr;
+bool FunctionColorer::interfere(llvm::Value *A, llvm::Value *B) {
+  auto getParent = [&](llvm::Value *Val) {
+    if (auto *Inst = llvm::dyn_cast<llvm::Instruction>(Val)) {
+      return Inst->getParent();
+    }
+    if (llvm::isa<llvm::Argument>(Val)) {
+      return &Source.getEntryBlock();
+    }
+    WATEVER_UNREACHABLE("cannot check interference for {}", llvmToString(*Val));
+  };
+
+  llvm::BasicBlock *AParent = getParent(A);
+  llvm::BasicBlock *BParent = getParent(B);
+  llvm::Value *First = nullptr;
+  llvm::BasicBlock *SecondParent = nullptr;
 
   // If defined in the same block, the instructions interfere
   if (AParent == BParent) {
@@ -328,16 +338,16 @@ bool FunctionColorer::interfere(llvm::Instruction *A, llvm::Instruction *B) {
 
   if (DT.dominates(BParent, AParent)) {
     First = B;
-    Second = A;
+    SecondParent = AParent;
   } else if (DT.dominates(AParent, BParent)) {
     First = A;
-    Second = B;
+    SecondParent = BParent;
   } else {
     return false;
   }
 
   // If the value of first is live-in the defining  block of last, we interfere
-  for (llvm::Value *LiveIn : LiveIn[Second->getParent()]) {
+  for (llvm::Value *LiveIn : LiveIn[SecondParent]) {
     if (LiveIn == First) {
       return true;
     }
@@ -383,6 +393,52 @@ void FunctionColorer::computeAffinityGraph() {
 #endif
 }
 
+void FunctionColorer::coalesce() {
+  computeAffinityGraph();
+  buildChunks();
+}
+
+void FunctionColorer::buildChunks() {
+  // TODO this could be done during coloring
+  for (auto &Arg : Source.args()) {
+    Chunks.insert(&Arg);
+  }
+  for (auto &Inst : llvm::instructions(Source)) {
+    if (needsColor(Inst)) {
+      Chunks.insert(&Inst);
+    }
+  }
+
+  for (const auto &Edge : Affinities) {
+    if (Chunks.isEquivalent(Edge.Source, Edge.Target)) {
+      continue;
+    }
+    auto interferes = [&]() {
+      for (auto *MemberSource : Chunks.members(Edge.Source)) {
+        for (auto *MemberTarget : Chunks.members(Edge.Target)) {
+          if (interfere(MemberSource, MemberTarget)) {
+            WATEVER_LOG_TRACE(
+                "Cannot merge chunks {} and {}. {} and {} interfere",
+                Edge.Source->getNameOrAsOperand(),
+                Edge.Target->getNameOrAsOperand(),
+                MemberSource->getNameOrAsOperand(),
+                MemberTarget->getNameOrAsOperand());
+            return true;
+          }
+        }
+      }
+      return false;
+    };
+
+    if (!interferes()) {
+      WATEVER_LOG_TRACE("Merging chunks {} and {}",
+                        Edge.Source->getNameOrAsOperand(),
+                        Edge.Target->getNameOrAsOperand());
+      Chunks.unionSets(Edge.Source, Edge.Target);
+    }
+  }
+}
+
 void FunctionColorer::run() {
   computeLiveSets();
   WATEVER_LOG_DBG("Calculated liveness for {}", Source.getName().str());
@@ -390,5 +446,5 @@ void FunctionColorer::run() {
   dumpLiveness();
 #endif
   color(&Source.getEntryBlock());
-  computeAffinityGraph();
+  coalesce();
 }
