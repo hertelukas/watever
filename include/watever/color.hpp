@@ -10,14 +10,30 @@
 #include <llvm/IR/Dominators.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/Instructions.h>
+#include <llvm/IR/PassManager.h>
 #include <llvm/IR/Value.h>
 
 namespace watever {
+
+struct AffinityEdge {
+  llvm::Value *Source;
+  llvm::Value *Target;
+  uint64_t Weight;
+
+  explicit AffinityEdge(llvm::Value *S, llvm::Value *T, uint64_t W)
+      : Source(S), Target(T), Weight(W) {}
+
+  auto operator<=>(const AffinityEdge &Other) const {
+    return Weight <=> Other.Weight;
+  }
+};
+
 class FunctionColorer {
   llvm::Function &Source;
   DefinedFunc *Target;
 
   llvm::DominatorTree &DT;
+  llvm::FunctionAnalysisManager &FAM;
 
   llvm::DenseMap<llvm::BasicBlock *, llvm::SmallVector<llvm::Value *>> LiveIn;
   llvm::DenseMap<llvm::BasicBlock *, llvm::SmallVector<llvm::Value *>> LiveOut;
@@ -25,8 +41,10 @@ class FunctionColorer {
   llvm::DenseMap<llvm::BasicBlock *, llvm::SmallVector<llvm::AllocaInst *>>
       AllocsStartingAt;
 
-  /// Checks whether all uses of \p AI can be realized with set/get operations on
-  /// locals. Returns the NCD block of all load/stores \p AI is used in, or
+  llvm::SmallVector<AffinityEdge> Affinities;
+
+  /// Checks whether all uses of \p AI can be realized with set/get operations
+  /// on locals. Returns the NCD block of all load/stores \p AI is used in, or
   /// nullptr, if promotion is not possible.
   llvm::BasicBlock *canBePromoted(llvm::AllocaInst *AI);
   bool isDefinedInBlock(llvm::Value *Val, llvm::BasicBlock *BB);
@@ -45,9 +63,12 @@ class FunctionColorer {
   /// Returns true, iff the \p A is live in a block in which \p B is also live
   bool interfere(llvm::Instruction *A, llvm::Instruction *B);
 
+  void computeAffinityGraph();
+
 public:
-  FunctionColorer(llvm::Function &F, DefinedFunc *T, llvm::DominatorTree &DT)
-      : Source(F), Target(T), DT(DT) {}
+  FunctionColorer(llvm::Function &F, DefinedFunc *T, llvm::DominatorTree &DT,
+                  llvm::FunctionAnalysisManager &FAM)
+      : Source(F), Target(T), DT(DT), FAM(FAM) {}
   /// Tries to color Target by creating as few Target->Locals as possible. To
   /// get the mapped information, the targets LocalMapping is filled.
   void run();

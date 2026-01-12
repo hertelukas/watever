@@ -4,9 +4,12 @@
 #include "watever/utils.hpp"
 #include <algorithm>
 #include <llvm/ADT/DenseSet.h>
+#include <llvm/Analysis/BlockFrequencyInfo.h>
+#include <llvm/Analysis/BranchProbabilityInfo.h>
 #include <llvm/IR/Argument.h>
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/CFG.h>
+#include <llvm/IR/Function.h>
 #include <llvm/IR/InstIterator.h>
 #include <llvm/IR/Instruction.h>
 #include <llvm/IR/Instructions.h>
@@ -343,6 +346,43 @@ bool FunctionColorer::interfere(llvm::Instruction *A, llvm::Instruction *B) {
   return false;
 }
 
+// We will only ever have moves between phi nodes, so only iterate over them
+// when building the affinity graph
+void FunctionColorer::computeAffinityGraph() {
+  auto &BFI = FAM.getResult<llvm::BlockFrequencyAnalysis>(Source);
+  auto &BPI = FAM.getResult<llvm::BranchProbabilityAnalysis>(Source);
+  for (auto &BB : Source) {
+    for (auto &Phi : BB.phis()) {
+      for (size_t I = 0; I < Phi.getNumIncomingValues(); ++I) {
+        llvm::Value *IncomingValue = Phi.getIncomingValue(I);
+        llvm::BasicBlock *IncomingBB = Phi.getIncomingBlock(I);
+        if (llvm::isa<llvm::Instruction>(IncomingValue) ||
+            llvm::isa<llvm::Argument>(IncomingValue)) {
+          uint64_t BlockFrequency = BFI.getBlockFreq(IncomingBB).getFrequency();
+          uint64_t Weight =
+              BPI.getEdgeProbability(IncomingBB, &BB).scale(BlockFrequency);
+          Affinities.emplace_back(IncomingValue, &Phi, Weight);
+        }
+      }
+    }
+  }
+  std::ranges::sort(Affinities, std::greater{});
+
+#ifdef WATEVER_LOGGING
+  std::string Buffer;
+  llvm::raw_string_ostream OS(Buffer);
+
+  OS << "Affinities:\n";
+
+  for (const auto &Edge : Affinities) {
+    OS << "From " << Edge.Source->getNameOrAsOperand() << " to "
+       << Edge.Target->getNameOrAsOperand() << ": " << Edge.Weight << "\n";
+  }
+
+  WATEVER_LOG_TRACE("\n{}", OS.str());
+#endif
+}
+
 void FunctionColorer::run() {
   computeLiveSets();
   WATEVER_LOG_DBG("Calculated liveness for {}", Source.getName().str());
@@ -350,4 +390,5 @@ void FunctionColorer::run() {
   dumpLiveness();
 #endif
   color(&Source.getEntryBlock());
+  computeAffinityGraph();
 }
