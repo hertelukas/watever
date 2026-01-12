@@ -1122,23 +1122,17 @@ std::unique_ptr<Wasm> FunctionLowering::doBranch(const llvm::BasicBlock *Source,
     WATEVER_LOG_TRACE("incoming value is {}", llvmToString(*IncomingVal));
     WATEVER_LOG_TRACE("PHI node is: {}", llvmToString(Phi));
 
-    if (auto *Arg = llvm::dyn_cast<llvm::Argument>(IncomingVal)) {
-      PhiActions.Insts.push_back(
-          WasmInst(Opcode::LocalGet, int64_t{Arg->getArgNo()}));
+    Local *SourceLocal;
+    if (auto It = F->LocalMapping.find(IncomingVal);
+        It != F->LocalMapping.end()) {
+      // The source has already been emitted
+      SourceLocal = It->second;
     } else {
-      Local *SourceLocal;
-      if (auto It = F->LocalMapping.find(IncomingVal);
-          It != F->LocalMapping.end()) {
-        // The source has already been emitted
-        SourceLocal = It->second;
-      } else {
-        // Or maybe it has not been emitted yet, so register a new local for it
-        // (e.g., loop header
-        SourceLocal = F->getNewLocal(
-            fromLLVMType(IncomingVal->getType(), Source->getDataLayout()));
-        F->LocalMapping[IncomingVal] = SourceLocal;
-      }
-      PhiActions.Insts.push_back(WasmInst(Opcode::LocalGet, SourceLocal));
+      // Or maybe it has not been emitted yet, so register a new local for it
+      // (e.g., loop header
+      SourceLocal = F->getNewLocal(
+          fromLLVMType(IncomingVal->getType(), Source->getDataLayout()));
+      F->LocalMapping[IncomingVal] = SourceLocal;
     }
 
     Local *DestLocal;
@@ -1151,7 +1145,11 @@ std::unique_ptr<Wasm> FunctionLowering::doBranch(const llvm::BasicBlock *Source,
     }
 
     WATEVER_LOG_TRACE("local set {}", DestLocal->Index);
-    PhiActions.Insts.push_back(WasmInst(Opcode::LocalSet, DestLocal));
+
+    if (SourceLocal != DestLocal) {
+      PhiActions.Insts.push_back(WasmInst(Opcode::LocalGet, SourceLocal));
+      PhiActions.Insts.push_back(WasmInst(Opcode::LocalSet, DestLocal));
+    }
   }
 
   std::unique_ptr<Wasm> BranchNode;
