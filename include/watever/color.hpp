@@ -10,6 +10,7 @@
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/Dominators.h>
 #include <llvm/IR/Function.h>
+#include <llvm/IR/Instruction.h>
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/PassManager.h>
 #include <llvm/IR/Value.h>
@@ -42,6 +43,10 @@ class FunctionColorer {
   llvm::DenseMap<llvm::BasicBlock *, llvm::SmallVector<llvm::AllocaInst *>>
       AllocsStartingAt;
 
+  // Maps for which values the lifetime ends at a given instruction
+  llvm::DenseMap<llvm::Instruction *, llvm::SmallPtrSet<llvm::Value *, 8>>
+      LastUses;
+
   llvm::EquivalenceClasses<llvm::Value *> Chunks;
   llvm::SmallVector<AffinityEdge> Affinities;
 
@@ -57,6 +62,8 @@ class FunctionColorer {
 #ifdef WATEVER_LOGGING
   void dumpLiveness();
 #endif
+
+  void computeLastUses(llvm::BasicBlock *BB);
 
   Local *getFreeLocal(ValType Type, const llvm::DenseSet<Local *> &Assigned);
   bool needsColor(llvm::Instruction &I);

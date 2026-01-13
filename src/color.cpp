@@ -3,7 +3,9 @@
 #include "watever/type.hpp"
 #include "watever/utils.hpp"
 #include <algorithm>
+#include <llvm/ADT/DenseMap.h>
 #include <llvm/ADT/DenseSet.h>
+#include <llvm/ADT/SmallVector.h>
 #include <llvm/Analysis/BlockFrequencyInfo.h>
 #include <llvm/Analysis/BranchProbabilityInfo.h>
 #include <llvm/IR/Argument.h>
@@ -198,6 +200,54 @@ void FunctionColorer::dumpLiveness() {
 }
 #endif
 
+void FunctionColorer::computeLastUses(llvm::BasicBlock *BB) {
+  // Maps for each value in which instruction it dies
+  llvm::DenseMap<llvm::Value *, llvm::Instruction *> DyingAt;
+
+  // All these values' lifetime end during this BB
+  llvm::DenseSet<llvm::Value *> MustDie(LiveIn[BB].begin(), LiveIn[BB].end());
+  for (auto &I : *BB)
+    MustDie.insert(&I);
+  for (auto *V : LiveOut[BB])
+    MustDie.erase(V);
+
+  // Forward scan finding latest user
+  llvm::SmallVector<llvm::Value *> WorkList;
+  // If we have visited a value in the current tree, we have already updated
+  // what must die
+  llvm::DenseSet<llvm::Value *> VisitedInCurrentTree;
+
+  for (auto &Inst : *BB) {
+    if (Inst.mayHaveSideEffects() || Inst.isTerminator()) {
+      VisitedInCurrentTree.clear();
+      WorkList.push_back(&Inst);
+
+      while (!WorkList.empty()) {
+        auto *Next = WorkList.pop_back_val();
+
+        if (!VisitedInCurrentTree.insert(Next).second)
+          continue;
+
+        if (MustDie.contains(Next)) {
+          DyingAt[Next] = &Inst;
+        }
+
+        if (auto *I = llvm::dyn_cast<llvm::Instruction>(Next)) {
+          if (I->getParent() == BB) {
+            for (llvm::Value *Op : I->operands()) {
+              WorkList.push_back(Op);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  for (auto &[Val, Root] : DyingAt) {
+    LastUses[Root].insert(Val);
+  }
+}
+
 Local *FunctionColorer::getFreeLocal(ValType Type,
                                      const llvm::DenseSet<Local *> &Assigned) {
   for (auto &L : Target->Arguments[Type]) {
@@ -248,6 +298,7 @@ bool FunctionColorer::needsColor(llvm::Instruction &I) {
 
 void FunctionColorer::color(llvm::BasicBlock *BB) {
   WATEVER_LOG_TRACE("Coloring block {}", getBlockName(BB));
+  computeLastUses(BB);
   // TODO maybe it is cheaper to keep track of unassigned?
   llvm::DenseSet<Local *> Assigned;
 
@@ -287,22 +338,11 @@ void FunctionColorer::color(llvm::BasicBlock *BB) {
 
   for (auto &Inst : *BB) {
     // Remove last uses
-    for (auto &Use : Inst.operands()) {
-      // Check if last use
-      // TODO this is not that easy to decide, as we reschedule instructions
-      // based on the tree build by instructions with side effects. A safe
-      // option would be to mark a mapping no-longer used at the end of this
-      // BB - and defer any decision until then, which is happening anyway, as
-      // these will never be live-in anymore.
-
-      // If this is the only use however, we can be sure that it will never be
-      // used again
-      if (Use.get()->getNumUses() <= 1) {
-        if (auto It = Target->LocalMapping.find(Use.get());
-            It != Target->LocalMapping.end()) {
-          if (Assigned.erase(It->second)) {
-            WATEVER_LOG_TRACE("Unmapping {}", Use.get()->getNameOrAsOperand());
-          }
+    for (auto *Val : LastUses[&Inst]) {
+      if (auto It = Target->LocalMapping.find(Val);
+          It != Target->LocalMapping.end()) {
+        if (Assigned.erase(It->second)) {
+          WATEVER_LOG_TRACE("Unmapping {}", Val->getNameOrAsOperand());
         }
       }
     }
