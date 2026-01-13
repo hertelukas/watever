@@ -47,6 +47,11 @@ class FunctionColorer {
   llvm::DenseMap<llvm::Instruction *, llvm::SmallPtrSet<llvm::Value *, 8>>
       LastUses;
 
+  // TODO maybe use a better data structure for cache locality
+  llvm::DenseMap<llvm::BasicBlock *,
+                 llvm::DenseMap<llvm::Value *, llvm::Instruction *>>
+      DyingAt;
+
   llvm::EquivalenceClasses<llvm::Value *> Chunks;
   llvm::SmallVector<AffinityEdge> Affinities;
 

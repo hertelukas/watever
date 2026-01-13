@@ -211,9 +211,6 @@ void FunctionColorer::dumpLiveness() {
 // %c could safely reuse the local used for %b. However, the local for %b is
 // only available after the branch (the root of this evaluation tree).
 void FunctionColorer::computeLastUses(llvm::BasicBlock *BB) {
-  // Maps for each value in which instruction it dies
-  llvm::DenseMap<llvm::Value *, llvm::Instruction *> DyingAt;
-
   // All these values' lifetime end during this BB
   llvm::DenseSet<llvm::Value *> MustDie(LiveIn[BB].begin(), LiveIn[BB].end());
   for (auto &I : *BB) {
@@ -244,7 +241,7 @@ void FunctionColorer::computeLastUses(llvm::BasicBlock *BB) {
           continue;
 
         if (MustDie.contains(Next)) {
-          DyingAt[Next] = &Inst;
+          DyingAt[BB][Next] = &Inst;
         }
 
         if (Roots.contains(Next))
@@ -262,7 +259,7 @@ void FunctionColorer::computeLastUses(llvm::BasicBlock *BB) {
     }
   }
 
-  for (auto &[Val, Root] : DyingAt) {
+  for (auto &[Val, Root] : DyingAt[BB]) {
     WATEVER_LOG_TRACE("{} is last use of {}", llvmToString(*Root),
                       Val->getNameOrAsOperand());
     LastUses[Root].insert(Val);
@@ -427,26 +424,46 @@ bool FunctionColorer::interfere(llvm::Value *A, llvm::Value *B) {
   llvm::BasicBlock *AParent = getParent(A);
   llvm::BasicBlock *BParent = getParent(B);
   llvm::Value *First = nullptr;
-  llvm::BasicBlock *SecondParent = nullptr;
+  llvm::Value *Second = nullptr;
 
-  // If defined in the same block, the instructions interfere
+  bool ABeforeB = false;
+
   if (AParent == BParent) {
-    return true;
-  }
+    auto *IA = llvm::dyn_cast<llvm::Instruction>(A);
+    auto *IB = llvm::dyn_cast<llvm::Instruction>(B);
 
-  if (DT.dominates(BParent, AParent)) {
-    First = B;
-    SecondParent = AParent;
-  } else if (DT.dominates(AParent, BParent)) {
-    First = A;
-    SecondParent = BParent;
+    if (llvm::isa<llvm::Argument>(A))
+      ABeforeB = true;
+    else if (llvm::isa<llvm::Argument>(B))
+      ABeforeB = false;
+    else
+      ABeforeB = DT.dominates(IA, IB);
   } else {
-    return false;
+    if (DT.dominates(AParent, BParent)) {
+      ABeforeB = true;
+    } else if (DT.dominates(BParent, AParent)) {
+      ABeforeB = false;
+    } else {
+      return false;
+    }
   }
 
-  // If the value of first is live-in the defining  block of last, we interfere
-  for (llvm::Value *LiveIn : LiveIn[SecondParent]) {
-    if (LiveIn == First) {
+  First = ABeforeB ? A : B;
+  Second = ABeforeB ? B : A;
+
+  // If the value of the first is live out at the block defining second, we
+  // interfere
+  for (llvm::Value *LiveOut : LiveOut[getParent(Second)]) {
+    if (LiveOut == First) {
+      return true;
+    }
+  }
+
+  // At this point, first might be live in the block where second is defined,
+  // but not at its end. They interfere if the last using root of first comes
+  // after the definition of second.
+  if (auto *DeathFirst = DyingAt[getParent(Second)].lookup(First)) {
+    if (DT.dominates(Second, DeathFirst)) {
       return true;
     }
   }
