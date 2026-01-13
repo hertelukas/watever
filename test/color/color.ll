@@ -11,8 +11,11 @@ define i32 @reuse_simple() {
 ; CHECK: Coloring block entry
 ; CHECK-NEXT: Mapping x to local 0
 ; CHECK-NEXT: Coloring block next
+; CHECK-NEXT: call {{.*}} is last use of 
+; CHECK-NEXT: call {{.*}} is last use of 
 ; CHECK-NEXT: Unmapping x
 ; CHECK-NEXT: Coloring block exit
+; CHECK-NEXT: ret i32 {{.*}} is last use of z
 ; CHECK-NEXT: Mapping z to local 0
 entry:
   %x = call i32 @start()
@@ -34,8 +37,11 @@ define i32 @arg_reuse(i32 %arg) {
 ; CHECK: Coloring block entry
 ; CHECK-NEXT: Mapping x to local 0
 ; CHECK-NEXT: Coloring block next
+; CHECK-NEXT: call {{.*}} is last use of 
+; CHECK-NEXT: call {{.*}} is last use of 
 ; CHECK-NEXT: Unmapping x
 ; CHECK-NEXT: Coloring block exit
+; CHECK-NEXT: ret i32 {{.*}} is last use of z
 ; CHECK-NEXT: Mapping z to local 0
 entry:
   %x = call i32 @start()
@@ -57,8 +63,12 @@ define i32 @no_arg_reuse(i32 %arg) {
 ; CHECK: Coloring block entry
 ; CHECK-NEXT: Mapping x to local 1
 ; CHECK-NEXT: Coloring block next
+; CHECK-NEXT: call {{.*}} is last use of 
+; CHECK-NEXT: call {{.*}} is last use of 
 ; CHECK-NEXT: Unmapping x
 ; CHECK-NEXT: Coloring block exit
+; CHECK-NEXT: is last use of
+; CHECK-NEXT: is last use of
 ; CHECK-NEXT: Mapping z to local 1
 entry:
   %x = call i32 @start()
@@ -80,6 +90,11 @@ define i32 @promoted_alloca(i1 %cond, i32 %val) {
 ; CHECK-LABEL: Coloring function promoted_alloca
 ;
 ; CHECK: Coloring block entry
+; last uses of cond, val, %1 (from trunc), %0 (from and)
+; CHECK-NEXT: is last use of
+; CHECK-NEXT: is last use of
+; CHECK-NEXT: is last use of
+; CHECK-NEXT: is last use of
 ; CHECK-NEXT: Unmapping val
 ; CHECK-NEXT: Mapping promoted ptr2 to local 1
 ; CHECK-NEXT: Unmapping cond

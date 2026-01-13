@@ -200,14 +200,27 @@ void FunctionColorer::dumpLiveness() {
 }
 #endif
 
+// This is not optimal. It sets the last use as the root of the last tree using
+// each value. This is not optimal, e.g., here:
+// loop:
+// %b = phi i32 [ %a, %entry ], [ %c, %loop ]
+// %c = add i32 %b, 1
+// %cond = icmp eq i32 %n, %c
+// br i1 %cond, label %loop, label %exit
+//
+// %c could safely reuse the local used for %b. However, the local for %b is
+// only available after the branch (the root of this evaluation tree).
 void FunctionColorer::computeLastUses(llvm::BasicBlock *BB) {
   // Maps for each value in which instruction it dies
   llvm::DenseMap<llvm::Value *, llvm::Instruction *> DyingAt;
 
   // All these values' lifetime end during this BB
   llvm::DenseSet<llvm::Value *> MustDie(LiveIn[BB].begin(), LiveIn[BB].end());
-  for (auto &I : *BB)
-    MustDie.insert(&I);
+  for (auto &I : *BB) {
+    if (!I.getType()->isVoidTy()) {
+      MustDie.insert(&I);
+    }
+  }
   for (auto *V : LiveOut[BB])
     MustDie.erase(V);
 
@@ -216,6 +229,8 @@ void FunctionColorer::computeLastUses(llvm::BasicBlock *BB) {
   // If we have visited a value in the current tree, we have already updated
   // what must die
   llvm::DenseSet<llvm::Value *> VisitedInCurrentTree;
+
+  llvm::DenseSet<llvm::Value *> Roots;
 
   for (auto &Inst : *BB) {
     if (Inst.mayHaveSideEffects() || Inst.isTerminator()) {
@@ -232,6 +247,9 @@ void FunctionColorer::computeLastUses(llvm::BasicBlock *BB) {
           DyingAt[Next] = &Inst;
         }
 
+        if (Roots.contains(Next))
+          continue;
+
         if (auto *I = llvm::dyn_cast<llvm::Instruction>(Next)) {
           if (I->getParent() == BB) {
             for (llvm::Value *Op : I->operands()) {
@@ -240,10 +258,13 @@ void FunctionColorer::computeLastUses(llvm::BasicBlock *BB) {
           }
         }
       }
+      Roots.insert(&Inst);
     }
   }
 
   for (auto &[Val, Root] : DyingAt) {
+    WATEVER_LOG_TRACE("{} is last use of {}", llvmToString(*Root),
+                      Val->getNameOrAsOperand());
     LastUses[Root].insert(Val);
   }
 }
