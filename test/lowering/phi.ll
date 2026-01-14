@@ -64,3 +64,16 @@ exit:
     call void @f(i32 %2)
     ret void
 }
+
+declare void @sink(i32 %a, i32 %b)
+
+define void @cycle(i32 %a_start, i32 %b_start) {
+entry:
+  br label %loop
+
+loop:
+  %a = phi i32 [ %a_start, %entry ], [ %b, %loop ]
+  %b = phi i32 [ %b_start, %entry ], [ %a, %loop ]
+  call void @sink(i32 %a, i32 %b)
+  br label %loop
+}

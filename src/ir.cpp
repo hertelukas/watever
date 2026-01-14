@@ -1094,44 +1094,98 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
 std::unique_ptr<Wasm> FunctionLowering::doBranch(const llvm::BasicBlock *Source,
                                                  llvm::BasicBlock *Target,
                                                  const Context &Ctx) {
-
   // Actions to be executed on the edge
   WasmActions PhiActions;
+  llvm::DenseMap<llvm::PHINode *, uint32_t> Readers;
   for (auto &Phi : Target->phis()) {
-    WATEVER_LOG_TRACE("emitting phi edge from {} to {}", getBlockName(Source),
-                      getBlockName(Target));
-
-    llvm::Value *IncomingVal = Phi.getIncomingValueForBlock(Source);
-    WATEVER_LOG_TRACE("incoming value is {}", llvmToString(*IncomingVal));
-    WATEVER_LOG_TRACE("PHI node is: {}", llvmToString(Phi));
-
-    Local *SourceLocal;
-    if (auto It = F->LocalMapping.find(IncomingVal);
-        It != F->LocalMapping.end()) {
-      // The source has already been emitted
-      SourceLocal = It->second;
-    } else {
-      // Or maybe it has not been emitted yet, so register a new local for it
-      // (e.g., loop header
-      SourceLocal = F->getNewLocal(
-          fromLLVMType(IncomingVal->getType(), Source->getDataLayout()));
-      F->LocalMapping[IncomingVal] = SourceLocal;
+    // Check for cycles
+    if (Target == Source) {
+      if (auto *ReadPhi = llvm::dyn_cast<llvm::PHINode>(
+              Phi.getIncomingValueForBlock(Source))) {
+        Readers[ReadPhi]++;
+      }
     }
+  }
 
-    Local *DestLocal;
-    if (auto It = F->LocalMapping.find(&Phi); It != F->LocalMapping.end()) {
-      DestLocal = It->second;
+  // Queue of ready phi nodes
+  llvm::SmallVector<llvm::PHINode *> Ready;
+  for (auto &Phi : Target->phis()) {
+    if (Readers[&Phi] == 0)
+      Ready.push_back(&Phi);
+  }
+
+  auto GetOrCreateLocal = [&](llvm::Value *Val) {
+    Local *Result;
+    if (auto It = F->LocalMapping.find(Val); It != F->LocalMapping.end()) {
+      Result = It->second;
     } else {
-      DestLocal =
-          F->getNewLocal(fromLLVMType(Phi.getType(), Target->getDataLayout()));
-      F->LocalMapping[&Phi] = DestLocal;
+      Result =
+          F->getNewLocal(fromLLVMType(Val->getType(), Source->getDataLayout()));
+      F->LocalMapping[Val] = Result;
+    };
+    return Result;
+  };
+
+  auto EmitCycleFree = [&](llvm::PHINode *Ignore = nullptr) {
+    while (!Ready.empty()) {
+      auto *Node = Ready.pop_back_val();
+
+      // This allows us to handle nodes manually (for breaking cycles)
+      if (Node == Ignore)
+        continue;
+
+      WATEVER_LOG_TRACE("emitting phi edge from {} to {}", getBlockName(Source),
+                        getBlockName(Target));
+
+      llvm::Value *IncomingVal = Node->getIncomingValueForBlock(Source);
+      WATEVER_LOG_TRACE("incoming value is {}",
+                        IncomingVal->getNameOrAsOperand());
+      WATEVER_LOG_TRACE("PHI node is: {}", Node->getNameOrAsOperand());
+
+      Local *SourceLocal = GetOrCreateLocal(IncomingVal);
+      Local *DestLocal = GetOrCreateLocal(Node);
+
+      WATEVER_LOG_TRACE("local set {}", DestLocal->Index);
+
+      if (SourceLocal != DestLocal) {
+        PhiActions.Insts.push_back(WasmInst(Opcode::LocalGet, SourceLocal));
+        PhiActions.Insts.push_back(WasmInst(Opcode::LocalSet, DestLocal));
+      }
+
+      // Decrement readers of IncomingValue
+      if (auto *ReadPhi = llvm::dyn_cast<llvm::PHINode>(IncomingVal)) {
+        if (--Readers[ReadPhi] == 0)
+          Ready.push_back(ReadPhi);
+      }
     }
+  };
 
-    WATEVER_LOG_TRACE("local set {}", DestLocal->Index);
+  EmitCycleFree();
 
-    if (SourceLocal != DestLocal) {
-      PhiActions.Insts.push_back(WasmInst(Opcode::LocalGet, SourceLocal));
-      PhiActions.Insts.push_back(WasmInst(Opcode::LocalSet, DestLocal));
+  // Check for cycle
+  for (auto &[Node, NumReaders] : Readers) {
+    if (NumReaders > 1) {
+      WATEVER_UNREACHABLE("Cycle should only have nodes with single reader");
+    }
+    if (NumReaders > 0) {
+      // Put incoming value on the stack, it is read by node
+      if (auto *IncomingVal = llvm::dyn_cast<llvm::PHINode>(
+              Node->getIncomingValueForBlock(Source))) {
+        WATEVER_LOG_TRACE(
+            "Edge has a phi cycle. Breaking at: {}, reading from {}",
+            Node->getNameOrAsOperand(), IncomingVal->getNameOrAsOperand());
+        PhiActions.Insts.emplace_back(Opcode::LocalGet,
+                                      GetOrCreateLocal(IncomingVal));
+        // Now, incoming value has no readers anymore
+        Readers[IncomingVal]--;
+        Ready.push_back(IncomingVal);
+	// Node is written manually (over the stack)
+        EmitCycleFree(Node);
+        // Now, node can read incoming value
+        PhiActions.Insts.emplace_back(Opcode::LocalSet, GetOrCreateLocal(Node));
+        break;
+      }
+      WATEVER_UNREACHABLE("cycle while reading non-phi is not possible");
     }
   }
 
