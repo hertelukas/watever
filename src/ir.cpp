@@ -31,6 +31,106 @@
 
 using namespace watever;
 
+
+/// Returns true, if \p Val has been put successfully on top of the stack,
+/// false otherwise.
+static bool putValueOnStack(llvm::Value *Val, WasmActions &Actions, Module &M,
+                              bool Is64Bit /* = false */) {
+  if (auto *GV = llvm::dyn_cast<llvm::GlobalVariable>(Val)) {
+    auto *WasmData = M.DataMap[GV];
+    if (!WasmData) {
+      WATEVER_UNREACHABLE("unknown global {}", llvmToString(*GV));
+    }
+    if (Is64Bit) {
+      Actions.Insts.emplace_back(Opcode::I64Const, WasmData);
+    } else {
+      Actions.Insts.emplace_back(Opcode::I32Const, WasmData);
+    }
+    return true;
+  }
+
+  // Otherwise, we can just load constants/arguments
+  if (const auto *Const = llvm::dyn_cast<llvm::ConstantInt>(Val)) {
+    if (Const->getBitWidth() == 1) {
+      Actions.Insts.push_back(
+          WasmInst(Opcode::I32Const,
+                   static_cast<int64_t>(Const->getValue().getZExtValue())));
+    } else if (Const->getBitWidth() == 32) {
+      Actions.Insts.push_back(
+          WasmInst(Opcode::I32Const, Const->getValue().getSExtValue()));
+    } else if (Const->getBitWidth() == 64) {
+      Actions.Insts.push_back(
+          WasmInst(Opcode::I64Const, Const->getValue().getSExtValue()));
+    } else {
+      WATEVER_UNREACHABLE("unsupported constant bit width: {}",
+                          Const->getBitWidth());
+    }
+    return true;
+  }
+
+  if (const auto *FConst = llvm::dyn_cast<llvm::ConstantFP>(Val)) {
+    if (FConst->getType()->isFloatTy()) {
+      Actions.Insts.emplace_back(Opcode::F32Const,
+                                 FConst->getValue().convertToFloat());
+    } else if (FConst->getType()->isDoubleTy()) {
+      Actions.Insts.emplace_back(Opcode::F64Const,
+                                 FConst->getValue().convertToDouble());
+    } else {
+      WATEVER_UNREACHABLE("unsupported float type: {}",
+                          llvmToString(*FConst->getType()));
+    }
+    return true;
+  }
+
+  if (auto *F = llvm::dyn_cast<llvm::Function>(Val)) {
+    auto *WasmFunc = M.FunctionMap[F];
+    M.addIndirectFunctionElement(WasmFunc);
+    auto Arg = std::make_unique<RelocatableTableIndexArg>(WasmFunc);
+    if (F->getDataLayout().getPointerSizeInBits() == 64) {
+      Actions.Insts.emplace_back(Opcode::I64Const, std::move(Arg));
+    } else {
+      Actions.Insts.emplace_back(Opcode::I32Const, std::move(Arg));
+    }
+    return true;
+  }
+
+  if (llvm::isa<llvm::ConstantPointerNull>(Val)) {
+    if (Is64Bit) {
+      Actions.Insts.emplace_back(Opcode::I64Const, int64_t{0});
+    } else {
+      Actions.Insts.emplace_back(Opcode::I32Const, int64_t{0});
+    }
+    return true;
+  }
+
+  if (llvm::isa<llvm::UndefValue>(Val) || llvm::isa<llvm::PoisonValue>(Val)) {
+    llvm::Type *Ty = Val->getType();
+
+    if (Ty->isPointerTy()) {
+      if (Is64Bit) {
+        Actions.Insts.emplace_back(Opcode::I64Const, int64_t{0});
+      } else {
+        Actions.Insts.emplace_back(Opcode::I32Const, int64_t{0});
+      }
+    } else if (Ty->isIntegerTy()) {
+      if (Ty->getIntegerBitWidth() <= 32) {
+        Actions.Insts.emplace_back(Opcode::I32Const, int64_t{0});
+      } else {
+        Actions.Insts.emplace_back(Opcode::I64Const, int64_t{0});
+      }
+    } else if (Ty->isFloatTy()) {
+      Actions.Insts.emplace_back(Opcode::F32Const, 0.0f);
+    } else if (Ty->isDoubleTy()) {
+      Actions.Insts.emplace_back(Opcode::F64Const, 0.0);
+    } else {
+      WATEVER_UNREACHABLE("unsupported type for undef/poison: {}",
+                          llvmToString(*Ty));
+    }
+    return true;
+  }
+  return false;
+}
+
 void Module::flattenConstant(const llvm::Constant *C,
                              std::vector<uint8_t> &Buffer,
                              llvm::SmallVector<RelocationEntry> &Relocs) {
@@ -1002,61 +1102,12 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
           }
           visit(*Inst);
           Emitted.insert(Inst);
-        } else if (auto *GV = llvm::dyn_cast<llvm::GlobalVariable>(Next)) {
-          auto *WasmData = M.DataMap[GV];
-          if (!WasmData) {
-            WATEVER_UNREACHABLE("unknown global {}", llvmToString(*GV));
-          }
-          if (BB->getDataLayout().getPointerSizeInBits() == 64) {
-            Actions.Insts.emplace_back(Opcode::I64Const, WasmData);
-          } else {
-            Actions.Insts.emplace_back(Opcode::I32Const, WasmData);
-          }
-        }
-        // Otherwise, we can just load constants/arguments
-        else if (const auto *Const = llvm::dyn_cast<llvm::ConstantInt>(Next)) {
-          if (Const->getBitWidth() == 1) {
-            Actions.Insts.push_back(WasmInst(
-                Opcode::I32Const,
-                static_cast<int64_t>(Const->getValue().getZExtValue())));
-          } else if (Const->getBitWidth() == 32) {
-            Actions.Insts.push_back(
-                WasmInst(Opcode::I32Const, Const->getValue().getSExtValue()));
-          } else if (Const->getBitWidth() == 64) {
-            Actions.Insts.push_back(
-                WasmInst(Opcode::I64Const, Const->getValue().getSExtValue()));
-          } else {
-            WATEVER_UNREACHABLE("unsupported constant bit width: {}",
-                                Const->getBitWidth());
-          }
-        } else if (const auto *FConst =
-                       llvm::dyn_cast<llvm::ConstantFP>(Next)) {
-          if (FConst->getType()->isFloatTy()) {
-            Actions.Insts.emplace_back(Opcode::F32Const,
-                                       FConst->getValue().convertToFloat());
-          } else if (FConst->getType()->isDoubleTy()) {
-            Actions.Insts.emplace_back(Opcode::F64Const,
-                                       FConst->getValue().convertToDouble());
-          }
-        } else if (auto *Arg = llvm::dyn_cast<llvm::Argument>(Next)) {
-          Actions.Insts.push_back(
-              WasmInst(Opcode::LocalGet, int64_t{Arg->getArgNo()}));
-        } else if (auto *F = llvm::dyn_cast<llvm::Function>(Next)) {
-          auto *WasmFunc = M.FunctionMap[F];
-          M.addIndirectFunctionElement(WasmFunc);
-          auto Arg = std::make_unique<RelocatableTableIndexArg>(WasmFunc);
-          if (F->getDataLayout().getPointerSizeInBits() == 64) {
-            Actions.Insts.emplace_back(Opcode::I64Const, std::move(Arg));
-          } else {
-            Actions.Insts.emplace_back(Opcode::I32Const, std::move(Arg));
-          }
-        } else if (llvm::isa<llvm::ConstantPointerNull>(Next)) {
-          if (BB->getDataLayout().getPointerSizeInBits() == 64) {
-            Actions.Insts.emplace_back(Opcode::I64Const, int64_t{0});
-          } else {
-            Actions.Insts.emplace_back(Opcode::I32Const, int64_t{0});
-          }
-        } else {
+        } else if (auto *Arg = llvm::dyn_cast<llvm::Instruction>(Next)) {
+          Actions.Insts.emplace_back(Opcode::LocalGet,
+                                     Parent->LocalMapping.lookup(Arg));
+        } else if (!putValueOnStack(
+                       Next, Actions, M,
+                       BB->getDataLayout().getPointerSizeInBits() == 64)) {
           WATEVER_UNIMPLEMENTED("put {} on top of the stack",
                                 llvmToString(*Next));
         }
@@ -1097,7 +1148,7 @@ std::unique_ptr<Wasm> FunctionLowering::doBranch(const llvm::BasicBlock *Source,
                                                  const Context &Ctx) {
   // Actions to be executed on the edge
   WasmActions PhiActions;
-  llvm::DenseMap<llvm::PHINode *, uint32_t> Readers;
+  llvm::DenseMap<llvm::PHINode *, int32_t> Readers;
   for (auto &Phi : Target->phis()) {
     // Check for cycles
     if (Target == Source) {
@@ -1145,12 +1196,9 @@ std::unique_ptr<Wasm> FunctionLowering::doBranch(const llvm::BasicBlock *Source,
 
       Local *DestLocal = GetOrCreateLocal(Node);
 
-      if (auto *CI = llvm::dyn_cast<llvm::ConstantInt>(IncomingVal)) {
-        if (CI->getBitWidth() <= 32) {
-          PhiActions.Insts.emplace_back(Opcode::I32Const, CI->getSExtValue());
-        } else {
-          PhiActions.Insts.emplace_back(Opcode::I64Const, CI->getSExtValue());
-        }
+      if (putValueOnStack(IncomingVal, PhiActions, M,
+                          Source->getDataLayout().getPointerSizeInBits() ==
+                              64)) {
         PhiActions.Insts.emplace_back(Opcode::LocalSet, DestLocal);
       } else if (llvm::isa<llvm::Argument>(IncomingVal) ||
                  llvm::isa<llvm::Instruction>(IncomingVal)) {
@@ -1470,8 +1518,8 @@ Module ModuleLowering::convert(llvm::Module &Mod,
     Res.Symbols.push_back(std::move(Import));
   }
 
-  // Then declare all defined functions. This needs to be done before lowering,
-  // so we can use not-yet-lowered functions (e.g., in calls).
+  // Then declare all defined functions. This needs to be done before
+  // lowering, so we can use not-yet-lowered functions (e.g., in calls).
   for (auto &F : Mod) {
     if (F.isDeclaration()) {
       continue;

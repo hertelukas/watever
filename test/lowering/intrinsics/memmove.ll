@@ -5,8 +5,8 @@ target triple = "wasm32-unknown-unknown"
 
 declare void @llvm.memmove.p0.p0.i32(ptr writeonly captures(none), ptr readonly captures(none), i32, i1 immarg)
 
-define void @memcpy_i32(ptr %dest, ptr %src, i32 %len) {
-; CHECK-LABEL: $memcpy_i32
+define void @memmove_i32(ptr %dest, ptr %src, i32 %len) {
+; CHECK-LABEL: $memmove_i32
 ; CHECK: local.get 0
 ; CHECK-NEXT: local.get 1
 ; CHECK-NEXT: local.get 2
