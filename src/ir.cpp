@@ -920,6 +920,7 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
     // on the stack in reverse order.
     if (Inst.mayHaveSideEffects() || Inst.isTerminator() ||
         Parent->hasExternalUser(&Inst, BB)) {
+      auto *Root = &Inst;
       WATEVER_LOG_TRACE("{} is AST root, materialize", llvmToString(Inst));
       llvm::DenseMap<llvm::Value *, Local *> ASTLocals;
       WorkList.push_back(&Inst);
@@ -980,11 +981,12 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
 
         // Next needs to be materialized
         if (auto *Inst = llvm::dyn_cast<llvm::Instruction>(Next)) {
-          // Save to local, if we have a later user
+          // Save to local, if we have a later user in this tree or this block,
+          // who expects to be able to load the value.
           // TODO this might lead to unnecessary emissions:
           // - If Inst is AllocaInst, and is otherwise always inlined
           // (IsGreedyOptimization)
-          if (Inst->getNumUses() > 1) {
+          if (Inst->getNumUses() > 1 && Inst != Root) {
             Local *L;
             if (auto It = ASTLocals.find(Next); It != ASTLocals.end()) {
               L = It->second;
