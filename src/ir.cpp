@@ -143,9 +143,10 @@ void BlockLowering::handleIntrinsic(llvm::CallInst &CI) {
     WorkList.push_back(Len);
     break;
   }
-  case llvm::Intrinsic::memcpy: {
+  case llvm::Intrinsic::memcpy:
+  case llvm::Intrinsic::memmove: {
     assert(Parent->FeatureSet.bulk_memory_enabled() &&
-           "cannot handle memcpy without bulk_memory");
+           "cannot handle memcpy/memove without bulk_memory");
 
     // TODO if Len == 0 and any pointer invalid, WebAssembly traps, but it
     // should be a no-op
