@@ -1142,20 +1142,35 @@ std::unique_ptr<Wasm> FunctionLowering::doBranch(const llvm::BasicBlock *Source,
                         IncomingVal->getNameOrAsOperand());
       WATEVER_LOG_TRACE("PHI node is: {}", Node->getNameOrAsOperand());
 
-      Local *SourceLocal = GetOrCreateLocal(IncomingVal);
       Local *DestLocal = GetOrCreateLocal(Node);
 
-      WATEVER_LOG_TRACE("local set {}", DestLocal->Index);
+      if (auto *CI = llvm::dyn_cast<llvm::ConstantInt>(IncomingVal)) {
+        if (CI->getBitWidth() <= 32) {
+          PhiActions.Insts.emplace_back(Opcode::I32Const, CI->getSExtValue());
+        } else {
+          PhiActions.Insts.emplace_back(Opcode::I64Const, CI->getSExtValue());
+        }
+        PhiActions.Insts.emplace_back(Opcode::LocalSet, DestLocal);
+      } else if (llvm::isa<llvm::Argument>(IncomingVal) ||
+                 llvm::isa<llvm::Instruction>(IncomingVal)) {
 
-      if (SourceLocal != DestLocal) {
-        PhiActions.Insts.push_back(WasmInst(Opcode::LocalGet, SourceLocal));
-        PhiActions.Insts.push_back(WasmInst(Opcode::LocalSet, DestLocal));
-      }
+        Local *SourceLocal = GetOrCreateLocal(IncomingVal);
 
-      // Decrement readers of IncomingValue
-      if (auto *ReadPhi = llvm::dyn_cast<llvm::PHINode>(IncomingVal)) {
-        if (--Readers[ReadPhi] == 0)
-          Ready.push_back(ReadPhi);
+        WATEVER_LOG_TRACE("local set {}", DestLocal->Index);
+
+        if (SourceLocal != DestLocal) {
+          PhiActions.Insts.push_back(WasmInst(Opcode::LocalGet, SourceLocal));
+          PhiActions.Insts.push_back(WasmInst(Opcode::LocalSet, DestLocal));
+        }
+
+        // Decrement readers of IncomingValue
+        if (auto *ReadPhi = llvm::dyn_cast<llvm::PHINode>(IncomingVal)) {
+          if (--Readers[ReadPhi] == 0)
+            Ready.push_back(ReadPhi);
+        }
+      } else {
+        WATEVER_UNIMPLEMENTED("Unsupported phi argument {}",
+                              IncomingVal->getNameOrAsOperand());
       }
     }
   };
