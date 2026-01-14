@@ -315,9 +315,9 @@ void BinaryWriter::write() {
       SymTab.Infos.emplace_back(SymbolName(Index, std::move(Name), Import),
                                 Symbol->getKind(), Symbol->LinkerFlags);
     } else if (const auto *DD = llvm::dyn_cast<DefinedData>(Symbol.get())) {
-      WATEVER_TODO("use correct offset and size for defined data symbol");
-      SymTab.Infos.emplace_back(SymbolData(DD->Name, DD->DataIndex, 0, 0),
-                                Symbol->getKind(), Symbol->LinkerFlags);
+      SymTab.Infos.emplace_back(
+          SymbolData(DD->Name, DD->DataIndex, 0, DD->Content.size()),
+          Symbol->getKind(), Symbol->LinkerFlags);
     } else if (const auto *UD = llvm::dyn_cast<UndefinedData>(Symbol.get())) {
       SymTab.Infos.emplace_back(SymbolData(UD->Name), Symbol->getKind(),
                                 Symbol->LinkerFlags);
