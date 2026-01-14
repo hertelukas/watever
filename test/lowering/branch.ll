@@ -15,10 +15,10 @@ define void @if_else(i1 %a) {
 ; CHECK-NEXT: i32.and
 ; CHECK-NEXT: if
 ; CHECK-NEXT: call $bar
-; CHECK-NEXT: br 0
+; CHECK-NEXT: br 1
 ; CHECK-NEXT: else
 ; CHECK-NEXT: call $foo
-; CHECK-NEXT: br 0
+; CHECK-NEXT: br 1
 entry:
   br i1 %a, label %then, label %else
 then:
@@ -40,7 +40,7 @@ define void @loop(i1 %a) {
 ; CHECK-NEXT: if
 ; CHECK-NEXT: return
 ; CHECK-NEXT: else
-; CHECK-NEXT: br 0
+; CHECK-NEXT: br 1
 entry:
   br label %header
 header:
@@ -82,9 +82,9 @@ define void @forward_merge(i1 %a) {
 ; CHECK: loop
 ; CHECK-NEXT: call $foo
 ; CHECK: if
-; CHECK-NEXT: br 0
-; CHECK: else
 ; CHECK-NEXT: br 1
+; CHECK: else
+; CHECK-NEXT: br 3
 entry:
   br i1 %a, label %merge, label %loop
 loop:

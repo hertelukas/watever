@@ -1179,7 +1179,7 @@ std::unique_ptr<Wasm> FunctionLowering::doBranch(const llvm::BasicBlock *Source,
         // Now, incoming value has no readers anymore
         Readers[IncomingVal]--;
         Ready.push_back(IncomingVal);
-	// Node is written manually (over the stack)
+        // Node is written manually (over the stack)
         EmitCycleFree(Node);
         // Now, node can read incoming value
         PhiActions.Insts.emplace_back(Opcode::LocalSet, GetOrCreateLocal(Node));
@@ -1255,9 +1255,12 @@ std::unique_ptr<Wasm> FunctionLowering::nodeWithin(
                           getBlockName(Br->getSuccessor(0)),
                           getBlockName(Br->getSuccessor(1)));
 
+        auto IfCtx = Ctx;
+        IfCtx.push_back(ContainingSyntax::createIf());
+
         Leaving = std::make_unique<WasmIf>(
-            doBranch(Parent, Br->getSuccessor(0), Ctx),
-            doBranch(Parent, Br->getSuccessor(1), Ctx));
+            doBranch(Parent, Br->getSuccessor(0), IfCtx),
+            doBranch(Parent, Br->getSuccessor(1), IfCtx));
       } else {
         assert(Br->getNumSuccessors() == 1 &&
                "expected only one successor in unconditional branch");
