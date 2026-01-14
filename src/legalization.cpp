@@ -1202,7 +1202,7 @@ llvm::PreservedAnalyses LegalizationPass::run(llvm::Module &Mod,
   // Old Funcs -> New Funcs
   llvm::DenseMap<llvm::Function *, llvm::Function *> FuncMap;
   for (auto &F : Mod) {
-    if (F.isDeclaration()) {
+    if (F.isIntrinsic()) {
       continue;
     }
     FuncsToLegalize.push_back(&F);
@@ -1217,6 +1217,8 @@ llvm::PreservedAnalyses LegalizationPass::run(llvm::Module &Mod,
 
   llvm::IRBuilder<> Builder(Mod.getContext());
   for (auto *F : FuncsToLegalize) {
+    if (F->isDeclaration())
+      continue;
     WATEVER_LOG_DBG("Legalizing {}", F->getName().str());
     auto *NewFunc = FuncMap[F];
     FunctionLegalizer FL{F, NewFunc, Builder, Config, FuncMap};
