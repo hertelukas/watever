@@ -162,7 +162,9 @@ public:
   static bool classof(const Symbol *S) {
     return S->getClassKind() == Kind::DefinedFunc;
   }
-
+  
+  /// Check whether \p Val has a user outside of \p BB
+  bool hasExternalUser(llvm::Value *Val, llvm::BasicBlock *BB);
   void setupStackFrame(llvm::BasicBlock *Entry);
 };
 

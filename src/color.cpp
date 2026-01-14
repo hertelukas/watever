@@ -230,7 +230,8 @@ void FunctionColorer::computeLastUses(llvm::BasicBlock *BB) {
   llvm::DenseSet<llvm::Value *> Roots;
 
   for (auto &Inst : *BB) {
-    if (Inst.mayHaveSideEffects() || Inst.isTerminator()) {
+    if (Inst.mayHaveSideEffects() || Inst.isTerminator() ||
+        Target->hasExternalUser(&Inst, BB)) {
       VisitedInCurrentTree.clear();
       WorkList.push_back(&Inst);
 
@@ -306,6 +307,9 @@ bool FunctionColorer::needsColor(llvm::Instruction &I) {
   auto *Parent = I.getParent();
   for (auto *U : I.users()) {
     if (auto *UserInst = llvm::dyn_cast<llvm::Instruction>(U)) {
+      if (llvm::isa<llvm::PHINode>(UserInst)) {
+        return true;
+      }
       if (UserInst->getParent() != Parent) {
         return true;
       }

@@ -218,9 +218,6 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
   [[nodiscard]] llvm::DenseMap<llvm::Value *, int>
   getDependencyTreeUserCount(llvm::Instruction *Root) const;
 
-  /// Check whether \p Val has a user outside of this BB
-  bool hasExternalUser(llvm::Value *Val);
-
   Module &M;
   DefinedFunc *Parent;
 

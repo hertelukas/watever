@@ -4,6 +4,7 @@
 #include "watever/type.hpp"
 #include <algorithm>
 #include <llvm/ADT/SmallVector.h>
+#include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/Instructions.h>
 #include <llvm/Support/Casting.h>
@@ -33,6 +34,25 @@ DefinedFunc::DefinedFunc(uint32_t SymbolIdx, uint32_t TypeIdx, uint32_t FuncIdx,
 }
 
 void DefinedFunc::visit(WasmVisitor &V) const { Body->accept(V); }
+
+bool DefinedFunc::hasExternalUser(llvm::Value *Val, llvm::BasicBlock *BB) {
+  // If this instruction is a promoted alloca, it alrady has a local and does
+  // not need to be materialized for external users
+  if (auto *AI = llvm::dyn_cast<llvm::AllocaInst>(Val)) {
+    if (PromotedAllocas.contains(AI)) {
+      return false;
+    }
+  }
+
+  for (auto *User : Val->users()) {
+    if (auto *Inst = llvm::dyn_cast<llvm::Instruction>(User)) {
+      if (Inst->getParent() != BB || llvm::isa<llvm::PHINode>(Inst)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
 
 void DefinedFunc::setupStackFrame(llvm::BasicBlock *Entry) {
   llvm::SmallVector<llvm::AllocaInst *> StaticAllocas;

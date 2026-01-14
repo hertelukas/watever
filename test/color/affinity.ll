@@ -42,3 +42,28 @@ loop:
 exit:
   ret i32 %c
 }
+
+define i32 @test_affinity_forced(i32 %start, i32 %n) {
+; CHECK-LABEL: Coloring function test_affinity_forced
+; CHECK: Affinities
+; CHECK-NEXT: From next to i
+; CHECK-NEXT: From start to i
+; CHECK: Merging chunks next and i
+
+entry:
+  br label %loop
+
+loop:
+  %i = phi i32 [ %start, %entry ], [ %next, %loop ]
+  ; Break the lifetime, so %next and %i do not interfere
+  %tmp = call i32 @sink(i32 %i)
+  %next = add i32 %tmp, 1
+  ; Create interference between %next and %start
+  ; (in order for the coalescer to prefer %next over %start)
+  call i32 @sink(i32 %start)
+  %cond = icmp eq i32 %next, %n
+  br i1 %cond, label %loop, label %exit
+
+exit:
+  ret i32 %next
+}

@@ -121,25 +121,6 @@ BlockLowering::getDependencyTreeUserCount(llvm::Instruction *Root) const {
   return Result;
 }
 
-bool BlockLowering::hasExternalUser(llvm::Value *Val) {
-  // If this instruction is a promoted alloca, it alrady has a local and does
-  // not need to be materialized for external users
-  if (auto *AI = llvm::dyn_cast<llvm::AllocaInst>(Val)) {
-    if (Parent->PromotedAllocas.contains(AI)) {
-      return false;
-    }
-  }
-
-  for (auto *User : Val->users()) {
-    if (auto *Inst = llvm::dyn_cast<llvm::Instruction>(User)) {
-      if (Inst->getParent() != BB || llvm::isa<llvm::PHINode>(Inst)) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
 void BlockLowering::handleIntrinsic(llvm::CallInst &CI) {
   switch (CI.getCalledFunction()->getIntrinsicID()) {
   case llvm::Intrinsic::memset: {
@@ -938,7 +919,7 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
     // For each instructions with possible side effects, build a dependency tree
     // on the stack in reverse order.
     if (Inst.mayHaveSideEffects() || Inst.isTerminator() ||
-        hasExternalUser(&Inst)) {
+        Parent->hasExternalUser(&Inst, BB)) {
       WATEVER_LOG_TRACE("{} is AST root, materialize", llvmToString(Inst));
       llvm::DenseMap<llvm::Value *, Local *> ASTLocals;
       WorkList.push_back(&Inst);
