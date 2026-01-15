@@ -42,6 +42,9 @@ int main(int argc, char *argv[]) {
   args::Flag LegalOnly(Parser, "legal", "Run only legalization and print IR",
                        {"legal"});
 
+  args::Flag LegalAndOpt(Parser, "legal_opt",
+                         "Run legalization and LLVM passes", {"legal_opt"});
+
   args::Flag DisableColoring(Parser, "Disable Coloring Pass",
                              "Skip coloring pass and assign locals greedily",
                              {"disable-coloring"}, false);
@@ -195,6 +198,11 @@ int main(int argc, char *argv[]) {
 
   OptimizePM.addPass(llvm::createModuleToFunctionPassAdaptor(std::move(FPM)));
   OptimizePM.run(*Mod, MAM);
+
+  if (LegalAndOpt) {
+    Mod->print(*OS, nullptr);
+    return 0;
+  }
 
   watever::ModuleLowering LoweringContext{};
   auto LoweredModule = LoweringContext.convert(*Mod, FAM, Config);

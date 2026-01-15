@@ -11,19 +11,27 @@
 #include <iostream>
 #include <string>
 
-__attribute__((noinline))
-static int fib(int n, int a, int b) {
+struct Data {
+  int a;
+  int b;
+
+  Data(int a, int b) : a{a}, b{b} {}
+};
+
+static int fib(int n, Data d) {
   if (n == 0) {
-    return a + b;
+    return d.a + d.b;
   }
-  return fib(n - 1, b, a + b);
+  auto D = Data(d.b, d.a + d.b);
+  return fib(n - 1, D);
 }
 
 int main(int argc, char **argv) {
   if (argc < 2)
     return 1;
   int num = std::stoi(argv[1]);
-  int res = fib(num - 2, 0, 1);
+  auto D = Data(0, 1);
+  int res = fib(num - 2, D);
   std::cout << "The " << num << "th fibonacci number is " << res << "\n";
 }
 

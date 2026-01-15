@@ -1155,23 +1155,6 @@ std::unique_ptr<Wasm> FunctionLowering::doBranch(const llvm::BasicBlock *Source,
                                                  const Context &Ctx) {
   // Actions to be executed on the edge
   WasmActions PhiActions;
-  llvm::DenseMap<llvm::PHINode *, int32_t> Readers;
-  for (auto &Phi : Target->phis()) {
-    // Check for cycles
-    if (auto *ReadPhi = llvm::dyn_cast<llvm::PHINode>(
-            Phi.getIncomingValueForBlock(Source))) {
-      if (ReadPhi->getParent() == Target) {
-        Readers[ReadPhi]++;
-      }
-    }
-  }
-
-  // Queue of ready phi nodes
-  llvm::SmallVector<llvm::PHINode *> Ready;
-  for (auto &Phi : Target->phis()) {
-    if (!Readers.contains(&Phi))
-      Ready.push_back(&Phi);
-  }
 
   auto GetOrCreateLocal = [&](llvm::Value *Val) {
     Local *Result;
@@ -1185,79 +1168,33 @@ std::unique_ptr<Wasm> FunctionLowering::doBranch(const llvm::BasicBlock *Source,
     return Result;
   };
 
-  auto EmitCycleFree = [&](llvm::PHINode *Ignore = nullptr) {
-    while (!Ready.empty()) {
-      auto *Node = Ready.pop_back_val();
+  llvm::SmallVector<Local *> Destinations;
 
-      // This allows us to handle nodes manually (for breaking cycles)
-      if (Node == Ignore)
+  // Put all phi arguments on the stack
+  for (auto &Phi : Target->phis()) {
+    auto *IncomingVal = Phi.getIncomingValueForBlock(Source);
+    Local *DestLocal = GetOrCreateLocal(&Phi);
+    if (putValueOnStack(IncomingVal, PhiActions, M,
+                        Source->getDataLayout().getPointerSizeInBits() == 64)) {
+    } else if (llvm::isa<llvm::Argument>(IncomingVal) ||
+               llvm::isa<llvm::Instruction>(IncomingVal)) {
+
+      Local *SourceLocal = GetOrCreateLocal(IncomingVal);
+      if (SourceLocal == DestLocal) {
         continue;
-
-      WATEVER_LOG_TRACE("emitting phi edge from {} to {}", getBlockName(Source),
-                        getBlockName(Target));
-
-      llvm::Value *IncomingVal = Node->getIncomingValueForBlock(Source);
-      WATEVER_LOG_TRACE("incoming value is {}",
-                        IncomingVal->getNameOrAsOperand());
-      WATEVER_LOG_TRACE("PHI node is: {}", Node->getNameOrAsOperand());
-
-      Local *DestLocal = GetOrCreateLocal(Node);
-
-      if (putValueOnStack(IncomingVal, PhiActions, M,
-                          Source->getDataLayout().getPointerSizeInBits() ==
-                              64)) {
-        PhiActions.Insts.emplace_back(Opcode::LocalSet, DestLocal);
-      } else if (llvm::isa<llvm::Argument>(IncomingVal) ||
-                 llvm::isa<llvm::Instruction>(IncomingVal)) {
-
-        Local *SourceLocal = GetOrCreateLocal(IncomingVal);
-
-        WATEVER_LOG_TRACE("local set {}", DestLocal->Index);
-
-        if (SourceLocal != DestLocal) {
-          PhiActions.Insts.push_back(WasmInst(Opcode::LocalGet, SourceLocal));
-          PhiActions.Insts.push_back(WasmInst(Opcode::LocalSet, DestLocal));
-        }
-
-        // Decrement readers of IncomingValue
-        if (auto *ReadPhi = llvm::dyn_cast<llvm::PHINode>(IncomingVal)) {
-          if (--Readers[ReadPhi] == 0)
-            Ready.push_back(ReadPhi);
-        }
-      } else {
-        WATEVER_UNIMPLEMENTED("Unsupported phi argument {}",
-                              IncomingVal->getNameOrAsOperand());
       }
+      PhiActions.Insts.push_back(WasmInst(Opcode::LocalGet, SourceLocal));
+    } else {
+      WATEVER_UNIMPLEMENTED("Unsupported phi argument {}",
+                            IncomingVal->getNameOrAsOperand());
     }
-  };
+    Destinations.push_back(DestLocal);
+  }
 
-  EmitCycleFree();
-
-  // Check for cycle
-  for (auto &[Node, NumReaders] : Readers) {
-    if (NumReaders > 1) {
-      WATEVER_UNREACHABLE("Cycle should only have nodes with single reader");
-    }
-    if (NumReaders > 0) {
-      // Put incoming value on the stack, it is read by node
-      if (auto *IncomingVal = llvm::dyn_cast<llvm::PHINode>(
-              Node->getIncomingValueForBlock(Source))) {
-        WATEVER_LOG_TRACE(
-            "Edge has a phi cycle. Breaking at: {}, reading from {}",
-            Node->getNameOrAsOperand(), IncomingVal->getNameOrAsOperand());
-        PhiActions.Insts.emplace_back(Opcode::LocalGet,
-                                      GetOrCreateLocal(IncomingVal));
-        // Now, incoming value has no readers anymore
-        Readers[IncomingVal]--;
-        Ready.push_back(IncomingVal);
-        // Node is written manually (over the stack)
-        EmitCycleFree(Node);
-        // Now, node can read incoming value
-        PhiActions.Insts.emplace_back(Opcode::LocalSet, GetOrCreateLocal(Node));
-        break;
-      }
-      WATEVER_UNREACHABLE("cycle while reading non-phi is not possible");
-    }
+  // Pop them into their destinations
+  while (!Destinations.empty()) {
+    PhiActions.Insts.emplace_back(Opcode::LocalSet,
+                                  Destinations.pop_back_val());
   }
 
   std::unique_ptr<Wasm> BranchNode;
@@ -1392,7 +1329,8 @@ std::unique_ptr<Wasm> FunctionLowering::nodeWithin(
 
 int FunctionLowering::index(const llvm::BasicBlock *BB, const Context &Ctx) {
   int I = 0;
-  // Iterate in reverse to find the innermost matching label (relative index 0)
+  // Iterate in reverse to find the innermost matching label (relative index
+  // 0)
   for (auto &It : std::ranges::reverse_view(Ctx)) {
     if (It.Label == BB) {
       return I;
