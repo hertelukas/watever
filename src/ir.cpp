@@ -830,6 +830,28 @@ void BlockLowering::visitSExtInst(llvm::SExtInst &SI) {
   WATEVER_UNREACHABLE("Can not expand from {} to {}", FromWidth, ToWidth);
 }
 
+void BlockLowering::visitFPTruncInst(llvm::FPTruncInst &FI) {
+  addOperandsToWorklist(FI.operands());
+  if (FI.getSrcTy()->isDoubleTy() && FI.getDestTy()->isFloatTy()) {
+    Actions.Insts.emplace_back(Opcode::F32DemoteF64);
+    return;
+  }
+  WATEVER_UNREACHABLE("Can not truncate from {} to {}",
+                      llvmToString(*FI.getSrcTy()),
+                      llvmToString(*FI.getDestTy()));
+}
+
+void BlockLowering::visitFPExtInst(llvm::FPExtInst &FI) {
+  addOperandsToWorklist(FI.operands());
+  if (FI.getSrcTy()->isFloatTy() && FI.getDestTy()->isDoubleTy()) {
+    Actions.Insts.emplace_back(Opcode::F64PromoteF32);
+    return;
+  }
+  WATEVER_UNREACHABLE("Can not extend from {} to {}",
+                      llvmToString(*FI.getSrcTy()),
+                      llvmToString(*FI.getDestTy()));
+}
+
 void BlockLowering::visitSIToFPInst(llvm::SIToFPInst &SI) {
   auto FromWidth = SI.getSrcTy()->getIntegerBitWidth();
 
