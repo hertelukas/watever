@@ -774,6 +774,35 @@ void FunctionLegalizer::visitSExtInst(llvm::SExtInst &SI) {
                         llvmToString(*SI.getDestTy()));
 }
 
+void FunctionLegalizer::visitFPTruncInst(llvm::FPTruncInst &FI) {
+  auto Arg = getMappedValue(FI.getOperand(0));
+
+  if (Arg.isScalar()) {
+    if (FI.getSrcTy()->isDoubleTy() && FI.getDestTy()->isFloatTy()) {
+      ValueMap[&FI] = Builder.CreateFPTrunc(Arg[0], FI.getDestTy());
+      return;
+    }
+  }
+
+  WATEVER_UNIMPLEMENTED("fp trunc from {} to {}", llvmToString(*FI.getSrcTy()),
+                        llvmToString(*FI.getDestTy()));
+}
+
+void FunctionLegalizer::visitFPExtInst(llvm::FPExtInst &FI) {
+  auto Arg = getMappedValue(FI.getOperand(0));
+
+  if (Arg.isScalar()) {
+    if (FI.getSrcTy()->isFloatTy() && FI.getDestTy()->isDoubleTy()) {
+      ValueMap[&FI] = Builder.CreateFPExt(Arg[0], FI.getDestTy());
+      return;
+    }
+  }
+
+  WATEVER_UNIMPLEMENTED("fp extension from {} to {}",
+                        llvmToString(*FI.getSrcTy()),
+                        llvmToString(*FI.getDestTy()));
+}
+
 void FunctionLegalizer::visitSIToFPInst(llvm::SIToFPInst &SI) {
   auto Arg = getMappedValue(SI.getOperand(0));
   auto *TargetTy = SI.getDestTy();
