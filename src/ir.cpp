@@ -830,6 +830,29 @@ void BlockLowering::visitSExtInst(llvm::SExtInst &SI) {
   WATEVER_UNREACHABLE("Can not expand from {} to {}", FromWidth, ToWidth);
 }
 
+void BlockLowering::visitSIToFPInst(llvm::SIToFPInst &SI) {
+  auto FromWidth = SI.getSrcTy()->getIntegerBitWidth();
+
+  addOperandsToWorklist(SI.operands());
+
+  if (SI.getDestTy()->isFloatTy()) {
+    if (FromWidth == 32) {
+      Actions.Insts.emplace_back(Opcode::F32ConvertI32S);
+    } else {
+      Actions.Insts.emplace_back(Opcode::F32ConvertI64S);
+    }
+  } else if (SI.getDestTy()->isDoubleTy()) {
+    if (FromWidth == 32) {
+      Actions.Insts.emplace_back(Opcode::F64ConvertI32S);
+    } else {
+      Actions.Insts.emplace_back(Opcode::F64ConvertI64S);
+    }
+  } else {
+    WATEVER_UNREACHABLE("Can not SI to FP for {}",
+                        llvmToString(*SI.getDestTy()));
+  }
+}
+
 //===----------------------------------------------------------------------===//
 // Other Operations
 //===----------------------------------------------------------------------===//
