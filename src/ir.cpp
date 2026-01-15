@@ -502,6 +502,14 @@ void BlockLowering::doGreedyMemOp(llvm::Instruction &I, Opcode::Enum Op) {
     WATEVER_UNREACHABLE("could not get pointer from memory operation");
   }
 
+  // If we already have a local containing the pointer, we can just use our
+  // pointer with offset instead of inlining offsets.
+  if (Parent->LocalMapping.contains(Ptr)) {
+    Actions.Insts.emplace_back(Op, std::make_unique<MemArg>());
+    WorkList.push_back(Ptr);
+    return;
+  }
+
   if (auto *IntToPtr = llvm::dyn_cast<llvm::IntToPtrInst>(Ptr)) {
     if (auto *BinOp =
             llvm::dyn_cast<llvm::BinaryOperator>(IntToPtr->getOperand(0))) {

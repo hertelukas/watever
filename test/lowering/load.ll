@@ -186,3 +186,25 @@ entry:
   ret ptr %1
 }
 
+define ptr @load_root_gep(ptr %a) {
+; CHECK-LABEL:  $load_root_gep
+; CHECK-NEXT: local.get 0
+; CHECK-NEXT: i32.const 12
+; CHECK-NEXT: i32.add
+; CHECK-NEXT: local.set 0
+; CHECK-NEXT: local.get 0
+; CHECK-NEXT: local.get 0
+; CHECK-NEXT: i32.load align=1
+; CHECK-NEXT: i32.store align=1
+; CHECK-NEXT: local.get 0
+entry:
+; %a is a root and dies here; so %1 can be stored into the same local
+  %1 = getelementptr i8, ptr %a, i32 12
+; the load here does a greedy inlining of the offset - thinking that %a
+; is still valid 
+  %2 = load i32, ptr %1, align 4
+  store i32 %2, ptr %1
+  br label %exit
+exit:
+  ret ptr %1
+}

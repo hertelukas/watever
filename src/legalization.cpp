@@ -398,9 +398,10 @@ void FunctionLegalizer::visitAllocaInst(llvm::AllocaInst &AI) {
   if (!llvm::isa<llvm::Constant>(ArraySize)) {
     ArraySize = getMappedValue(ArraySize)[0];
   }
-
-  ValueMap[&AI] = Builder.CreateAlloca(
+  auto *NewAI = Builder.CreateAlloca(
       AI.getAllocatedType(), AI.getAddressSpace(), ArraySize, AI.getName());
+  NewAI->setAlignment(AI.getAlign());
+  ValueMap[&AI] = NewAI;
 }
 
 void FunctionLegalizer::visitLoadInst(llvm::LoadInst &LI) {
