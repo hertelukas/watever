@@ -19,10 +19,7 @@ entry:
 define i8 @ashr_i8_1(i8 %a) {
 ; CHECK-LABEL:  (func $ashr_i8_1 {{.*}} (param i32) (result i32)
 ; CHECK-NEXT:    local.get 0
-; CHECK-NEXT:    i32.const 24
-; CHECK-NEXT:    i32.shl
-; CHECK-NEXT:    i32.const 24
-; CHECK-NEXT:    i32.shr_s
+; CHECK-NEXT:    i32.extend8_s
 ; CHECK-NEXT:    i32.const 1
 ; CHECK-NEXT:    i32.shr_s
 entry:

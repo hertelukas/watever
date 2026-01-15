@@ -13,8 +13,8 @@ entry:
 
 define void @ashr_i8_1(i8 %a) {
 ; CHECK-LABEL: @ashr_i8_1
-; CHECK: shl i32 %a, 24
-; CHECK: ashr i32 %0, 24
+; CHECK: trunc i32 %a to i8
+; CHECK-NEXT: sext i8 {{.*}} to i32
 ; CHECK: ashr i32 %1, 1
 entry:
   %1 = ashr i8 %a, 1
@@ -23,8 +23,8 @@ entry:
 
 define void @ashr_i8_i8(i8 %a, i8 %b) {
 ; CHECK-LABEL: @ashr_i8_i8
-; CHECK: shl i32 %a, 24
-; CHECK: ashr i32 %0, 24
+; CHECK: trunc i32 %a to i8
+; CHECK-NEXT: sext i8 {{.*}} to i32
 ; CHECK: and i32 %b, 255
 ; CHECK: ashr i32 %1, %2
 entry:
@@ -34,8 +34,8 @@ entry:
 
 define void @ashr_i16_i16(i16 %a, i16 %b) {
 ; CHECK-LABEL: @ashr_i16_i16
-; CHECK: shl i32 %a, 16
-; CHECK: ashr i32 %0, 16
+; CHECK: trunc i32 {{.*}} to i16
+; CHECK-NEXT: sext i16 {{.*}} to i32
 ; CHECK: and i32 %b, 65535
 ; CHECK: ashr i32 %1, %2
 entry:

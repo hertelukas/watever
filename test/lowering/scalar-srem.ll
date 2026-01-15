@@ -21,10 +21,7 @@ entry:
 define i8 @srem_i8_3(i8 %a) {
 ; CHECK-LABEL:  (func $srem_i8_3 {{.*}} (param i32) (result i32)
 ; CHECK-NEXT:    local.get 0
-; CHECK-NEXT:    i32.const 24
-; CHECK-NEXT:    i32.shl
-; CHECK-NEXT:    i32.const 24
-; CHECK-NEXT:    i32.shr_s
+; CHECK-NEXT:    i32.extend8_s
 ; CHECK-NEXT:    i32.const 3
 ; CHECK-NEXT:    i32.rem_s
 entry:
@@ -70,4 +67,3 @@ entry:
   %0 = srem i64 %a, %b
   ret i64 %0
 }
-

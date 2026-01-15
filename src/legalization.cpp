@@ -766,59 +766,7 @@ void FunctionLegalizer::visitSExtInst(llvm::SExtInst &SI) {
   const auto ToWidth = SI.getDestTy()->getIntegerBitWidth();
 
   if (Arg.isScalar()) {
-    const auto ArgWidth = Arg[0]->getType()->getIntegerBitWidth();
-    // The extension arguments take the lower bits of the argument and sign
-    // extend to the full type. However, they do not modify the underlying Wasm
-    // type.
-    if (Config.EnabledFeatures.sign_ext_enabled()) {
-      if (ToWidth == 32) {
-        // We cannot just emit a sext - as arg is already 32 bit. To force this,
-        // we trunc and than sext - which is a pattern recognized by the backend
-        if (FromWidth == 8 || FromWidth == 16) {
-          auto *NewArg = Builder.CreateTrunc(Arg[0], SI.getSrcTy());
-          ValueMap[&SI] =
-              Builder.CreateSExt(NewArg, SI.getDestTy(), SI.getName());
-          return;
-        }
-      } else if (ToWidth == 64) {
-        if (ArgWidth == 32 && (FromWidth == 8 || FromWidth == 16)) {
-          // This will result in an extend_i32_u followed by an i64_extend8_s
-          auto *NewArg = Builder.CreateTrunc(Arg[0], SI.getSrcTy());
-          ValueMap[&SI] =
-              Builder.CreateSExt(NewArg, SI.getDestTy(), SI.getName());
-          return;
-        }
-        // If the WebAssembly type is already 32 bit, it will be handled by the
-        // default extend instruction.
-        if (ArgWidth == 64 &&
-            (FromWidth == 8 || FromWidth == 16 || FromWidth == 32)) {
-          auto *NewArg = Builder.CreateTrunc(Arg[0], SI.getSrcTy());
-          ValueMap[&SI] =
-              Builder.CreateSExt(NewArg, SI.getDestTy(), SI.getName());
-          return;
-        }
-      }
-    }
-    // Natively supported - WebAssembly types match LLVM IR types
-    if (FromWidth == 32 && ToWidth == 64) {
-      ValueMap[&SI] = Builder.CreateSExt(Arg[0], SI.getDestTy(), SI.getName());
-      return;
-    }
-
-    auto *From = Arg[0];
-    // Otherwise, we have to shl followed by arithemtic shift right to set upper
-    // bits
-    if (FromWidth <= 32 && ToWidth > 32) {
-      // ZExt, if needed
-      From = Builder.CreateZExt(From, Int64Ty);
-    }
-
-    // Width of the WebAssembly type
-    const auto TargetWidth = From->getType()->getIntegerBitWidth();
-    const auto ShiftAmount = TargetWidth - FromWidth;
-    // Fill upper bits with 1, if needed
-    From = Builder.CreateShl(From, ShiftAmount);
-    ValueMap[&SI] = Builder.CreateAShr(From, ShiftAmount, SI.getName());
+    ValueMap[&SI] = signExtend(Arg[0], FromWidth, ToWidth);
     return;
   }
   WATEVER_UNIMPLEMENTED("non-scalar zext from {} to {}",
@@ -826,6 +774,25 @@ void FunctionLegalizer::visitSExtInst(llvm::SExtInst &SI) {
                         llvmToString(*SI.getDestTy()));
 }
 
+void FunctionLegalizer::visitSIToFPInst(llvm::SIToFPInst &SI) {
+  auto Arg = getMappedValue(SI.getOperand(0));
+  auto *TargetTy = SI.getDestTy();
+
+  if (!TargetTy->isDoubleTy() && !TargetTy->isFloatingPointTy()) {
+    WATEVER_UNIMPLEMENTED("unsupported SI to FP type {}",
+                          llvmToString(*TargetTy));
+  }
+
+  if (Arg.isScalar()) {
+    auto *Extended = signExtend(Arg[0], SI.getSrcTy()->getIntegerBitWidth(),
+                                Arg[0]->getType()->getIntegerBitWidth());
+    ValueMap[&SI] = Builder.CreateSIToFP(Extended, TargetTy);
+    return;
+  }
+  WATEVER_UNIMPLEMENTED("non-scalar SI {} to FP {}",
+                        llvmToString(*SI.getSrcTy()),
+                        llvmToString(*SI.getDestTy()));
+}
 //===----------------------------------------------------------------------===//
 // Other Operations
 //===----------------------------------------------------------------------===//

@@ -127,33 +127,59 @@ class FunctionLegalizer : public llvm::InstVisitor<FunctionLegalizer> {
   // be `To` bits wide, but this ensures that the entire `To` bits are signed
   // correctly. This is needed if we cannot ignore the upper bits, and sign
   // matters. (sdiv)
-  llvm::Value *signExtend(llvm::Value *Val, unsigned From, unsigned To) {
+  llvm::Value *signExtend(llvm::Value *Val, unsigned From, unsigned To,
+                          const llvm::Twine &Name = "") {
 
     // If the original value had the same width, we don't need to do anything
     if (To == From) {
       return Val;
     }
 
-    // Supported natively
-    if (To == 64 && From == 32 && Val->getType()->getIntegerBitWidth() == 32) {
-      return Builder.CreateSExt(Val, Int64Ty);
+    const auto ValWidth = Val->getType()->getIntegerBitWidth();
+
+    // The extension arguments take the lower bits of the argument and sign
+    // extend to the full type. However, they do not modify the underlying Wasm
+    // type.
+    if (Config.EnabledFeatures.sign_ext_enabled()) {
+      if (To == 32) {
+        // We cannot just emit a sext - as arg is already 32 bit. To force this,
+        // we trunc and than sext - which is a pattern recognized by the backend
+        if (From == 8 || From == 16) {
+          auto *NewArg = Builder.CreateTrunc(Val, Builder.getIntNTy(From));
+          return Builder.CreateSExt(NewArg, Int32Ty, Name);
+        }
+      } else if (To == 64) {
+        if (ValWidth == 32 && (From == 8 || From == 16)) {
+          // This will result in an extend_i32_u followed by an i64_extend8_s
+          auto *NewArg = Builder.CreateTrunc(Val, Builder.getIntNTy(From));
+          return Builder.CreateSExt(NewArg, Int64Ty, Name);
+        }
+        // If the WebAssembly type is already 32 bit, it will be handled by the
+        // default extend instruction.
+        if (ValWidth == 64 && (From == 8 || From == 16 || From == 32)) {
+          auto *NewArg = Builder.CreateTrunc(Val, Builder.getIntNTy(From));
+          return Builder.CreateSExt(NewArg, Int64Ty, Name);
+        }
+      }
+    }
+    // Natively supported - WebAssembly types match LLVM IR types
+    if (From == 32 && To == 64) {
+      return Builder.CreateSExt(Val, Int64Ty, Name);
     }
 
-    llvm::Type *TargetTy = nullptr;
-    if (To == 32) {
-      TargetTy = Int32Ty;
-    } else if (To == 64) {
-      TargetTy = Int64Ty;
-    } else {
-      WATEVER_UNIMPLEMENTED("Unsupported sign extension to {}", To);
+    // Otherwise, we have to shl followed by arithemtic shift right to set upper
+    // bits
+    if (From <= 32 && To > 32) {
+      // ZExt, if needed
+      Val = Builder.CreateZExt(Val, Int64Ty);
     }
 
-    // TODO check for --enable-sign-extension
-    auto *WideOperand = Builder.CreateZExt(Val, TargetTy);
-    auto *MaskVal = llvm::ConstantInt::get(TargetTy, To - From);
-    llvm::Value *Shl = Builder.CreateShl(WideOperand, MaskVal);
-    llvm::Value *Shr = Builder.CreateAShr(Shl, MaskVal);
-    return Shr;
+    // Width of the WebAssembly type
+    const auto ShiftAmount = ValWidth - From;
+    // Fill upper bits with 1, if needed
+    Val = Builder.CreateShl(Val, ShiftAmount);
+
+    return Builder.CreateAShr(Val, ShiftAmount, Name);
   }
 
 public:
@@ -196,6 +222,8 @@ public:
   void visitTruncInst(llvm::TruncInst &TI);
   void visitZExtInst(llvm::ZExtInst &ZI);
   void visitSExtInst(llvm::SExtInst &SI);
+
+  void visitSIToFPInst(llvm::SIToFPInst &SI);
 
   void visitPtrToIntInst(llvm::PtrToIntInst &I) {
     auto Arg = getMappedValue(I.getPointerOperand());
