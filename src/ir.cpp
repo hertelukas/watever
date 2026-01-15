@@ -31,11 +31,10 @@
 
 using namespace watever;
 
-
 /// Returns true, if \p Val has been put successfully on top of the stack,
 /// false otherwise.
 static bool putValueOnStack(llvm::Value *Val, WasmActions &Actions, Module &M,
-                              bool Is64Bit /* = false */) {
+                            bool Is64Bit) {
   if (auto *GV = llvm::dyn_cast<llvm::GlobalVariable>(Val)) {
     auto *WasmData = M.DataMap[GV];
     if (!WasmData) {
@@ -1151,9 +1150,9 @@ std::unique_ptr<Wasm> FunctionLowering::doBranch(const llvm::BasicBlock *Source,
   llvm::DenseMap<llvm::PHINode *, int32_t> Readers;
   for (auto &Phi : Target->phis()) {
     // Check for cycles
-    if (Target == Source) {
-      if (auto *ReadPhi = llvm::dyn_cast<llvm::PHINode>(
-              Phi.getIncomingValueForBlock(Source))) {
+    if (auto *ReadPhi = llvm::dyn_cast<llvm::PHINode>(
+            Phi.getIncomingValueForBlock(Source))) {
+      if (ReadPhi->getParent() == Target) {
         Readers[ReadPhi]++;
       }
     }
@@ -1162,7 +1161,7 @@ std::unique_ptr<Wasm> FunctionLowering::doBranch(const llvm::BasicBlock *Source,
   // Queue of ready phi nodes
   llvm::SmallVector<llvm::PHINode *> Ready;
   for (auto &Phi : Target->phis()) {
-    if (Readers[&Phi] == 0)
+    if (!Readers.contains(&Phi))
       Ready.push_back(&Phi);
   }
 

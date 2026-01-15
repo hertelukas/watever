@@ -9,6 +9,7 @@
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/SourceMgr.h>
 #include <llvm/Transforms/Scalar/ADCE.h>
+#include <llvm/Transforms/Utils/BreakCriticalEdges.h>
 
 #define ARGS_NOEXCEPT
 #include "args/args.hxx"
@@ -190,6 +191,7 @@ int main(int argc, char *argv[]) {
   llvm::ModulePassManager OptimizePM;
   llvm::FunctionPassManager FPM;
   FPM.addPass(llvm::ADCEPass());
+  FPM.addPass(llvm::BreakCriticalEdgesPass());
 
   OptimizePM.addPass(llvm::createModuleToFunctionPassAdaptor(std::move(FPM)));
   OptimizePM.run(*Mod, MAM);
