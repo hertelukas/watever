@@ -17,6 +17,7 @@
 #include <llvm/IR/Analysis.h>
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/CFG.h>
+#include <llvm/IR/DataLayout.h>
 #include <llvm/IR/Dominators.h>
 #include <llvm/IR/GlobalValue.h>
 #include <llvm/IR/InstVisitor.h>
@@ -129,7 +130,7 @@ class Module {
   }
 
   void flattenConstant(const llvm::Constant *C, std::vector<uint8_t> &Buffer,
-                       llvm::SmallVector<RelocationEntry> &Relocs);
+                       llvm::SmallVector<RelocationEntry> &Relocs, const llvm::DataLayout &DL);
 
 public:
   TargetConfig Config;

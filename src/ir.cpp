@@ -16,6 +16,7 @@
 #include <llvm/IR/Argument.h>
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/Constants.h>
+#include <llvm/IR/DataLayout.h>
 #include <llvm/IR/GlobalValue.h>
 #include <llvm/IR/GlobalVariable.h>
 #include <llvm/IR/InstrTypes.h>
@@ -132,7 +133,8 @@ static bool putValueOnStack(llvm::Value *Val, WasmActions &Actions, Module &M,
 
 void Module::flattenConstant(const llvm::Constant *C,
                              std::vector<uint8_t> &Buffer,
-                             llvm::SmallVector<RelocationEntry> &Relocs) {
+                             llvm::SmallVector<RelocationEntry> &Relocs,
+                             const llvm::DataLayout &DL) {
   // Simple data arrays
   if (auto *CDS = llvm::dyn_cast<llvm::ConstantDataSequential>(C)) {
     llvm::StringRef RawData = CDS->getRawDataValues();
@@ -143,7 +145,7 @@ void Module::flattenConstant(const llvm::Constant *C,
   // Aggregates
   if (auto *CA = llvm::dyn_cast<llvm::ConstantAggregate>(C)) {
     for (unsigned I = 0; I != CA->getNumOperands(); ++I) {
-      flattenConstant(CA->getOperand(I), Buffer, Relocs);
+      flattenConstant(CA->getOperand(I), Buffer, Relocs, DL);
     }
     return;
   }
@@ -167,8 +169,9 @@ void Module::flattenConstant(const llvm::Constant *C,
   }
 
   // zero initializers
-  if (llvm::isa<llvm::ConstantAggregateZero>(C)) {
-    WATEVER_UNIMPLEMENTED("figure out alloc size");
+  if (auto *CAZ = llvm::dyn_cast<llvm::ConstantAggregateZero>(C)) {
+    uint64_t Size = DL.getTypeAllocSize(CAZ->getType());
+    Buffer.insert(Buffer.end(), Size, 0);
     return;
   }
 
@@ -1550,7 +1553,8 @@ Module ModuleLowering::convert(llvm::Module &Mod,
     std::vector<uint8_t> Content;
     llvm::SmallVector<RelocationEntry> Relocs;
 
-    Res.flattenConstant(GV.getInitializer(), Content, Relocs);
+    Res.flattenConstant(GV.getInitializer(), Content, Relocs,
+                        Mod.getDataLayout());
 
     DataSection S;
     if (GV.isConstant()) {

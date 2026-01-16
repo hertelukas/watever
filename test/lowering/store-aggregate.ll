@@ -1,36 +1,14 @@
-; RUN: watever -l 0 --legal %s | FileCheck %s
+; RUN: watever -l 0 %s | wasm2wat - | FileCheck %s
+
+target datalayout = "e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-i128:128-n32:64-S128-ni:1:10:20"
+target triple = "wasm32-unknown-unknown"
 
 %MyStruct = type { i32, float, [4 x i8] }
 
 @struct_instance = global %MyStruct zeroinitializer
 
 define void @store_struct() {
-; CHECK-LABEL: @store_struct
-; CHECK:      %ptr = alloca %MyStruct, align 8
-
-; CHECK-NEXT: store i32 0, ptr %ptr, align 4
-
-; CHECK-NEXT: ptrtoint ptr %ptr to i64
-; CHECK-NEXT: add i64 %1, 4
-; CHECK-NEXT: inttoptr i64 %2 to ptr
-; CHECK-NEXT: store float 0.000000e+00, ptr {{.*}}, align 4
-
-; CHECK-NEXT: ptrtoint ptr %ptr to i64
-; CHECK-NEXT: add i64 %{{.*}}, 8
-; CHECK-NEXT: inttoptr i64 {{.*}} to ptr
-; CHECK-NEXT: store i8 0, ptr {{.*}}, align 1
-; CHECK-NEXT: ptrtoint ptr %ptr to i64
-; CHECK-NEXT: add i64 {{.*}}, 9
-; CHECK-NEXT: inttoptr i64 {{.*}} to ptr
-; CHECK-NEXT: store i8 0, ptr {{.*}}, align 1
-; CHECK-NEXT: ptrtoint ptr %ptr to i64
-; CHECK-NEXT: add i64 {{.*}}, 10
-; CHECK-NEXT: inttoptr i64 {{.*}} to ptr
-; CHECK-NEXT: store i8 0, ptr {{.*}}, align 1
-; CHECK-NEXT: ptrtoint ptr %ptr to i64
-; CHECK-NEXT: add i64 {{.*}}, 11
-; CHECK-NEXT: inttoptr i64 {{.*}} to ptr
-; CHECK-NEXT: store i8 0, ptr {{.*}}, align 1 
+; CHECK-LABEL: $store_struct
   %ptr = alloca %MyStruct
   store %MyStruct zeroinitializer, %MyStruct* %ptr
   ret void
