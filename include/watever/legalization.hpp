@@ -224,6 +224,8 @@ public:
   void visitSExtInst(llvm::SExtInst &SI);
   void visitFPTruncInst(llvm::FPTruncInst &FI);
   void visitFPExtInst(llvm::FPExtInst &FI);
+  void visitFPToUIInst(llvm::FPToUIInst &FI);
+  void visitFPToSIInst(llvm::FPToSIInst &FI);
 
   void visitSIToFPInst(llvm::SIToFPInst &SI);
 

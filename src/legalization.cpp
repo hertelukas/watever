@@ -803,6 +803,46 @@ void FunctionLegalizer::visitFPExtInst(llvm::FPExtInst &FI) {
                         llvmToString(*FI.getDestTy()));
 }
 
+void FunctionLegalizer::visitFPToUIInst(llvm::FPToUIInst &FI) {
+  auto Arg = getMappedValue(FI.getOperand(0));
+
+  if (Arg.isScalar()) {
+    auto TargetWidth = FI.getDestTy()->getIntegerBitWidth();
+
+    if (FI.getSrcTy()->isFloatTy() || FI.getSrcTy()->isDoubleTy()) {
+      if (TargetWidth <= 32) {
+        ValueMap[&FI] = Builder.CreateFPToUI(Arg[0], Int32Ty);
+      } else if (TargetWidth <= 64) {
+        ValueMap[&FI] = Builder.CreateFPToUI(Arg[0], Int64Ty);
+      }
+      return;
+    }
+  }
+  WATEVER_UNIMPLEMENTED("fp to unsigned integer from {} to {}",
+                        llvmToString(*FI.getSrcTy()),
+                        llvmToString(*FI.getDestTy()));
+}
+
+void FunctionLegalizer::visitFPToSIInst(llvm::FPToSIInst &FI) {
+  auto Arg = getMappedValue(FI.getOperand(0));
+
+  if (Arg.isScalar()) {
+    auto TargetWidth = FI.getDestTy()->getIntegerBitWidth();
+
+    if (FI.getSrcTy()->isFloatTy() || FI.getSrcTy()->isDoubleTy()) {
+      if (TargetWidth <= 32) {
+        ValueMap[&FI] = Builder.CreateFPToSI(Arg[0], Int32Ty);
+      } else if (TargetWidth <= 64) {
+        ValueMap[&FI] = Builder.CreateFPToSI(Arg[0], Int64Ty);
+      }
+      return;
+    }
+  }
+  WATEVER_UNIMPLEMENTED("fp to unsigned integer from {} to {}",
+                        llvmToString(*FI.getSrcTy()),
+                        llvmToString(*FI.getDestTy()));
+}
+
 void FunctionLegalizer::visitSIToFPInst(llvm::SIToFPInst &SI) {
   auto Arg = getMappedValue(SI.getOperand(0));
   auto *TargetTy = SI.getDestTy();
