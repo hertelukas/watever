@@ -757,8 +757,15 @@ void FunctionLegalizer::visitGetElementPtrInst(llvm::GetElementPtrInst &GI) {
       TotalOffset = Builder.CreateAdd(TotalOffset, ScaledOffset);
     }
   }
-
-  llvm::Value *BasePtrInt = Builder.CreatePtrToInt(PtrArg, IntPtrTy);
+  llvm::Value *BasePtrInt = nullptr;
+  if (llvm::isa<llvm::Constant>(PtrArg)) {
+    // Prevent inlining
+    auto *Inst = llvm::CastInst::Create(llvm::Instruction::PtrToInt, PtrArg,
+                                        IntPtrTy, "base_int");
+    BasePtrInt = Builder.Insert(Inst);
+  } else {
+    BasePtrInt = Builder.CreatePtrToInt(PtrArg, IntPtrTy, "base_int");
+  }
   llvm::Value *NewPtrInt = Builder.CreateAdd(BasePtrInt, TotalOffset);
   llvm::Value *NewPtr = Builder.CreateIntToPtr(NewPtrInt, PtrTy);
 
