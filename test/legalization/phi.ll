@@ -53,3 +53,16 @@ header:
 exit:
     ret i32 %2
 }
+
+define void @phi_i1(i32 %a, i32 %b) {
+; CHECK-LABEL: @phi_i1
+; CHECK: phi i32
+entry:
+  br label %header
+header:
+  %1 = phi i1 [false, %entry], [%cond, %header]
+  %cond = icmp eq i32 %a, %b
+  br i1 %cond, label %header, label %exit
+exit:
+  ret void
+}
