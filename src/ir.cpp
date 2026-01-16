@@ -852,6 +852,64 @@ void BlockLowering::visitFPExtInst(llvm::FPExtInst &FI) {
                       llvmToString(*FI.getDestTy()));
 }
 
+void BlockLowering::visitFPToUIInst(llvm::FPToUIInst &FI) {
+  addOperandsToWorklist(FI.operands());
+  auto ToWidth = FI.getDestTy()->getIntegerBitWidth();
+
+  if (FI.getSrcTy()->isFloatTy()) {
+    if (ToWidth == 32) {
+      Actions.Insts.emplace_back(Opcode::I32TruncSatF32U);
+      return;
+    }
+    if (ToWidth == 64) {
+      Actions.Insts.emplace_back(Opcode::I64TruncSatF32U);
+      return;
+    }
+  } else if (FI.getSrcTy()->isDoubleTy()) {
+    if (ToWidth == 32) {
+      Actions.Insts.emplace_back(Opcode::I32TruncSatF64U);
+      return;
+    }
+    if (ToWidth == 64) {
+      Actions.Insts.emplace_back(Opcode::I64TruncSatF64U);
+      return;
+    }
+  }
+
+  WATEVER_UNREACHABLE("Can not FP to UI from {} to {}",
+                      llvmToString(*FI.getSrcTy()),
+                      llvmToString(*FI.getDestTy()));
+}
+
+void BlockLowering::visitFPToSIInst(llvm::FPToSIInst &FI) {
+  addOperandsToWorklist(FI.operands());
+  auto ToWidth = FI.getDestTy()->getIntegerBitWidth();
+
+  if (FI.getSrcTy()->isFloatTy()) {
+    if (ToWidth == 32) {
+      Actions.Insts.emplace_back(Opcode::I32TruncSatF32S);
+      return;
+    }
+    if (ToWidth == 64) {
+      Actions.Insts.emplace_back(Opcode::I64TruncSatF32S);
+      return;
+    }
+  } else if (FI.getSrcTy()->isDoubleTy()) {
+    if (ToWidth == 32) {
+      Actions.Insts.emplace_back(Opcode::I32TruncSatF64S);
+      return;
+    }
+    if (ToWidth == 64) {
+      Actions.Insts.emplace_back(Opcode::I64TruncSatF64S);
+      return;
+    }
+  }
+
+  WATEVER_UNREACHABLE("Can not FP to SI from {} to {}",
+                      llvmToString(*FI.getSrcTy()),
+                      llvmToString(*FI.getDestTy()));
+}
+
 void BlockLowering::visitSIToFPInst(llvm::SIToFPInst &SI) {
   auto FromWidth = SI.getSrcTy()->getIntegerBitWidth();
 
