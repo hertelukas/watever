@@ -13,5 +13,14 @@ configure_file(lit.site.cfg.py.in lit.site.cfg.py @ONLY)
 
 add_custom_target(check-${PROJECT_NAME}
     COMMAND ${LLVM_EXTERNAL_LIT} -sv ${CMAKE_CURRENT_BINARY_DIR}
-    DEPENDS 
+    DEPENDS ${PROJECT_NAME}
+)
+
+add_custom_target(check-benchmark
+    COMMAND ${LLVM_EXTERNAL_LIT} -sv ${CMAKE_CURRENT_BINARY_DIR}/benchmark
+    DEPENDS ${PROJECT_NAME}
+)
+
+add_custom_target(check-all
+    DEPENDS check-${PROJECT_NAME} check-benchmark
 )

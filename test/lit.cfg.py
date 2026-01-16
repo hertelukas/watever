@@ -10,3 +10,4 @@ config.suffixes = ['.ll', '.c', '.cpp']
 path = os.path.pathsep.join((config.watever_binary_dir, config.environment['PATH']))
 config.environment['PATH'] = path
 
+config.excludes = ['benchmark']
