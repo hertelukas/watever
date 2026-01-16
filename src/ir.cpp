@@ -1366,8 +1366,15 @@ std::unique_ptr<Wasm> FunctionLowering::doTree(llvm::BasicBlock *Root,
   if (LI.isLoopHeader(Root)) {
     WATEVER_LOG_TRACE("Generating loop for {}", getBlockName(Root));
     Ctx.push_back(ContainingSyntax::createLoop(Root));
-    return std::make_unique<WasmLoop>(
+    auto Loop = std::make_unique<WasmLoop>(
         WasmLoop{nodeWithin(Root, MergeChildren, Ctx)});
+
+    if (MergeChildren.empty()) {
+      auto Unreachable = std::make_unique<WasmActions>();
+      Unreachable->Insts.emplace_back(Opcode::Unreachable);
+      return std::make_unique<WasmSeq>(std::move(Loop), std::move(Unreachable));
+    }
+    return Loop;
   }
 
   return nodeWithin(Root, MergeChildren, Ctx);

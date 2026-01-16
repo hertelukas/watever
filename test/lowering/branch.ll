@@ -51,6 +51,22 @@ exit:
   ret void
 }
 
+define i32 @loop_header_is_body(i1 %cond) {
+; CHECK-LABEL: $loop_header_is_body
+; CHECK: if
+; CHECK-NEXT: br 1
+; CHECK-NEXT: else
+; CHECK-NEXT: i32.const 0
+; CHECK-NEXT: return
+; CHECK: unreachable
+entry:
+  br label %header
+header:
+  br i1 %cond, label %header, label %exit
+exit:
+  ret i32 0
+}
+
 define i32 @live_across_blocks(i32 %a, i32 %b, i1 %cond) {
 ; CHECK-LABEL: live_across_blocks
 ; CHECK: local.get
