@@ -8,6 +8,10 @@ define void @illegal_arg_target(i128 %a) {
   ret void
 }
 
+define void @i1_target(i1 %a) {
+  ret void
+}
+
 define i128 @illegal_ret_target() {
   ret i128 100
 }
@@ -64,5 +68,17 @@ define void @call_vararg_i32_i64() {
 ; CHECK: store
 ; CHECK: call void @vararg_target(i32 5, ptr [[PTR]])
   call void (i32, ...) @vararg_target(i32 5, i32 6, i64 7)
+  ret void
+}
+
+define void @call_icmp_i1(i32 %a, i32 %b) {
+  %1 = icmp ult i32 %a, %b
+  call void @i1_target(i1 %1)
+  ret void
+}
+
+define void @call_fcmp_i1(float %a, float %b) {
+  %1 = fcmp ugt float %a, %b
+  call void @i1_target(i1 %1)
   ret void
 }

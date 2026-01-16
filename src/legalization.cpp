@@ -891,8 +891,10 @@ void FunctionLegalizer::visitICmpInst(llvm::ICmpInst &ICI) {
   auto RHS = getMappedValue(ICI.getOperand(1));
 
   if (LHS.isScalar()) {
-    ValueMap[&ICI] =
+    auto *Comparison =
         Builder.CreateICmp(ICI.getPredicate(), LHS[0], RHS[0], ICI.getName());
+
+    ValueMap[&ICI] = Builder.CreateZExt(Comparison, Int32Ty);
     return;
   }
 
@@ -902,6 +904,7 @@ void FunctionLegalizer::visitICmpInst(llvm::ICmpInst &ICI) {
 void FunctionLegalizer::visitFCmpInst(llvm::FCmpInst &FCI) {
   auto LHS = getMappedValue(FCI.getOperand(0));
   auto RHS = getMappedValue(FCI.getOperand(1));
+  llvm::Value *Comparison;
 
   if (LHS.isScalar()) {
     switch (FCI.getPredicate()) {
@@ -914,58 +917,59 @@ void FunctionLegalizer::visitFCmpInst(llvm::FCmpInst &FCI) {
     case llvm::CmpInst::FCMP_OLE:
     case llvm::CmpInst::FCMP_UNE:
     case llvm::CmpInst::FCMP_TRUE:
-      ValueMap[&FCI] =
+      Comparison =
           Builder.CreateFCmp(FCI.getPredicate(), LHS[0], RHS[0], FCI.getName());
       break;
     // These are not
     case llvm::CmpInst::FCMP_ONE: {
       auto *GT = Builder.CreateFCmpOGT(LHS[0], RHS[0]);
       auto *LT = Builder.CreateFCmpOLT(LHS[0], RHS[0]);
-      ValueMap[&FCI] = Builder.CreateOr(GT, LT, FCI.getName());
+      Comparison = Builder.CreateOr(GT, LT, FCI.getName());
       break;
     }
     case llvm::CmpInst::FCMP_ORD: {
       auto *FirstEQ = Builder.CreateFCmpOEQ(LHS[0], LHS[0]);
       auto *SecondEQ = Builder.CreateFCmpOEQ(RHS[0], RHS[0]);
-      ValueMap[&FCI] = Builder.CreateAnd(FirstEQ, SecondEQ, FCI.getName());
+      Comparison = Builder.CreateAnd(FirstEQ, SecondEQ, FCI.getName());
       break;
     }
     case llvm::CmpInst::FCMP_UNO: {
       auto *FirstNE = Builder.CreateFCmpUNE(LHS[0], LHS[0]);
       auto *SecondNE = Builder.CreateFCmpUNE(RHS[0], RHS[0]);
-      ValueMap[&FCI] = Builder.CreateOr(FirstNE, SecondNE);
+      Comparison = Builder.CreateOr(FirstNE, SecondNE);
       break;
     }
     case llvm::CmpInst::FCMP_UEQ: {
       auto *GT = Builder.CreateFCmpOGT(LHS[0], RHS[0]);
       auto *LT = Builder.CreateFCmpOLT(LHS[0], RHS[0]);
       auto *LTorGT = Builder.CreateOr(GT, LT);
-      ValueMap[&FCI] = Builder.CreateXor(LTorGT, 1, FCI.getName());
+      Comparison = Builder.CreateXor(LTorGT, 1, FCI.getName());
       break;
     }
     case llvm::CmpInst::FCMP_UGT: {
       auto *LE = Builder.CreateFCmpOLE(LHS[0], RHS[0]);
-      ValueMap[&FCI] = Builder.CreateXor(LE, 1, FCI.getName());
+      Comparison = Builder.CreateXor(LE, 1, FCI.getName());
       break;
     }
     case llvm::CmpInst::FCMP_UGE: {
       auto *LT = Builder.CreateFCmpOLT(LHS[0], RHS[0]);
-      ValueMap[&FCI] = Builder.CreateXor(LT, 1, FCI.getName());
+      Comparison = Builder.CreateXor(LT, 1, FCI.getName());
       break;
     }
     case llvm::CmpInst::FCMP_ULT: {
       auto *GE = Builder.CreateFCmpOGE(LHS[0], RHS[0]);
-      ValueMap[&FCI] = Builder.CreateXor(GE, 1, FCI.getName());
+      Comparison = Builder.CreateXor(GE, 1, FCI.getName());
       break;
     }
     case llvm::CmpInst::FCMP_ULE: {
       auto *GT = Builder.CreateFCmpOGT(LHS[0], RHS[0]);
-      ValueMap[&FCI] = Builder.CreateXor(GT, 1, FCI.getName());
+      Comparison = Builder.CreateXor(GT, 1, FCI.getName());
       break;
     }
     default:
       WATEVER_UNREACHABLE("Illegal float comparison");
     }
+    ValueMap[&FCI] = Builder.CreateZExt(Comparison, Int32Ty, FCI.getName());
     return;
   }
 
