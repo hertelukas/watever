@@ -910,6 +910,29 @@ void BlockLowering::visitFPToSIInst(llvm::FPToSIInst &FI) {
                       llvmToString(*FI.getDestTy()));
 }
 
+void BlockLowering::visitUIToFPInst(llvm::UIToFPInst &UI) {
+  auto FromWidth = UI.getSrcTy()->getIntegerBitWidth();
+
+  addOperandsToWorklist(UI.operands());
+
+  if (UI.getDestTy()->isFloatTy()) {
+    if (FromWidth == 32) {
+      Actions.Insts.emplace_back(Opcode::F32ConvertI32U);
+    } else {
+      Actions.Insts.emplace_back(Opcode::F32ConvertI64U);
+    }
+  } else if (UI.getDestTy()->isDoubleTy()) {
+    if (FromWidth == 32) {
+      Actions.Insts.emplace_back(Opcode::F64ConvertI32U);
+    } else {
+      Actions.Insts.emplace_back(Opcode::F64ConvertI64U);
+    }
+  } else {
+    WATEVER_UNREACHABLE("Can not UI to FP for {}",
+                        llvmToString(*UI.getDestTy()));
+  }
+}
+
 void BlockLowering::visitSIToFPInst(llvm::SIToFPInst &SI) {
   auto FromWidth = SI.getSrcTy()->getIntegerBitWidth();
 
