@@ -17,6 +17,7 @@
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/PassManager.h>
+#include <llvm/Support/Alignment.h>
 #include <llvm/Support/Casting.h>
 
 using namespace watever;
@@ -57,6 +58,33 @@ LegalValue FunctionLegalizer::legalizeConstant(llvm::Constant *C) {
 
   if (llvm::isa<llvm::PoisonValue>(C) || llvm::isa<llvm::UndefValue>(C)) {
     return C;
+  }
+
+  if (auto *CA = llvm::dyn_cast<llvm::ConstantAggregate>(C)) {
+    llvm::SmallVector<llvm::Value *> Res;
+    for (unsigned I = 0; I < CA->getNumOperands(); ++I) {
+      auto Elm = legalizeConstant(CA->getOperand(I));
+      Res.append(Elm.begin(), Elm.end());
+    }
+    return LegalValue{Res};
+  }
+
+  if (auto *CAZ = llvm::dyn_cast<llvm::ConstantAggregateZero>(C)) {
+    llvm::SmallVector<llvm::Value *> Res;
+    if (auto *AT = llvm::dyn_cast<llvm::ArrayType>(CAZ->getType())) {
+      auto Element =
+          legalizeConstant(llvm::Constant::getNullValue(AT->getElementType()));
+      for (unsigned I = 0; I < AT->getNumElements(); ++I) {
+        Res.append(Element.begin(), Element.end());
+      }
+    } else if (auto *ST = llvm::dyn_cast<llvm::StructType>(CAZ->getType())) {
+      for (unsigned I = 0; I < ST->getNumElements(); ++I) {
+        auto Element = legalizeConstant(
+            llvm::Constant::getNullValue(ST->getElementType(I)));
+        Res.append(Element.begin(), Element.end());
+      }
+    }
+    return LegalValue{Res};
   }
 
   WATEVER_UNIMPLEMENTED("unsupported constant type {}", llvmToString(*C));
@@ -523,16 +551,13 @@ void FunctionLegalizer::visitLoadInst(llvm::LoadInst &LI) {
   }
 }
 
-void FunctionLegalizer::visitStoreInst(llvm::StoreInst &SI) {
-  auto *StoreType = SI.getValueOperand()->getType();
-  auto StoreValue = getMappedValue(SI.getValueOperand());
-  auto *Pointer = getMappedValue(SI.getPointerOperand())[0];
-
+void FunctionLegalizer::emitScalarStore(llvm::Value *Val, llvm::Value *Ptr,
+                                        llvm::Type *StoreType,
+                                        llvm::Align Align) {
   if (StoreType->isIntegerTy()) {
     const unsigned Width = StoreType->getIntegerBitWidth();
     if (Width == 32 || Width == 64) {
-      ValueMap[&SI] =
-          Builder.CreateAlignedStore(StoreValue[0], Pointer, SI.getAlign());
+      Builder.CreateAlignedStore(Val, Ptr, Align);
       return;
     }
 
@@ -547,27 +572,23 @@ void FunctionLegalizer::visitStoreInst(llvm::StoreInst &SI) {
     // TODO not sure if we do need to check this
     if (Width % 8 != 0) {
       ToStore = Builder.CreateAnd(
-          StoreValue[0],
-          llvm::APInt::getLowBitsSet(
-              StoreValue[0]->getType()->getIntegerBitWidth(), Width));
+          Val, llvm::APInt::getLowBitsSet(Val->getType()->getIntegerBitWidth(),
+                                          Width));
     } else {
-      ToStore = StoreValue[0];
+      ToStore = Val;
     }
 
     // Can't split
     if (Width > 32 + 16 + 8 || (Width < 32 && Width > 16 + 8)) {
-      ValueMap[&SI] =
-          Builder.CreateAlignedStore(ToStore, Pointer, SI.getAlign());
+      Builder.CreateAlignedStore(ToStore, Ptr, Align);
       return;
     }
 
-    llvm::Value *Res = nullptr;
-
     if (Width > 32) {
       llvm::Value *LowestBytes = Builder.CreateTrunc(ToStore, Int32Ty);
-      Builder.CreateStore(LowestBytes, Pointer);
+      Builder.CreateStore(LowestBytes, Ptr);
 
-      llvm::Value *PtrAsInt = Builder.CreatePtrToInt(Pointer, IntPtrTy);
+      llvm::Value *PtrAsInt = Builder.CreatePtrToInt(Ptr, IntPtrTy);
 
       unsigned BytesStored = 4;
       // The number is wide enough to require a 16-bit store
@@ -577,7 +598,7 @@ void FunctionLegalizer::visitStoreInst(llvm::StoreInst &SI) {
         llvm::Value *NewPtr = Builder.CreateIntToPtr(NewPtrAsInt, PtrTy);
         llvm::Value *NextBytes = Builder.CreateLShr(ToStore, BytesStored * 8);
         NextBytes = Builder.CreateTrunc(NextBytes, Int16Ty);
-        Res = Builder.CreateStore(NextBytes, NewPtr);
+        Builder.CreateStore(NextBytes, NewPtr);
         BytesStored += 2;
       }
       // If it wasn't wide enough (e.g., [33, 40]), we only need a 8-bit store
@@ -588,16 +609,15 @@ void FunctionLegalizer::visitStoreInst(llvm::StoreInst &SI) {
         llvm::Value *NewPtr = Builder.CreateIntToPtr(NewPtrAsInt, PtrTy);
         llvm::Value *NextByte = Builder.CreateLShr(ToStore, BytesStored * 8);
         NextByte = Builder.CreateTrunc(NextByte, Int8Ty);
-        Res = Builder.CreateStore(NextByte, NewPtr);
+        Builder.CreateStore(NextByte, NewPtr);
       }
     } else {
       // We need to store at least a 16-bit
       if (Width > 8) {
         llvm::Value *LowestBytes = Builder.CreateTrunc(ToStore, Int16Ty);
-        Res = Builder.CreateStore(LowestBytes, Pointer);
+        Builder.CreateStore(LowestBytes, Ptr);
       }
       if (Width <= 8 || Width > 16) {
-        llvm::Value *Ptr = Pointer;
         // We are storing higher bytes
         if (Width > 16) {
           ToStore = Builder.CreateLShr(ToStore, 16);
@@ -607,27 +627,64 @@ void FunctionLegalizer::visitStoreInst(llvm::StoreInst &SI) {
           Ptr = Builder.CreateIntToPtr(IntPtr, PtrTy);
         }
         llvm::Value *LowestByte = Builder.CreateTrunc(ToStore, Int8Ty);
-        Res = Builder.CreateStore(LowestByte, Ptr);
+        Builder.CreateStore(LowestByte, Ptr);
       }
     }
-    ValueMap[&SI] = Res;
     return;
   }
-  if (StoreType->isFloatingPointTy()) {
-    if (StoreType->isDoubleTy() || StoreType->isFloatTy()) {
-      ValueMap[&SI] =
-          Builder.CreateAlignedStore(StoreValue[0], Pointer, SI.getAlign());
-      return;
-    }
-    WATEVER_UNIMPLEMENTED("handle store of unsupported floating point type",
-                          llvmToString(*StoreType));
+  if (StoreType->isDoubleTy() || StoreType->isFloatTy()) {
+    Builder.CreateAlignedStore(Val, Ptr, Align);
+    return;
   }
 
   if (StoreType->isPointerTy()) {
-    ValueMap[&SI] =
-        Builder.CreateAlignedStore(StoreValue[0], Pointer, SI.getAlign());
+    Builder.CreateAlignedStore(Val, Ptr, Align);
     return;
   }
+
+  WATEVER_UNIMPLEMENTED("store of type", llvmToString(*StoreType));
+}
+
+void FunctionLegalizer::visitStoreInst(llvm::StoreInst &SI) {
+  auto *StoreType = SI.getValueOperand()->getType();
+  auto StoreValues = getMappedValue(SI.getValueOperand());
+  auto *BasePtr = getMappedValue(SI.getPointerOperand())[0];
+
+  auto &DL = SI.getDataLayout();
+  const auto BaseAlign = SI.getAlign();
+
+  auto RecursiveStore = [&](auto &&Self, llvm::Type *Ty, uint64_t CurrentOffset,
+                            LegalValue::iterator &ValIt) {
+    if (!Ty->isAggregateType()) {
+      auto CurrentAlign = llvm::commonAlignment(BaseAlign, CurrentOffset);
+      llvm::Value *Ptr = BasePtr;
+      if (CurrentOffset != 0) {
+        Ptr = Builder.CreatePtrToInt(Ptr, IntPtrTy);
+        Ptr = Builder.CreateAdd(
+            Ptr, llvm::ConstantInt::get(IntPtrTy, CurrentOffset));
+        Ptr = Builder.CreateIntToPtr(Ptr, PtrTy);
+      }
+      emitScalarStore(*ValIt, Ptr, Ty, CurrentAlign);
+      ++ValIt;
+      return;
+    }
+
+    if (auto *STy = llvm::dyn_cast<llvm::StructType>(Ty)) {
+      const llvm::StructLayout *Layout = DL.getStructLayout(STy);
+      for (unsigned I = 0; I < STy->getNumElements(); ++I) {
+        auto Offset = Layout->getElementOffset(I);
+        Self(Self, STy->getElementType(I), CurrentOffset + Offset, ValIt);
+      }
+    } else if (auto *ATy = llvm::dyn_cast<llvm::ArrayType>(Ty)) {
+      auto *ElementType = ATy->getElementType();
+      auto Size = DL.getTypeAllocSize(ElementType);
+      for (unsigned I = 0; I < ATy->getNumElements(); ++I) {
+        Self(Self, ElementType, CurrentOffset + I * Size, ValIt);
+      }
+    }
+  };
+  const auto *It = StoreValues.begin();
+  RecursiveStore(RecursiveStore, StoreType, 0, It);
 }
 
 void FunctionLegalizer::visitGetElementPtrInst(llvm::GetElementPtrInst &GI) {
@@ -740,8 +797,8 @@ void FunctionLegalizer::visitZExtInst(llvm::ZExtInst &ZI) {
   const auto ToWidth = ZI.getDestTy()->getIntegerBitWidth();
   if (Arg.isScalar()) {
     auto *Val = Arg[0];
-    // If we currently filled only parts of a Wasm value, we have to ensure that
-    // the upper bits in the new value are clean
+    // If we currently filled only parts of a Wasm value, we have to ensure
+    // that the upper bits in the new value are clean
     if (FromWidth != 32) {
       Val = Builder.CreateAnd(
           Val, llvm::APInt::getLowBitsSet(Val->getType()->getIntegerBitWidth(),
@@ -996,8 +1053,8 @@ void FunctionLegalizer::visitSelectInst(llvm::SelectInst &SI) {
   auto True = getMappedValue(SI.getTrueValue());
   auto False = getMappedValue(SI.getFalseValue());
 
-  // This will be optimized away, however, we have to ensure that the upper bits
-  // are zeroed, as the i32 Condition might contain dirty bits
+  // This will be optimized away, however, we have to ensure that the upper
+  // bits are zeroed, as the i32 Condition might contain dirty bits
   Condition = Builder.CreateAnd(Condition, 1);
   Condition = Builder.CreateTrunc(Condition, Int1Ty);
 
@@ -1049,8 +1106,8 @@ void FunctionLegalizer::visitCallInst(llvm::CallInst &CI) {
 
   // Resolve callee
   llvm::Value *NewCallee = nullptr;
-  // TODO For variadic functions, the call site might have a different type then
-  // our call instructions
+  // TODO For variadic functions, the call site might have a different type
+  // then our call instructions
   if (!OldCalledFunc) {
     // Indirect call
     auto CalledOp = getMappedValue(CI.getCalledOperand());
@@ -1160,8 +1217,8 @@ llvm::Function *LegalizationPass::createLegalFunction(llvm::Module &Mod,
                              OldFunc->getLinkage(), OldFunc->getName(), Mod);
 
   // Copy all attributes of the function
-  // TODO maybe handle parametere attributes too - however, they cannot just be
-  // copied, as legalization potentially changes the signature
+  // TODO maybe handle parametere attributes too - however, they cannot just
+  // be copied, as legalization potentially changes the signature
   llvm::AttributeSet FnAttrs = OldFunc->getAttributes().getFnAttrs();
   Fn->setAttributes(llvm::AttributeList::get(
       Fn->getContext(), llvm::AttributeList::FunctionIndex, FnAttrs));

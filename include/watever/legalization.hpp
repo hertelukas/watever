@@ -215,6 +215,8 @@ public:
   // Memory Access and Addressing Operations
   void visitAllocaInst(llvm::AllocaInst &AI);
   void visitLoadInst(llvm::LoadInst &LI);
+  void emitScalarStore(llvm::Value *Val, llvm::Value *Ptr,
+                       llvm::Type *StoreType, llvm::Align Align);
   void visitStoreInst(llvm::StoreInst &SI);
   void visitGetElementPtrInst(llvm::GetElementPtrInst &GI);
 
