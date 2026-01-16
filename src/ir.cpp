@@ -54,10 +54,10 @@ static bool putValueOnStack(llvm::Value *Val, WasmActions &Actions, Module &M,
       Actions.Insts.push_back(
           WasmInst(Opcode::I32Const,
                    static_cast<int64_t>(Const->getValue().getZExtValue())));
-    } else if (Const->getBitWidth() == 32) {
+    } else if (Const->getBitWidth() <= 32) {
       Actions.Insts.push_back(
           WasmInst(Opcode::I32Const, Const->getValue().getSExtValue()));
-    } else if (Const->getBitWidth() == 64) {
+    } else if (Const->getBitWidth() <= 64) {
       Actions.Insts.push_back(
           WasmInst(Opcode::I64Const, Const->getValue().getSExtValue()));
     } else {
@@ -241,7 +241,13 @@ void BlockLowering::handleIntrinsic(llvm::CallInst &CI) {
     // The argument might have been illegal, use the original i32
     if (auto *TruncInst = llvm::dyn_cast<llvm::TruncInst>(Val)) {
       WorkList.push_back(TruncInst->getOperand(0));
+    } else if (llvm::isa<llvm::ConstantInt>(Val)) {
+      WorkList.push_back(Val);
+    } else {
+      WATEVER_UNREACHABLE("fill memory with value {}",
+                          Val->getNameOrAsOperand());
     }
+
     WorkList.push_back(Len);
     break;
   }

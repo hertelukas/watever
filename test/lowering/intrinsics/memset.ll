@@ -15,3 +15,13 @@ define void @memset_i32(ptr %dest, i8 %val, i32 %len) {
   call void @llvm.memset.p0.i32(ptr %dest, i8 %val, i32 %len, i1 false)
   ret void
 }
+
+define void @memset_i32_const(ptr %dest, i32 %len) {
+; CHECK-LABEL: $memset_i32
+; CHECK: local.get 0
+; CHECK-NEXT: i32.const 0
+; CHECK-NEXT: local.get 1
+; CHECK-NEXT: memory.fill
+  call void @llvm.memset.p0.i32(ptr %dest, i8 0, i32 %len, i1 false)
+  ret void
+}
