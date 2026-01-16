@@ -1086,6 +1086,7 @@ void FunctionLegalizer::visitCallInst(llvm::CallInst &CI) {
   // They cannot have a legalized signature
   if (OldCalledFunc && OldCalledFunc->isIntrinsic()) {
     llvm::SmallVector<llvm::Value *> NewArgs;
+    unsigned ArgIdx = 0;
     for (auto &Arg : CI.args()) {
       auto LegalArg = getMappedValue(Arg.get());
       if (!LegalArg.isScalar()) {
@@ -1093,14 +1094,30 @@ void FunctionLegalizer::visitCallInst(llvm::CallInst &CI) {
                               "the legalized argument");
       }
       auto *ValueArg = LegalArg[0];
-      // Value does not need preprocessing
+
+      bool IsImmArg = CI.paramHasAttr(ArgIdx, llvm::Attribute::ImmArg);
+      ArgIdx++;
+
+      // Value does not need preprocessing.
       if (ValueArg->getType() == Arg->getType()) {
         NewArgs.push_back(ValueArg);
         continue;
       }
+      // If the argument is an immediate, we cannot preprocess it with a
+      // Truncation, so the backend will need to be able to handle illegal types
+      if (IsImmArg) {
+        NewArgs.push_back(Arg);
+        continue;
+      }
 
       if (ValueArg->getType()->isIntegerTy()) {
-        NewArgs.push_back(Builder.CreateTrunc(ValueArg, Arg->getType()));
+        // This forces LLVM to emit the instruction - otherwise the builder
+        // might do constant folding on constants (e.g., would not emit a trunc
+        // i32 0 to i8
+        auto *TruncInst = llvm::CastInst::Create(llvm::Instruction::Trunc,
+                                                 ValueArg, Arg->getType());
+        Builder.Insert(TruncInst);
+        NewArgs.push_back(TruncInst);
         continue;
       }
 
