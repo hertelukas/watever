@@ -199,6 +199,9 @@ BlockLowering::getDependencyTreeUserCount(llvm::Instruction *Root) const {
   while (Idx < WorkList.size()) {
     auto *Val = WorkList[Idx++];
     if (auto *Inst = llvm::dyn_cast<llvm::Instruction>(Val)) {
+      if (llvm::isa<llvm::PHINode>(Inst)) {
+        continue;
+      }
       for (llvm::Value *Op : Inst->operands()) {
         if (auto *OpInst = llvm::dyn_cast<llvm::Instruction>(Op)) {
           if (ASTNodes.insert(OpInst).second) {
