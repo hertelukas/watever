@@ -843,6 +843,26 @@ void FunctionLegalizer::visitFPToSIInst(llvm::FPToSIInst &FI) {
                         llvmToString(*FI.getDestTy()));
 }
 
+void FunctionLegalizer::visitUIToFPInst(llvm::UIToFPInst &UI) {
+  auto Arg = getMappedValue(UI.getOperand(0));
+  auto *TargetTy = UI.getDestTy();
+
+  if (!TargetTy->isDoubleTy() && !TargetTy->isFloatingPointTy()) {
+    WATEVER_UNIMPLEMENTED("unsupported UI to FP type {}",
+                          llvmToString(*TargetTy));
+  }
+
+  if (Arg.isScalar()) {
+    auto *Extended = zeroExtend(Arg[0], UI.getSrcTy()->getIntegerBitWidth(),
+                                Arg[0]->getType()->getIntegerBitWidth());
+    ValueMap[&UI] = Builder.CreateUIToFP(Extended, TargetTy);
+    return;
+  }
+  WATEVER_UNIMPLEMENTED("non-scalar UI {} to FP {}",
+                        llvmToString(*UI.getSrcTy()),
+                        llvmToString(*UI.getDestTy()));
+}
+
 void FunctionLegalizer::visitSIToFPInst(llvm::SIToFPInst &SI) {
   auto Arg = getMappedValue(SI.getOperand(0));
   auto *TargetTy = SI.getDestTy();

@@ -226,7 +226,7 @@ public:
   void visitFPExtInst(llvm::FPExtInst &FI);
   void visitFPToUIInst(llvm::FPToUIInst &FI);
   void visitFPToSIInst(llvm::FPToSIInst &FI);
-
+  void visitUIToFPInst(llvm::UIToFPInst &UI);
   void visitSIToFPInst(llvm::SIToFPInst &SI);
 
   void visitPtrToIntInst(llvm::PtrToIntInst &I) {
