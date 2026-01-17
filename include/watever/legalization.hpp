@@ -182,6 +182,19 @@ class FunctionLegalizer : public llvm::InstVisitor<FunctionLegalizer> {
     return Builder.CreateAShr(Val, ShiftAmount, Name);
   }
 
+  llvm::Value *emitLibCall(llvm::StringRef Name,
+                           llvm::ArrayRef<llvm::Value *> Args,
+                           llvm::Type *RetTy) {
+    llvm::Module *M = NewFunc->getParent();
+    llvm::SmallVector<llvm::Type *, 2> ArgTys;
+    for (auto *A : Args)
+      ArgTys.push_back(A->getType());
+
+    llvm::FunctionType *FTy = llvm::FunctionType::get(RetTy, ArgTys, false);
+    llvm::FunctionCallee Callee = M->getOrInsertFunction(Name, FTy);
+    return Builder.CreateCall(Callee, Args);
+  }
+
 public:
   llvm::Function *NewFunc;
   FunctionLegalizer(

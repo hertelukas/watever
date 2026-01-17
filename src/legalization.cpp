@@ -16,6 +16,7 @@
 #include <llvm/IR/Instruction.h>
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/IntrinsicInst.h>
+#include <llvm/IR/Intrinsics.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/PassManager.h>
 #include <llvm/IR/Type.h>
@@ -1195,6 +1196,51 @@ void FunctionLegalizer::visitCallInst(llvm::CallInst &CI) {
 //===----------------------------------------------------------------------===//
 
 void FunctionLegalizer::visitIntrinsicInst(llvm::IntrinsicInst &II) {
+  // Most intrinsics do not benefit from living until lowering. All of them are
+  // handled in the following switch
+
+  // Functions taking exactly a float/double and returning a float/double
+  const char *FPtoFPFuncName = nullptr;
+  switch (II.getIntrinsicID()) {
+  // clang-format off
+  case llvm::Intrinsic::sin: FPtoFPFuncName = "sin"; break;
+  case llvm::Intrinsic::cos: FPtoFPFuncName = "cos"; break;
+  case llvm::Intrinsic::tan: FPtoFPFuncName = "tan"; break;
+  case llvm::Intrinsic::asin: FPtoFPFuncName = "asin"; break;
+  case llvm::Intrinsic::acos: FPtoFPFuncName = "acos"; break;
+  case llvm::Intrinsic::atan: FPtoFPFuncName = "atan"; break;
+  case llvm::Intrinsic::sinh: FPtoFPFuncName = "sinh"; break;
+  case llvm::Intrinsic::cosh: FPtoFPFuncName = "cosh"; break;
+  case llvm::Intrinsic::tanh: FPtoFPFuncName = "tanh"; break;
+  case llvm::Intrinsic::exp: FPtoFPFuncName = "exp"; break;
+  case llvm::Intrinsic::exp2: FPtoFPFuncName = "exp2"; break;
+  case llvm::Intrinsic::exp10: FPtoFPFuncName = "exp10"; break;
+  case llvm::Intrinsic::log: FPtoFPFuncName = "log"; break;
+  case llvm::Intrinsic::log10: FPtoFPFuncName = "log10"; break;
+  case llvm::Intrinsic::log2: FPtoFPFuncName = "log2"; break;
+  case llvm::Intrinsic::fabs: FPtoFPFuncName = "fabs"; break;
+  // clang-format on
+  default:
+    break;
+  }
+
+  if (FPtoFPFuncName) {
+    auto LegalArg = getMappedValue(II.getArgOperand(0));
+    assert(LegalArg.isScalar() && "Math intrinsics only support scalars");
+
+    auto *Ty = LegalArg[0]->getType();
+    std::string LibCallName = FPtoFPFuncName;
+    if (Ty->isFloatTy()) {
+      LibCallName += "f";
+    } else if (!Ty->isDoubleTy()) {
+      WATEVER_UNIMPLEMENTED("Math intrinsic {} only supported for float/double",
+                            FPtoFPFuncName);
+    }
+    ValueMap[&II] = emitLibCall(LibCallName, {LegalArg[0]}, Ty);
+    return;
+  }
+
+  // If the backend can deal with an intrinsic - keep it as a call
   llvm::SmallVector<llvm::Value *> NewArgs;
   unsigned ArgIdx = 0;
   for (auto &Arg : II.args()) {
