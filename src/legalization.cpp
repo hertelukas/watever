@@ -18,6 +18,7 @@
 #include <llvm/IR/IntrinsicInst.h>
 #include <llvm/IR/Intrinsics.h>
 #include <llvm/IR/Module.h>
+#include <llvm/IR/Operator.h>
 #include <llvm/IR/PassManager.h>
 #include <llvm/IR/Type.h>
 #include <llvm/Support/Alignment.h>
@@ -56,6 +57,47 @@ LegalValue FunctionLegalizer::legalizeConstant(llvm::Constant *C) {
   }
 
   if (C->getType()->isPointerTy()) {
+    if (auto *CE = llvm::dyn_cast<llvm::ConstantExpr>(C)) {
+      if (auto *GEP = llvm::dyn_cast<llvm::GEPOperator>(CE)) {
+        if (auto *PointerConstant =
+                llvm::dyn_cast<llvm::Constant>(GEP->getPointerOperand())) {
+          const llvm::DataLayout &DL = NewFunc->getParent()->getDataLayout();
+          llvm::APInt Offset(
+              DL.getPointerSizeInBits(GEP->getPointerAddressSpace()), 0);
+          auto Base = legalizeConstant(PointerConstant);
+          assert(Base.isScalar() &&
+                 "pointer base in constant GEP must be scalar");
+          if (GEP->accumulateConstantOffset(DL, Offset)) {
+            WATEVER_LOG_TRACE("GEP with constant offset of {}",
+                              Offset.getSExtValue());
+            if (Offset.isZero()) {
+              return Base[0];
+            }
+            llvm::Value *OffsetVal = llvm::ConstantInt::get(IntPtrTy, Offset);
+
+            // Forcve creation of instructions
+            llvm::Value *PtrAsInt = llvm::CastInst::Create(
+                llvm::Instruction::PtrToInt, Base[0], IntPtrTy);
+            Builder.Insert(PtrAsInt);
+
+            llvm::Value *PtrWithOffsetAsInt =
+                llvm::BinaryOperator::CreateAdd(PtrAsInt, OffsetVal);
+            Builder.Insert(PtrWithOffsetAsInt);
+
+            llvm::Value *PtrWithOffset = llvm::CastInst::Create(
+                llvm::Instruction::IntToPtr, PtrWithOffsetAsInt, PtrTy);
+            Builder.Insert(PtrWithOffset);
+
+            return LegalValue{PtrWithOffset};
+          }
+          WATEVER_UNREACHABLE("constant GEP is not able to accumulate offset");
+        }
+        WATEVER_UNREACHABLE(
+            "constant GEP does not have a constant as pointer operand");
+      }
+      WATEVER_UNIMPLEMENTED("constant expression {} for pointer",
+                            llvmToString(*CE));
+    }
     return C;
   }
 

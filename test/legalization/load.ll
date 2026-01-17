@@ -178,3 +178,14 @@ entry:
   ret ptr %1
 }
 
+@accum = hidden global { double, double } zeroinitializer, align 8
+
+define double @load_inline() {
+; CHECK-LABEL: define double @load_inline
+; CHECK-NEXT: %1 = ptrtoint ptr @accum to i64
+; CHECK-NEXT: %2 = add i64 %1, 8
+; CHECK-NEXT: %3 = inttoptr i64 %2 to ptr
+; CHECK-NEXT: %4 = load double, ptr %3, align 8
+  %1 = load double, ptr getelementptr ({ double, double }, ptr @accum, i32 0, i32 1), align 8
+  ret double %1
+}
