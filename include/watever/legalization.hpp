@@ -31,6 +31,8 @@ public:
 
   LegalValue(llvm::ArrayRef<llvm::Value *> Vs) : Parts(Vs.begin(), Vs.end()) {}
 
+  void PushBack(llvm::Value *Val) { Parts.push_back(Val); }
+
   using iterator = llvm::SmallVectorImpl<llvm::Value *>::const_iterator;
 
   [[nodiscard]] iterator begin() const { return Parts.begin(); }
@@ -227,6 +229,8 @@ public:
 
   // Memory Access and Addressing Operations
   void visitAllocaInst(llvm::AllocaInst &AI);
+  llvm::Value *emitScalarLoad(llvm::Value *Ptr, llvm::Type *ResultType,
+                              llvm::Align Align);
   void visitLoadInst(llvm::LoadInst &LI);
   void emitScalarStore(llvm::Value *Val, llvm::Value *Ptr,
                        llvm::Type *StoreType, llvm::Align Align);

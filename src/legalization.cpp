@@ -491,22 +491,19 @@ void FunctionLegalizer::visitAllocaInst(llvm::AllocaInst &AI) {
   ValueMap[&AI] = NewAI;
 }
 
-void FunctionLegalizer::visitLoadInst(llvm::LoadInst &LI) {
-  auto *ResultType = LI.getType();
-  auto *Pointer = getMappedValue(LI.getPointerOperand())[0];
+llvm::Value *FunctionLegalizer::emitScalarLoad(llvm::Value *Ptr,
+                                               llvm::Type *ResultType,
+                                               llvm::Align Align) {
 
   if (ResultType->isIntegerTy()) {
     const unsigned Width = ResultType->getIntegerBitWidth();
 
     // We can just load the int
     if (Width == 32 || Width == 64) {
-      ValueMap[&LI] = Builder.CreateAlignedLoad(ResultType, Pointer,
-                                                LI.getAlign(), LI.getName());
-      return;
+      return Builder.CreateAlignedLoad(ResultType, Ptr, Align);
     }
     if (Width > 64) {
       WATEVER_UNIMPLEMENTED("expanding load not supported");
-      return;
     }
 
     // In these cases, it's not possible to create multiple loads to
@@ -527,14 +524,12 @@ void FunctionLegalizer::visitLoadInst(llvm::LoadInst &LI) {
     }
 
     if (TypeToLoad) {
-      llvm::Value *Result = Builder.CreateAlignedLoad(
-          TypeToLoad, Pointer, LI.getAlign(), LI.getName());
+      llvm::Value *Result = Builder.CreateAlignedLoad(TypeToLoad, Ptr, Align);
 
       if (TypeToLoad != TargetType) {
         Result = Builder.CreateZExt(Result, TargetType);
       }
-      ValueMap[&LI] = Result;
-      return;
+      return Result;
     }
 
     // Use multiple loads as near around the requested width (E.g., a load i56
@@ -542,9 +537,9 @@ void FunctionLegalizer::visitLoadInst(llvm::LoadInst &LI) {
     llvm::Value *Result;
     // We want to build an i64 with the result
     if (Width > 32) {
-      Result = Builder.CreateLoad(Int32Ty, Pointer);
+      Result = Builder.CreateLoad(Int32Ty, Ptr);
       Result = Builder.CreateZExt(Result, Int64Ty);
-      auto *PtrAsInt = Builder.CreatePtrToInt(Pointer, IntPtrTy);
+      auto *PtrAsInt = Builder.CreatePtrToInt(Ptr, IntPtrTy);
       unsigned BytesLoaded = 4;
       // For (40, 56]
       if (Width > 40) {
@@ -576,38 +571,81 @@ void FunctionLegalizer::visitLoadInst(llvm::LoadInst &LI) {
     } else {
       // Width is between 17 and 24
       // Load the lowest 16 bit
-      Result = Builder.CreateLoad(Int16Ty, Pointer);
+      Result = Builder.CreateLoad(Int16Ty, Ptr);
       Result = Builder.CreateZExt(Result, Int32Ty);
 
       // Load the next 8 bit; add two to the pointer
       llvm::Value *NextOffset = llvm::ConstantInt::get(IntPtrTy, 2);
-      llvm::Value *PtrAsInt = Builder.CreatePtrToInt(Pointer, IntPtrTy);
+      llvm::Value *PtrAsInt = Builder.CreatePtrToInt(Ptr, IntPtrTy);
       llvm::Value *NewPtrAsInt = Builder.CreateAdd(PtrAsInt, NextOffset);
-      Pointer = Builder.CreateIntToPtr(NewPtrAsInt, PtrTy);
+      Ptr = Builder.CreateIntToPtr(NewPtrAsInt, PtrTy);
 
-      llvm::Value *NextByte = Builder.CreateLoad(Int8Ty, Pointer);
+      llvm::Value *NextByte = Builder.CreateLoad(Int8Ty, Ptr);
       NextByte = Builder.CreateZExt(NextByte, Int32Ty);
       NextByte = Builder.CreateShl(NextByte, 16);
       Result = Builder.CreateOr(Result, NextByte);
     }
-    ValueMap[&LI] = Result;
-    return;
+    return Result;
   }
   if (ResultType->isFloatingPointTy()) {
     if (ResultType->isDoubleTy() || ResultType->isFloatTy()) {
-      ValueMap[&LI] = Builder.CreateAlignedLoad(ResultType, Pointer,
-                                                LI.getAlign(), LI.getName());
-      return;
+      return Builder.CreateAlignedLoad(ResultType, Ptr, Align);
     }
-    WATEVER_UNIMPLEMENTED("handle load of unsupported floating point type",
+    WATEVER_UNIMPLEMENTED("handle load of unsupported floating point type {}",
                           llvmToString(*ResultType));
-    return;
   }
   if (ResultType->isPointerTy()) {
-    ValueMap[&LI] =
-        Builder.CreateAlignedLoad(PtrTy, Pointer, LI.getAlign(), LI.getName());
-    return;
+    return Builder.CreateAlignedLoad(PtrTy, Ptr, Align);
   }
+
+  WATEVER_UNIMPLEMENTED("scalar load of type {}", llvmToString(*ResultType));
+}
+
+void FunctionLegalizer::visitLoadInst(llvm::LoadInst &LI) {
+  auto *ResultType = LI.getType();
+  auto *BasePtr = getMappedValue(LI.getPointerOperand())[0];
+  LegalValue Result;
+
+  auto &DL = LI.getDataLayout();
+  const auto BaseAlign = LI.getAlign();
+
+  auto RecursiveLoad = [&](auto &&Self, llvm::Type *Ty,
+                           uint64_t CurrentOffset) {
+    if (!Ty->isAggregateType()) {
+      auto CurrentAlign = llvm::commonAlignment(BaseAlign, CurrentOffset);
+      llvm::Value *Ptr = BasePtr;
+      if (CurrentOffset != 0) {
+        Ptr =
+            llvm::CastInst::Create(llvm::Instruction::PtrToInt, Ptr, IntPtrTy);
+        Builder.Insert(Ptr);
+
+        Ptr = llvm::BinaryOperator::CreateAdd(
+            Ptr, llvm::ConstantInt::get(IntPtrTy, CurrentOffset));
+        Builder.Insert(Ptr);
+
+        Ptr = llvm::CastInst::Create(llvm::Instruction::IntToPtr, Ptr, PtrTy);
+        Builder.Insert(Ptr);
+      }
+      Result.PushBack(emitScalarLoad(Ptr, Ty, CurrentAlign));
+      return;
+    }
+    if (auto *STy = llvm::dyn_cast<llvm::StructType>(Ty)) {
+      const llvm::StructLayout *Layout = DL.getStructLayout(STy);
+      for (unsigned I = 0; I < STy->getNumElements(); ++I) {
+        auto Offset = Layout->getElementOffset(I);
+        Self(Self, STy->getElementType(I), CurrentOffset + Offset);
+      }
+    } else if (auto *ATy = llvm::dyn_cast<llvm::ArrayType>(Ty)) {
+      auto *ElementType = ATy->getElementType();
+      auto Size = DL.getTypeAllocSize(ElementType);
+      for (unsigned I = 0; I < ATy->getNumElements(); ++I) {
+        Self(Self, ElementType, CurrentOffset + I * Size);
+      }
+    }
+  };
+
+  RecursiveLoad(RecursiveLoad, ResultType, 0);
+  ValueMap[&LI] = Result;
 }
 
 void FunctionLegalizer::emitScalarStore(llvm::Value *Val, llvm::Value *Ptr,
@@ -701,7 +739,7 @@ void FunctionLegalizer::emitScalarStore(llvm::Value *Val, llvm::Value *Ptr,
     return;
   }
 
-  WATEVER_UNIMPLEMENTED("store of type", llvmToString(*StoreType));
+  WATEVER_UNIMPLEMENTED("scalar store of type {}", llvmToString(*StoreType));
 }
 
 void FunctionLegalizer::visitStoreInst(llvm::StoreInst &SI) {
