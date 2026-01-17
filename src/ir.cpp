@@ -1312,6 +1312,12 @@ std::unique_ptr<Wasm> FunctionLowering::doBranch(const llvm::BasicBlock *Source,
   for (auto &Phi : Target->phis()) {
     auto *IncomingVal = Phi.getIncomingValueForBlock(Source);
     Local *DestLocal = GetOrCreateLocal(&Phi);
+    // Do not move anything into the target local - just keep it as is
+    if (llvm::isa<llvm::PoisonValue>(IncomingVal) ||
+        llvm::isa<llvm::UndefValue>(IncomingVal)) {
+      continue;
+    }
+
     if (putValueOnStack(IncomingVal, PhiActions, M,
                         Source->getDataLayout().getPointerSizeInBits() == 64)) {
     } else if (llvm::isa<llvm::Argument>(IncomingVal) ||
