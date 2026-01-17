@@ -1642,7 +1642,9 @@ Module ModuleLowering::convert(llvm::Module &Mod,
         C.EnabledFeatures);
 
     // TODO use correct flags
-    FunctionPtr->setFlag(SymbolFlag::WASM_SYM_VISIBILITY_HIDDEN);
+    if (F.getVisibility() == llvm::GlobalValue::HiddenVisibility) {
+      FunctionPtr->setFlag(SymbolFlag::WASM_SYM_VISIBILITY_HIDDEN);
+    }
     Res.FunctionMap[&F] = FunctionPtr.get();
     Res.Functions.push_back(FunctionPtr.get());
     Res.Symbols.push_back(std::move(FunctionPtr));
