@@ -249,6 +249,9 @@ public:
   void visitSelectInst(llvm::SelectInst &SI);
   void visitCallInst(llvm::CallInst &CI);
 
+  // Intrinsics
+  void visitIntrinsicInst(llvm::IntrinsicInst &II);
+
   void visitInstruction(llvm::Instruction &I) {
     WATEVER_UNIMPLEMENTED("{} not (yet) supported", I.getOpcodeName());
   }

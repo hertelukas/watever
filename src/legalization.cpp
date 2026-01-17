@@ -15,6 +15,7 @@
 #include <llvm/IR/InstrTypes.h>
 #include <llvm/IR/Instruction.h>
 #include <llvm/IR/Instructions.h>
+#include <llvm/IR/IntrinsicInst.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/PassManager.h>
 #include <llvm/IR/Type.h>
@@ -1083,52 +1084,6 @@ void FunctionLegalizer::visitSelectInst(llvm::SelectInst &SI) {
 void FunctionLegalizer::visitCallInst(llvm::CallInst &CI) {
   auto *OldCalledFunc = CI.getCalledFunction();
 
-  // Handle intrinsics
-  // They cannot have a legalized signature
-  if (OldCalledFunc && OldCalledFunc->isIntrinsic()) {
-    llvm::SmallVector<llvm::Value *> NewArgs;
-    unsigned ArgIdx = 0;
-    for (auto &Arg : CI.args()) {
-      auto LegalArg = getMappedValue(Arg.get());
-      if (!LegalArg.isScalar()) {
-        WATEVER_UNIMPLEMENTED("reconstruct the original llvm::Value, based on "
-                              "the legalized argument");
-      }
-      auto *ValueArg = LegalArg[0];
-
-      bool IsImmArg = CI.paramHasAttr(ArgIdx, llvm::Attribute::ImmArg);
-      ArgIdx++;
-
-      // Value does not need preprocessing.
-      if (ValueArg->getType() == Arg->getType()) {
-        NewArgs.push_back(ValueArg);
-        continue;
-      }
-      // If the argument is an immediate, we cannot preprocess it with a
-      // Truncation, so the backend will need to be able to handle illegal types
-      if (IsImmArg) {
-        NewArgs.push_back(Arg);
-        continue;
-      }
-
-      if (ValueArg->getType()->isIntegerTy()) {
-        // This forces LLVM to emit the instruction - otherwise the builder
-        // might do constant folding on constants (e.g., would not emit a trunc
-        // i32 0 to i8
-        auto *TruncInst = llvm::CastInst::Create(llvm::Instruction::Trunc,
-                                                 ValueArg, Arg->getType());
-        Builder.Insert(TruncInst);
-        NewArgs.push_back(TruncInst);
-        continue;
-      }
-
-      WATEVER_UNIMPLEMENTED("unsupported delegalization of {}",
-                            llvmToString(*ValueArg));
-    }
-    ValueMap[&CI] = LegalValue{Builder.CreateCall(OldCalledFunc, NewArgs)};
-    return;
-  }
-
   // Resolve callee
   llvm::Value *NewCallee = nullptr;
   // TODO For variadic functions, the call site might have a different type
@@ -1233,6 +1188,55 @@ void FunctionLegalizer::visitCallInst(llvm::CallInst &CI) {
   }
 
   ValueMap[&CI] = LegalValue{NewCall};
+}
+
+//===----------------------------------------------------------------------===//
+// Intrinsics
+//===----------------------------------------------------------------------===//
+
+void FunctionLegalizer::visitIntrinsicInst(llvm::IntrinsicInst &II) {
+  llvm::SmallVector<llvm::Value *> NewArgs;
+  unsigned ArgIdx = 0;
+  for (auto &Arg : II.args()) {
+    auto LegalArg = getMappedValue(Arg.get());
+    if (!LegalArg.isScalar()) {
+      WATEVER_UNIMPLEMENTED("reconstruct the original llvm::Value, based on "
+                            "the legalized argument");
+    }
+    auto *ValueArg = LegalArg[0];
+
+    bool IsImmArg = II.paramHasAttr(ArgIdx, llvm::Attribute::ImmArg);
+    ArgIdx++;
+
+    // Value does not need preprocessing.
+    if (ValueArg->getType() == Arg->getType()) {
+      NewArgs.push_back(ValueArg);
+      continue;
+    }
+    // If the argument is an immediate, we cannot preprocess it with a
+    // Truncation, so the backend will need to be able to handle illegal types
+    if (IsImmArg) {
+      NewArgs.push_back(Arg);
+      continue;
+    }
+
+    if (ValueArg->getType()->isIntegerTy()) {
+      // This forces LLVM to emit the instruction - otherwise the builder
+      // might do constant folding on constants (e.g., would not emit a trunc
+      // i32 0 to i8
+      auto *TruncInst = llvm::CastInst::Create(llvm::Instruction::Trunc,
+                                               ValueArg, Arg->getType());
+      Builder.Insert(TruncInst);
+      NewArgs.push_back(TruncInst);
+      continue;
+    }
+
+    WATEVER_UNIMPLEMENTED("unsupported delegalization of {}",
+                          llvmToString(*ValueArg));
+  }
+  ValueMap[&II] =
+      LegalValue{Builder.CreateCall(II.getCalledFunction(), NewArgs)};
+  return;
 }
 
 llvm::Function *LegalizationPass::createLegalFunction(llvm::Module &Mod,
