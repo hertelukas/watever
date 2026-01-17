@@ -1202,7 +1202,7 @@ void FunctionLegalizer::visitIntrinsicInst(llvm::IntrinsicInst &II) {
   // Functions taking exactly a float/double and returning a float/double
   const char *FPtoFPFuncName = nullptr;
   switch (II.getIntrinsicID()) {
-  // clang-format off
+    // clang-format off
   case llvm::Intrinsic::sin: FPtoFPFuncName = "sin"; break;
   case llvm::Intrinsic::cos: FPtoFPFuncName = "cos"; break;
   case llvm::Intrinsic::tan: FPtoFPFuncName = "tan"; break;
@@ -1220,6 +1220,25 @@ void FunctionLegalizer::visitIntrinsicInst(llvm::IntrinsicInst &II) {
   case llvm::Intrinsic::log2: FPtoFPFuncName = "log2"; break;
   case llvm::Intrinsic::fabs: FPtoFPFuncName = "fabs"; break;
   // clang-format on
+  // Specialized Arithmetic Intrinsics
+  case llvm::Intrinsic::fmuladd: {
+    auto FirstLegalArg = getMappedValue(II.getArgOperand(0));
+    auto SecondLegalArg = getMappedValue(II.getArgOperand(1));
+    auto ThirdLegalArg = getMappedValue(II.getArgOperand(2));
+    if (!FirstLegalArg.isScalar() || !SecondLegalArg.isScalar() ||
+        !ThirdLegalArg.isScalar()) {
+      WATEVER_UNIMPLEMENTED("fmuladd only supported on scalar types");
+    }
+
+    auto *Ty = FirstLegalArg[0]->getType();
+    if (!Ty->isDoubleTy() && !Ty->isFloatTy()) {
+      WATEVER_UNIMPLEMENTED(
+          "fmuladd intrinsic only supported for float/double");
+    }
+    auto *MulRes = Builder.CreateFMul(FirstLegalArg[0], SecondLegalArg[0]);
+    ValueMap[&II] = Builder.CreateFAdd(MulRes, ThirdLegalArg[0]);
+    return;
+  }
   default:
     break;
   }
