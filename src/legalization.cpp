@@ -52,52 +52,66 @@ LegalValue FunctionLegalizer::legalizeConstant(llvm::Constant *C) {
     return LegalValue{Vs};
   }
 
+  if (auto *CE = llvm::dyn_cast<llvm::ConstantExpr>(C)) {
+    if (auto *GEP = llvm::dyn_cast<llvm::GEPOperator>(CE)) {
+      if (auto *PointerConstant =
+              llvm::dyn_cast<llvm::Constant>(GEP->getPointerOperand())) {
+        const llvm::DataLayout &DL = NewFunc->getParent()->getDataLayout();
+        llvm::APInt Offset(
+            DL.getPointerSizeInBits(GEP->getPointerAddressSpace()), 0);
+        auto Base = legalizeConstant(PointerConstant);
+        assert(Base.isScalar() &&
+               "pointer base in constant GEP must be scalar");
+        if (GEP->accumulateConstantOffset(DL, Offset)) {
+          WATEVER_LOG_TRACE("GEP with constant offset of {}",
+                            Offset.getSExtValue());
+          if (Offset.isZero()) {
+            return Base[0];
+          }
+          llvm::Value *OffsetVal = llvm::ConstantInt::get(IntPtrTy, Offset);
+
+          // Forcve creation of instructions
+          llvm::Value *PtrAsInt = llvm::CastInst::Create(
+              llvm::Instruction::PtrToInt, Base[0], IntPtrTy);
+          Builder.Insert(PtrAsInt);
+
+          llvm::Value *PtrWithOffsetAsInt =
+              llvm::BinaryOperator::CreateAdd(PtrAsInt, OffsetVal);
+          Builder.Insert(PtrWithOffsetAsInt);
+
+          llvm::Value *PtrWithOffset = llvm::CastInst::Create(
+              llvm::Instruction::IntToPtr, PtrWithOffsetAsInt, PtrTy);
+          Builder.Insert(PtrWithOffset);
+
+          return LegalValue{PtrWithOffset};
+        }
+        WATEVER_UNREACHABLE("constant GEP is not able to accumulate offset");
+      }
+      WATEVER_UNREACHABLE(
+          "constant GEP does not have a constant as pointer operand");
+    }
+    if (auto *PtrToInt = llvm::dyn_cast<llvm::PtrToIntOperator>(CE)) {
+      if (auto *PointerConstant =
+              llvm::dyn_cast<llvm::Constant>(PtrToInt->getPointerOperand())) {
+        auto LegalPtr = legalizeConstant(PointerConstant);
+        assert(LegalPtr.isScalar() && "pointer in ptrtoint must be scalar");
+
+        auto *Inst = llvm::CastInst::Create(llvm::Instruction::PtrToInt,
+                                            LegalPtr[0], CE->getType());
+        Builder.Insert(Inst);
+        return LegalValue{Inst};
+      }
+      WATEVER_UNREACHABLE(
+          "constant ptrtoint does not have a constant as pointer operand");
+    }
+    WATEVER_UNIMPLEMENTED("constant expression {}", llvmToString(*CE));
+  }
+
   if (C->getType()->isFloatTy() || C->getType()->isDoubleTy()) {
     return C;
   }
 
   if (C->getType()->isPointerTy()) {
-    if (auto *CE = llvm::dyn_cast<llvm::ConstantExpr>(C)) {
-      if (auto *GEP = llvm::dyn_cast<llvm::GEPOperator>(CE)) {
-        if (auto *PointerConstant =
-                llvm::dyn_cast<llvm::Constant>(GEP->getPointerOperand())) {
-          const llvm::DataLayout &DL = NewFunc->getParent()->getDataLayout();
-          llvm::APInt Offset(
-              DL.getPointerSizeInBits(GEP->getPointerAddressSpace()), 0);
-          auto Base = legalizeConstant(PointerConstant);
-          assert(Base.isScalar() &&
-                 "pointer base in constant GEP must be scalar");
-          if (GEP->accumulateConstantOffset(DL, Offset)) {
-            WATEVER_LOG_TRACE("GEP with constant offset of {}",
-                              Offset.getSExtValue());
-            if (Offset.isZero()) {
-              return Base[0];
-            }
-            llvm::Value *OffsetVal = llvm::ConstantInt::get(IntPtrTy, Offset);
-
-            // Forcve creation of instructions
-            llvm::Value *PtrAsInt = llvm::CastInst::Create(
-                llvm::Instruction::PtrToInt, Base[0], IntPtrTy);
-            Builder.Insert(PtrAsInt);
-
-            llvm::Value *PtrWithOffsetAsInt =
-                llvm::BinaryOperator::CreateAdd(PtrAsInt, OffsetVal);
-            Builder.Insert(PtrWithOffsetAsInt);
-
-            llvm::Value *PtrWithOffset = llvm::CastInst::Create(
-                llvm::Instruction::IntToPtr, PtrWithOffsetAsInt, PtrTy);
-            Builder.Insert(PtrWithOffset);
-
-            return LegalValue{PtrWithOffset};
-          }
-          WATEVER_UNREACHABLE("constant GEP is not able to accumulate offset");
-        }
-        WATEVER_UNREACHABLE(
-            "constant GEP does not have a constant as pointer operand");
-      }
-      WATEVER_UNIMPLEMENTED("constant expression {} for pointer",
-                            llvmToString(*CE));
-    }
     return C;
   }
 
@@ -1238,8 +1252,8 @@ void FunctionLegalizer::visitCallInst(llvm::CallInst &CI) {
 //===----------------------------------------------------------------------===//
 
 void FunctionLegalizer::visitIntrinsicInst(llvm::IntrinsicInst &II) {
-  // Most intrinsics do not benefit from living until lowering. All of them are
-  // handled in the following switch
+  // Most intrinsics do not benefit from living until lowering. All of them
+  // are handled in the following switch
 
   // Functions taking exactly a float/double and returning a float/double
   const char *FPtoFPFuncName = nullptr;
