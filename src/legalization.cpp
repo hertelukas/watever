@@ -475,6 +475,47 @@ void FunctionLegalizer::visitBinaryOperator(llvm::BinaryOperator &BO) {
 //===----------------------------------------------------------------------===//
 // Aggregate Operations
 //===----------------------------------------------------------------------===//
+void FunctionLegalizer::visitExtractValueInst(llvm::ExtractValueInst &EI) {
+  auto LegalAggregateOperand = getMappedValue(EI.getAggregateOperand());
+  LegalValue Result;
+  const auto *OpIt = LegalAggregateOperand.begin();
+
+  auto RecursiveExtract = [&](auto &&Self, llvm::Type *Ty,
+                              const unsigned int *IdxIt) {
+    if (IdxIt == EI.idx_end()) {
+      // Collect all scalar parts of the type
+      auto NumParts = LegalizationPass::getLegalType(Ty).size();
+      for (size_t I = 0; I < NumParts; ++I) {
+        Result.PushBack(*OpIt++);
+      }
+      return;
+    }
+
+    unsigned TargetIdx = *IdxIt;
+
+    if (auto *STy = llvm::dyn_cast<llvm::StructType>(Ty)) {
+      for (unsigned I = 0; I < TargetIdx; ++I) {
+        // Skip the type's value in the input operand
+        auto NumParts =
+            LegalizationPass::getLegalType(STy->getElementType(I)).size();
+        OpIt += NumParts;
+      }
+      Self(Self, STy->getElementType(TargetIdx), IdxIt + 1);
+    } else if (auto *ATy = llvm::dyn_cast<llvm::ArrayType>(Ty)) {
+      auto *ElemTy = ATy->getElementType();
+      auto ElementSize = LegalizationPass::getLegalType(ElemTy).size();
+      OpIt += (ElementSize * TargetIdx);
+      Self(Self, ElemTy, IdxIt + 1);
+    } else {
+      WATEVER_UNREACHABLE("index into non-aggregate type");
+    }
+  };
+
+  RecursiveExtract(RecursiveExtract, EI.getAggregateOperand()->getType(),
+                   EI.idx_begin());
+
+  ValueMap[&EI] = Result;
+}
 //===----------------------------------------------------------------------===//
 // Memory Access and Addressing Operations
 //===----------------------------------------------------------------------===//
@@ -1496,6 +1537,28 @@ LegalType LegalizationPass::getLegalType(llvm::Type *Ty) {
 
   if (Ty->isPointerTy()) {
     return Ty;
+  }
+
+  if (auto *ATy = llvm::dyn_cast<llvm::ArrayType>(Ty)) {
+    llvm::SmallVector<llvm::Type *> Ts;
+    auto LegalElementType = getLegalType(ATy->getElementType());
+    for (unsigned I = 0; I < ATy->getNumElements(); ++I) {
+      for (auto *ElementTyPart : LegalElementType) {
+        Ts.push_back(ElementTyPart);
+      }
+    }
+    return LegalType{Ts};
+  }
+
+  if (auto *STy = llvm::dyn_cast<llvm::StructType>(Ty)) {
+    llvm::SmallVector<llvm::Type *> Ts;
+    for (auto *ElementTy : STy->elements()) {
+      auto LegalElementType = getLegalType(ElementTy);
+      for (auto *ElementTyPart : LegalElementType) {
+        Ts.push_back(ElementTyPart);
+      }
+    }
+    return LegalType{Ts};
   }
 
   WATEVER_UNIMPLEMENTED("Unsupported type {}", llvmToString(*Ty));

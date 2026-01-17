@@ -226,6 +226,7 @@ public:
   // Vector Operations
 
   // Aggregatge Operations
+  void visitExtractValueInst(llvm::ExtractValueInst &EI);
 
   // Memory Access and Addressing Operations
   void visitAllocaInst(llvm::AllocaInst &AI);
