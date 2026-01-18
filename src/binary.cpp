@@ -176,7 +176,7 @@ void BinaryWriter::writeData() {
   if (Mod.Datas.empty()) {
     return;
   }
-  CurrentSection++;
+  Relocation DataRelocation(CurrentSection++, "DATA");
   llvm::SmallVector<char> Content;
   llvm::raw_svector_ostream ContentOS(Content);
 
@@ -192,9 +192,19 @@ void BinaryWriter::writeData() {
     Opcode(Opcode::End).writeBytes(ContentOS);
 
     llvm::encodeULEB128(Data->Content.size(), ContentOS);
+    for (auto &Relocation : Data->Relocations) {
+      Relocation->Offset += ContentOS.tell();
+      DataRelocation.Entries.push_back(*Relocation);
+    }
+
     ContentOS.write(reinterpret_cast<const char *>(Data->Content.data()),
                     Data->Content.size());
+
     Offset += Data->Content.size();
+  }
+
+  if (!DataRelocation.Entries.empty()) {
+    Relocations.push_back(std::move(DataRelocation));
   }
 
   OS << static_cast<uint8_t>(Section::Data);

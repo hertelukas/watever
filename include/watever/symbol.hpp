@@ -130,7 +130,6 @@ class DefinedFunc final : public Function {
   // replaced when writing out to the binary
   uint32_t TotalLocals{};
 
-
 public:
   uint32_t TotalArgs{};
   Features FeatureSet;
@@ -143,7 +142,7 @@ public:
   llvm::DenseMap<llvm::Instruction *, uint32_t> StackSlots{};
 
   llvm::DenseMap<llvm::AllocaInst *, Local *> PromotedAllocas{};
-  
+
   Local *FP{};
   int64_t FrameSize{};
   explicit DefinedFunc(uint32_t SymbolIdx, uint32_t TypeIdx, uint32_t FuncIdx,
@@ -162,7 +161,7 @@ public:
   static bool classof(const Symbol *S) {
     return S->getClassKind() == Kind::DefinedFunc;
   }
-  
+
   /// Check whether \p Val has a user outside of \p BB
   bool hasExternalUser(llvm::Value *Val, llvm::BasicBlock *BB);
   void setupStackFrame(llvm::BasicBlock *Entry);
@@ -188,17 +187,18 @@ struct DefinedData final : public Data {
   uint32_t DataIndex;
   bool Active;
   std::vector<uint8_t> Content;
-  llvm::SmallVector<RelocationEntry> Relocations;
+  llvm::SmallVector<std::unique_ptr<RelocationEntry>> Relocations;
   uint32_t Flags{};
   uint32_t Alignment{};
   DataSection Sec;
 
-  explicit DefinedData(uint32_t SymbolIdx, uint32_t DataIdx, bool Active,
-                       std::string Name, llvm::ArrayRef<uint8_t> Content,
-                       llvm::ArrayRef<RelocationEntry> Relocs, DataSection S)
+  explicit DefinedData(
+      uint32_t SymbolIdx, uint32_t DataIdx, bool Active, std::string Name,
+      llvm::ArrayRef<uint8_t> Content,
+      llvm::SmallVector<std::unique_ptr<RelocationEntry>> Relocs, DataSection S)
       : Data(Kind::DefinedData, SymbolIdx, std::move(Name)), DataIndex(DataIdx),
         Active(Active), Content(Content.begin(), Content.end()),
-        Relocations(Relocs), Sec(S) {}
+        Relocations(std::move(Relocs)), Sec(S) {}
 
   void setFlag(SegmentFlag F) { Flags |= static_cast<uint32_t>(F); }
 

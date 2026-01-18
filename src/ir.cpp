@@ -17,6 +17,7 @@
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/DataLayout.h>
+#include <llvm/IR/Function.h>
 #include <llvm/IR/GlobalValue.h>
 #include <llvm/IR/GlobalVariable.h>
 #include <llvm/IR/InstrTypes.h>
@@ -131,10 +132,11 @@ static bool putValueOnStack(llvm::Value *Val, WasmActions &Actions, Module &M,
   return false;
 }
 
-void Module::flattenConstant(const llvm::Constant *C,
-                             std::vector<uint8_t> &Buffer,
-                             llvm::SmallVector<RelocationEntry> &Relocs,
-                             const llvm::DataLayout &DL) {
+void Module::flattenConstant(
+    const llvm::Constant *C, std::vector<uint8_t> &Buffer,
+    llvm::SmallVector<std::unique_ptr<RelocationEntry>> &Relocs,
+    llvm::DenseMap<RelocationEntry *, const llvm::GlobalValue *> &FixUps,
+    const llvm::DataLayout &DL) {
   // Simple data arrays
   if (auto *CDS = llvm::dyn_cast<llvm::ConstantDataSequential>(C)) {
     llvm::StringRef RawData = CDS->getRawDataValues();
@@ -146,7 +148,7 @@ void Module::flattenConstant(const llvm::Constant *C,
   if (auto *CA = llvm::dyn_cast<llvm::ConstantAggregate>(C)) {
     // TODO respect padding
     for (unsigned I = 0; I != CA->getNumOperands(); ++I) {
-      flattenConstant(CA->getOperand(I), Buffer, Relocs, DL);
+      flattenConstant(CA->getOperand(I), Buffer, Relocs, FixUps, DL);
     }
     return;
   }
@@ -182,7 +184,25 @@ void Module::flattenConstant(const llvm::Constant *C,
   }
 
   if (auto *GV = llvm::dyn_cast<llvm::GlobalValue>(C)) {
-    WATEVER_UNIMPLEMENTED("handle data relocation to {}", llvmToString(*GV));
+    auto PtrSize = DL.getPointerSize();
+    auto Offset = Buffer.size();
+    // Reserve space for relocation
+    Buffer.insert(Buffer.end(), PtrSize, 0);
+
+    RelocationType RelocTy;
+    if (llvm::isa<llvm::Function>(GV)) {
+      RelocTy = (PtrSize == 8) ? RelocationType::R_WASM_TABLE_INDEX_I64
+                               : RelocationType::R_WASM_TABLE_INDEX_I32;
+    } else {
+      RelocTy = (PtrSize == 8) ? RelocationType::R_WASM_MEMORY_ADDR_I64
+                               : RelocationType::R_WASM_MEMORY_ADDR_I32;
+    }
+    // Symbol index gets patched later, when all GV have been defined
+    auto Reloc = std::make_unique<RelocationEntry>(RelocTy, Offset, 0);
+    auto *RelocPtr = Reloc.get();
+    Relocs.push_back(std::move(Reloc));
+    FixUps[RelocPtr] = GV;
+    return;
   }
 
   if (auto *_ = llvm::dyn_cast<llvm::ConstantExpr>(C)) {
@@ -1549,6 +1569,7 @@ Module ModuleLowering::convert(llvm::Module &Mod,
   Module Res{};
 
   uint32_t FunctionIndexCounter = 0;
+  llvm::DenseMap<RelocationEntry *, const llvm::GlobalValue *> FixUps;
 
   for (auto &GV : Mod.globals()) {
     WATEVER_LOG_TRACE("Adding global value {}", GV.getName().str());
@@ -1563,9 +1584,9 @@ Module ModuleLowering::convert(llvm::Module &Mod,
     }
 
     std::vector<uint8_t> Content;
-    llvm::SmallVector<RelocationEntry> Relocs;
+    llvm::SmallVector<std::unique_ptr<RelocationEntry>> Relocs;
 
-    Res.flattenConstant(GV.getInitializer(), Content, Relocs,
+    Res.flattenConstant(GV.getInitializer(), Content, Relocs, FixUps,
                         Mod.getDataLayout());
 
     DataSection S;
@@ -1580,7 +1601,7 @@ Module ModuleLowering::convert(llvm::Module &Mod,
 
     auto DefData = std::make_unique<DefinedData>(
         Res.Symbols.size(), Res.Datas.size(), true, GV.getName().str(), Content,
-        Relocs, S);
+        std::move(Relocs), S);
 
     if (GV.getThreadLocalMode() != llvm::GlobalValue::NotThreadLocal) {
       DefData->setFlag(SegmentFlag::WASM_SEGMENT_FLAG_TLS);
@@ -1703,5 +1724,23 @@ Module ModuleLowering::convert(llvm::Module &Mod,
 
     dumpWasm(*WasmFunc->Body);
   }
+
+  for (auto &[Entry, GV] : FixUps) {
+    if (auto *F = llvm::dyn_cast<llvm::Function>(GV)) {
+      if (auto *WasumFunc = Res.FunctionMap[F]) {
+        Entry->Index = WasumFunc->SymbolIndex;
+      } else {
+        WATEVER_UNREACHABLE("function not found as a symbol: {}", F->getName());
+      }
+    } else {
+      if (auto *WasmData = Res.DataMap.lookup(GV)) {
+        Entry->Index = WasmData->SymbolIndex;
+      } else {
+        WATEVER_UNREACHABLE("global variable not found as a symbol: {}",
+                            GV->getNameOrAsOperand());
+      }
+    }
+  }
+
   return Res;
 }

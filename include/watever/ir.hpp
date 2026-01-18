@@ -129,8 +129,11 @@ class Module {
     Buffer.insert(Buffer.end(), Bytes, Bytes + sizeof(T));
   }
 
-  void flattenConstant(const llvm::Constant *C, std::vector<uint8_t> &Buffer,
-                       llvm::SmallVector<RelocationEntry> &Relocs, const llvm::DataLayout &DL);
+  void flattenConstant(
+      const llvm::Constant *C, std::vector<uint8_t> &Buffer,
+      llvm::SmallVector<std::unique_ptr<RelocationEntry>> &Relocs,
+      llvm::DenseMap<RelocationEntry *, const llvm::GlobalValue *> &FixUps,
+      const llvm::DataLayout &DL);
 
 public:
   TargetConfig Config;
@@ -140,14 +143,14 @@ public:
   std::map<FuncType, uint32_t> TypeLookup;
   llvm::SmallVector<ImportedFunc *> Imports{};
   llvm::SmallVector<DefinedFunc *> Functions{};
-  llvm::DenseMap<llvm::Function *, Function *> FunctionMap{};
+  llvm::DenseMap<const llvm::Function *, Function *> FunctionMap{};
 
   llvm::SmallVector<ImportedGlobal *> ImportedGlobals{};
   llvm::DenseMap<llvm::Value *, Global *> GlobalMap;
   ImportedGlobal *StackPointer = nullptr;
 
   llvm::SmallVector<DefinedData *> Datas{};
-  llvm::DenseMap<llvm::GlobalValue *, Data *> DataMap;
+  llvm::DenseMap<const llvm::GlobalValue *, Data *> DataMap;
 
   std::vector<Function *> IndirectFunctionElements{nullptr};
   llvm::DenseMap<Function *, uint32_t> IndirectFunctionElementLookup;
@@ -290,7 +293,7 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
   void visitPtrToIntInst(llvm::PtrToIntInst &I) {
     addOperandsToWorklist(I.operands());
   };
-  
+
   void visitIntToPtrInst(llvm::IntToPtrInst &I) {
     addOperandsToWorklist(I.operands());
   };
