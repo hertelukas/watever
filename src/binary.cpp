@@ -98,15 +98,17 @@ void BinaryWriter::writeElements() {
   llvm::SmallVector<char> Content;
   llvm::raw_svector_ostream ContentOS(Content);
 
-  llvm::encodeULEB128(Mod.IndirectFunctionElements.size() - 1, ContentOS);
+  // Only one element; the entries of a function table
+  llvm::encodeULEB128(1, ContentOS);
 
-  // TODO I'm confused about this; why can a single element hold multiple
-  // functions?
-  // We skip the first element, as this is reserved as nullptr
+  // Use active element segment for implicit table 0
   llvm::encodeULEB128(uint32_t{0}, ContentOS);
+  // We skip the first element, as this is reserved as nullptr:
+  // Start writing table entries of function table at index 1
   Opcode(Opcode::I32Const).writeBytes(ContentOS);
   llvm::encodeULEB128(1, ContentOS);
   Opcode(Opcode::End).writeBytes(ContentOS);
+
   llvm::encodeULEB128(Mod.IndirectFunctionElements.size() - 1, ContentOS);
   for (uint32_t I = 1; I < Mod.IndirectFunctionElements.size(); ++I) {
     llvm::encodeULEB128(Mod.IndirectFunctionElements[I]->FunctionIndex,
