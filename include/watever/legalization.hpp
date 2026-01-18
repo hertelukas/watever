@@ -257,7 +257,7 @@ public:
   void visitIntToPtrInst(llvm::IntToPtrInst &I) {
     auto Arg = getMappedValue(I.getOperand(0));
     assert(Arg.isScalar() && "int pointer must be scalar");
-    ValueMap[&I] = Builder.CreatePtrToInt(Arg[0], I.getDestTy());
+    ValueMap[&I] = Builder.CreateIntToPtr(Arg[0], I.getDestTy());
   };
 
   // Other Operations
