@@ -144,6 +144,7 @@ void Module::flattenConstant(const llvm::Constant *C,
 
   // Aggregates
   if (auto *CA = llvm::dyn_cast<llvm::ConstantAggregate>(C)) {
+    // TODO respect padding
     for (unsigned I = 0; I != CA->getNumOperands(); ++I) {
       flattenConstant(CA->getOperand(I), Buffer, Relocs, DL);
     }
@@ -165,6 +166,11 @@ void Module::flattenConstant(const llvm::Constant *C,
     else {
       WATEVER_UNIMPLEMENTED("handle constant int >64 bit");
     }
+    return;
+  }
+
+  if (llvm::isa<llvm::ConstantPointerNull>(C)) {
+    Buffer.insert(Buffer.end(), DL.getTypeAllocSize(C->getType()), 0);
     return;
   }
 
