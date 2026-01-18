@@ -24,6 +24,7 @@
 #include <llvm/IR/Instruction.h>
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/Intrinsics.h>
+#include <llvm/IR/Operator.h>
 #include <llvm/IR/Type.h>
 #include <llvm/IR/Value.h>
 #include <llvm/Support/Casting.h>
@@ -205,8 +206,35 @@ void Module::flattenConstant(
     return;
   }
 
-  if (auto *_ = llvm::dyn_cast<llvm::ConstantExpr>(C)) {
-    WATEVER_UNIMPLEMENTED("handle constant expressions in data section");
+  if (auto *CE = llvm::dyn_cast<llvm::ConstantExpr>(C)) {
+    if (auto *GEP = llvm::dyn_cast<llvm::GEPOperator>(CE)) {
+      llvm::APInt Offset(DL.getPointerSizeInBits(), 0);
+      if (GEP->accumulateConstantOffset(DL, Offset)) {
+        if (auto *PtrConstant = llvm::dyn_cast<llvm::GlobalValue>(
+                GEP->getPointerOperand()->stripPointerCasts())) {
+          flattenConstant(PtrConstant, Buffer, Relocs, FixUps, DL);
+          // Flatten constant will have added a new relocation for the GV, to
+          // which this GEP is an addend
+          Relocs.back()->Addend += Offset.getSExtValue();
+          return;
+        }
+        WATEVER_UNIMPLEMENTED("GEP with non global value {} as operand",
+                              GEP->getPointerOperand()->getNameOrAsOperand());
+      }
+      WATEVER_UNIMPLEMENTED("complex GEP {} in data section",
+                            GEP->getNameOrAsOperand());
+    }
+    if (auto *PtrToInt = llvm::dyn_cast<llvm::PtrToIntOperator>(CE)) {
+      if (auto *PtrConstant =
+              llvm::dyn_cast<llvm::Constant>(PtrToInt->getPointerOperand())) {
+        return flattenConstant(PtrConstant, Buffer, Relocs, FixUps, DL);
+      }
+      WATEVER_UNREACHABLE(
+          "const expr PtrToInt has non const pointer as operand");
+    }
+    if (CE->getOpcode() == llvm::Instruction::IntToPtr) {
+      return flattenConstant(CE->getOperand(0), Buffer, Relocs, FixUps, DL);
+    }
   }
 
   WATEVER_UNIMPLEMENTED("constant data of type {} is not yet supported",
