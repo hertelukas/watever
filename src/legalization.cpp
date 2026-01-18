@@ -33,10 +33,10 @@ LegalValue FunctionLegalizer::legalizeConstant(llvm::Constant *C) {
       return C;
     }
     if (Width < 32) {
-      return llvm::ConstantInt::get(Builder.getInt32Ty(), CI->getZExtValue());
+      return llvm::ConstantInt::get(Builder.getInt32Ty(), CI->getSExtValue());
     }
     if (Width < 64) {
-      return llvm::ConstantInt::get(Builder.getInt64Ty(), CI->getZExtValue());
+      return llvm::ConstantInt::get(Builder.getInt64Ty(), CI->getSExtValue());
     }
 
     unsigned NumParts = (Width + 63) / 64;
