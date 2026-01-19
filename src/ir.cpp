@@ -797,35 +797,41 @@ void BlockLowering::visitZExtInst(llvm::ZExtInst &ZI) {
   auto ToWidth = ZI.getType()->getIntegerBitWidth();
 
   if (auto *LI = llvm::dyn_cast<llvm::LoadInst>(ZI.getOperand(0))) {
+    // We have a promoted alloca, so do not try to inline offsets/force a
+    // load
+    bool IsPromoted = false;
+    if (auto *AI = llvm::dyn_cast<llvm::AllocaInst>(LI->getPointerOperand())) {
+      IsPromoted = Parent->PromotedAllocas.contains(AI);
+    }
     // TODO use alignment
-    auto *LoadType = LI->getType();
     // uint32_t Alignment = LoadInst->getAlign().value();
-    assert(LoadType->isIntegerTy());
-    if (ToWidth == 32) {
-      if (FromWidth == 8) {
-        doGreedyMemOp(*LI, Opcode::I32Load8U);
-        return;
+    if (!IsPromoted) {
+      if (ToWidth == 32) {
+        if (FromWidth == 8) {
+          doGreedyMemOp(*LI, Opcode::I32Load8U);
+          return;
+        }
+        if (FromWidth == 16) {
+          doGreedyMemOp(*LI, Opcode::I32Load16U);
+          return;
+        }
       }
-      if (FromWidth == 16) {
-        doGreedyMemOp(*LI, Opcode::I32Load16U);
-        return;
+      if (ToWidth == 64) {
+        if (FromWidth == 8) {
+          doGreedyMemOp(*LI, Opcode::I64Load8U);
+          return;
+        }
+        if (FromWidth == 16) {
+          doGreedyMemOp(*LI, Opcode::I64Load16U);
+          return;
+        }
+        if (FromWidth == 32) {
+          doGreedyMemOp(*LI, Opcode::I64Load32U);
+          return;
+        }
       }
+      WATEVER_UNREACHABLE("unknown load from {} to {} bit", FromWidth, ToWidth);
     }
-    if (ToWidth == 64) {
-      if (FromWidth == 8) {
-        doGreedyMemOp(*LI, Opcode::I64Load8U);
-        return;
-      }
-      if (FromWidth == 16) {
-        doGreedyMemOp(*LI, Opcode::I64Load16U);
-        return;
-      }
-      if (FromWidth == 32) {
-        doGreedyMemOp(*LI, Opcode::I64Load32U);
-        return;
-      }
-    }
-    WATEVER_UNREACHABLE("unknown load from {} to {} bit", FromWidth, ToWidth);
   }
 
   if (FromWidth <= 32 && ToWidth > 32 && ToWidth <= 64) {
