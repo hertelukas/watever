@@ -172,6 +172,18 @@ void Module::flattenConstant(
     return;
   }
 
+  if (auto *CF = llvm::dyn_cast<llvm::ConstantFP>(C)) {
+    if (CF->getType()->isDoubleTy()) {
+      appendBytes(Buffer, CF->getValue().convertToDouble());
+    } else if (CF->getType()->isFloatTy()) {
+      appendBytes(Buffer, CF->getValue().convertToFloat());
+    } else {
+      WATEVER_UNIMPLEMENTED("handle floating point type {}",
+                            llvmToString(*CF->getType()));
+    }
+    return;
+  }
+
   if (llvm::isa<llvm::ConstantPointerNull>(C)) {
     Buffer.insert(Buffer.end(), DL.getTypeAllocSize(C->getType()), 0);
     return;
