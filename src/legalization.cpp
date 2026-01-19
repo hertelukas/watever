@@ -1359,6 +1359,17 @@ void FunctionLegalizer::visitIntrinsicInst(llvm::IntrinsicInst &II) {
   // Functions taking exactly a float/double and returning a float/double
   const char *FPtoFPFuncName = nullptr;
   switch (II.getIntrinsicID()) {
+    // Variable Argument Handling Intrinsics
+  case llvm::Intrinsic::vastart: {
+    // va_list is just the last argument to the current function
+    auto LegalListPointer = getMappedValue(II.getArgOperand(0));
+    assert(LegalListPointer.isScalar() && "va_list operand must be scalar");
+    auto *VAListPtr = LegalListPointer[0];
+    auto *VarArgsPtr = NewFunc->getArg(NewFunc->arg_size() - 1);
+    Builder.CreateStore(VarArgsPtr, VAListPtr);
+    return;
+  }
+    // C/C++ Library intrinsics
     // clang-format off
   case llvm::Intrinsic::sin: FPtoFPFuncName = "sin"; break;
   case llvm::Intrinsic::cos: FPtoFPFuncName = "cos"; break;
