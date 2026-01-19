@@ -388,7 +388,15 @@ void FunctionLegalizer::visitBinaryOperator(llvm::BinaryOperator &BO) {
       break;
     }
     case llvm::Instruction::FRem: {
-      WATEVER_UNIMPLEMENTED("Support frem");
+      if (LHS->getType()->isDoubleTy()) {
+        ValueMap[&BO] = emitLibCall("fmod", {LHS, RHS}, LHS->getType());
+      } else if (LHS->getType()->isFloatTy()) {
+        ValueMap[&BO] = emitLibCall("fmodf", {LHS, RHS}, LHS->getType());
+      } else {
+        WATEVER_UNREACHABLE("Unsupported type for frem {}",
+                            llvmToString(*LHS->getType()));
+      }
+      return;
     }
     case llvm::Instruction::Shl: {
       // we don't care about upper bits in LHS, as they are shifted away
