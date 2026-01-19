@@ -95,7 +95,7 @@ public:
 class WasmBr final : public Wasm {
 public:
   uint32_t Nesting;
-  explicit WasmBr(int Nesting) : Nesting(Nesting) {}
+  explicit WasmBr(uint32_t Nesting) : Nesting(Nesting) {}
   void accept(WasmVisitor &V) override { V.visit(*this); }
 };
 
@@ -364,7 +364,7 @@ class FunctionLowering {
 
   std::unique_ptr<Wasm> doTree(llvm::BasicBlock *Root, Context Ctx);
 
-  static int index(const llvm::BasicBlock *BB, const Context &Ctx);
+  static uint32_t index(const llvm::BasicBlock *BB, const Context &Ctx);
 
   std::unique_ptr<WasmActions> translateBB(llvm::BasicBlock *BB) const;
 

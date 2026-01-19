@@ -1492,15 +1492,29 @@ std::unique_ptr<Wasm> FunctionLowering::nodeWithin(
     } else if (auto *SI = llvm::dyn_cast<llvm::SwitchInst>(Term)) {
       // TODO handle PHI nodes
       WATEVER_LOG_TRACE("{} ends with a switch", getBlockName(Parent));
-      llvm::SmallVector<uint32_t> Targets;
+      // Map each case to the target block index
+      llvm::DenseMap<uint32_t, uint32_t> SparseTargets;
+      uint32_t MaxIdx = 0;
       for (auto &Case : SI->cases()) {
         auto *Target = Case.getCaseSuccessor();
-        Targets.push_back(index(Target, Ctx));
+        auto BlockIdx = index(Target, Ctx);
+        auto CaseValue = Case.getCaseValue()->getZExtValue();
+        SparseTargets[CaseValue] = BlockIdx;
+        if (CaseValue > MaxIdx) {
+          MaxIdx = CaseValue;
+        }
       }
       auto *DefaultTarget = SI->getDefaultDest();
-      uint32_t DefaultIndex;
-      DefaultIndex = index(DefaultTarget, Ctx);
-      BranchTableArg Argument{std::move(Targets), DefaultIndex};
+      auto DefaultIdx = index(DefaultTarget, Ctx);
+
+      llvm::SmallVector<uint32_t> Targets;
+      while (Targets.size() <= MaxIdx) {
+        Targets.push_back(SparseTargets.lookup_or(Targets.size(), DefaultIdx));
+      }
+      // TODO if MaxIdx is large, this branch table can get huge. Therefore, use
+      // if-else chains (maybe during legalization) or at least subtract the
+      // MinIndex.
+      BranchTableArg Argument{std::move(Targets), DefaultIdx};
       WasmActions BranchTable{};
       BranchTable.Insts.emplace_back(
           Opcode::BrTable, std::make_unique<BranchTableArg>(Argument));
@@ -1532,8 +1546,9 @@ std::unique_ptr<Wasm> FunctionLowering::nodeWithin(
       WasmSeq{std::move(First), std::move(Second)});
 }
 
-int FunctionLowering::index(const llvm::BasicBlock *BB, const Context &Ctx) {
-  int I = 0;
+uint32_t FunctionLowering::index(const llvm::BasicBlock *BB,
+                                 const Context &Ctx) {
+  uint32_t I = 0;
   // Iterate in reverse to find the innermost matching label (relative index
   // 0)
   for (auto &It : std::ranges::reverse_view(Ctx)) {
