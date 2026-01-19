@@ -104,6 +104,20 @@ LegalValue FunctionLegalizer::legalizeConstant(llvm::Constant *C) {
       WATEVER_UNREACHABLE(
           "constant ptrtoint does not have a constant as pointer operand");
     }
+    if (CE->getOpcode() == llvm::Instruction::IntToPtr) {
+      if (auto *IntConstant =
+              llvm::dyn_cast<llvm::Constant>(CE->getOperand(0))) {
+        auto LegalInt = legalizeConstant(IntConstant);
+        assert(LegalInt.isScalar() && "int in inttoptr must be scalar");
+
+        auto *Inst = llvm::CastInst::Create(llvm::Instruction::IntToPtr,
+                                            LegalInt[0], CE->getType());
+        Builder.Insert(Inst);
+        return LegalValue{Inst};
+      }
+      WATEVER_UNREACHABLE(
+          "constant inttoptr does not have a constant as int operand");
+    }
     WATEVER_UNIMPLEMENTED("constant expression {}", llvmToString(*CE));
   }
 
