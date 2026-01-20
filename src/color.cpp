@@ -159,18 +159,16 @@ void FunctionColorer::computeLiveSets() {
 
 #ifdef WATEVER_LOGGING
 void FunctionColorer::dumpLiveness() {
+  if (!spdlog::should_log(spdlog::level::trace)) {
+    return;
+  }
   std::string Buffer;
   llvm::raw_string_ostream OS(Buffer);
 
   auto NameComparison = [](const llvm::Value *A, const llvm::Value *B) {
     if (A->hasName() && B->hasName())
       return A->getName() < B->getName();
-    // Backup, if e.g., %1
-    std::string StrA, StrB;
-    llvm::raw_string_ostream OSA(StrA), OSB(StrB);
-    A->printAsOperand(OSA, false);
-    B->printAsOperand(OSB, false);
-    return OSA.str() < OSA.str();
+    return A->getNameOrAsOperand() < B->getNameOrAsOperand();
   };
 
   for (auto &BB : Source) {

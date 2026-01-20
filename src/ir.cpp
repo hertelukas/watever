@@ -1783,7 +1783,9 @@ Module ModuleLowering::convert(llvm::Module &Mod,
                                                  std::move(WasmFunc->Body));
     }
 
+#ifdef WATEVER_LOGGING
     dumpWasm(*WasmFunc->Body);
+#endif
   }
 
   for (auto &Alias : Mod.aliases()) {

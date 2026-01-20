@@ -21,7 +21,7 @@ target_include_directories(${PROJECT_NAME}lib SYSTEM PUBLIC
 
 target_link_libraries(${PROJECT_NAME}lib PUBLIC LLVM)
 
-set(WATEVER_LOGGING "ON" CACHE STRING "Enable logging with spdlog (DebugOnly/ON(default)/OFF)")
+set(WATEVER_LOGGING "DebugOnly" CACHE STRING "Enable logging with spdlog (DebugOnly(default)/ON/OFF)")
 set_property(CACHE WATEVER_LOGGING PROPERTY STRINGS DebugOnly ON OFF)
 
 # spdlog

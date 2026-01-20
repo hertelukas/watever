@@ -60,10 +60,10 @@ public:
 };
 #endif
 
-void dumpWasm(Wasm &W) {
 #ifdef WATEVER_LOGGING
+void dumpWasm(Wasm &W) {
   WasmPrinter Printer{};
   W.accept(Printer);
-#endif
 }
+#endif
 } // namespace watever

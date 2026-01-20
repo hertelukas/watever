@@ -270,7 +270,7 @@ public:
   // Intrinsics
   void visitIntrinsicInst(llvm::IntrinsicInst &II);
 
-  void visitInstruction(llvm::Instruction &I) {
+  void visitInstruction([[maybe_unused]] llvm::Instruction &I) {
     WATEVER_UNIMPLEMENTED("{} not (yet) supported", I.getOpcodeName());
   }
 };
