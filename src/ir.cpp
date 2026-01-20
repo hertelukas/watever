@@ -1730,7 +1730,7 @@ Module ModuleLowering::convert(llvm::Module &Mod,
         C.EnabledFeatures);
 
     // TODO use correct flags
-    if (F.getVisibility() == llvm::GlobalValue::HiddenVisibility) {
+    if (F.hasHiddenVisibility()) {
       FunctionPtr->setFlag(SymbolFlag::WASM_SYM_VISIBILITY_HIDDEN);
     }
     Res.FunctionMap[&F] = FunctionPtr.get();
@@ -1784,6 +1784,24 @@ Module ModuleLowering::convert(llvm::Module &Mod,
     }
 
     dumpWasm(*WasmFunc->Body);
+  }
+
+  for (auto &Alias : Mod.aliases()) {
+    if (auto *F = llvm::dyn_cast<llvm::Function>(
+            Alias.getAliasee()->stripPointerCasts())) {
+      if (auto *AliaseeFunc = Res.FunctionMap.lookup(F)) {
+        auto AliasPtr = std::make_unique<AliasedFunc>(
+            Res.Symbols.size(), Alias.getName().str(), AliaseeFunc);
+
+        if (Alias.hasHiddenVisibility()) {
+          AliasPtr->setFlag(SymbolFlag::WASM_SYM_VISIBILITY_HIDDEN);
+        }
+
+        Res.Symbols.push_back(std::move(AliasPtr));
+      } else {
+        WATEVER_LOG_WARN("Trying to alias unknown function {}", F->getName());
+      }
+    }
   }
 
   for (auto &[Entry, GV] : FixUps) {

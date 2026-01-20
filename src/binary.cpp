@@ -308,6 +308,9 @@ void BinaryWriter::write() {
       } else if (const auto *IF = llvm::dyn_cast<ImportedFunc>(Symbol.get())) {
         Index = IF->FunctionIndex;
         Import = true;
+      } else if (const auto *AF = llvm::dyn_cast<AliasedFunc>(Symbol.get())) {
+        Name = AF->Name;
+        Index = AF->FunctionIndex;
       }
       // TODO defined globals might not need an entry in the symbol table.
       // However, I currently give every symbol, including defined globals, a

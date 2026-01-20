@@ -1484,6 +1484,7 @@ llvm::Function *LegalizationPass::createLegalFunction(llvm::Module &Mod,
   llvm::AttributeSet FnAttrs = OldFunc->getAttributes().getFnAttrs();
   Fn->setAttributes(llvm::AttributeList::get(
       Fn->getContext(), llvm::AttributeList::FunctionIndex, FnAttrs));
+  Fn->setVisibility(OldFunc->getVisibility());
 
   bool IndirectReturn = getLegalType(OldFunc->getReturnType()).size() > 1;
 
@@ -1600,32 +1601,6 @@ LegalType LegalizationPass::getLegalType(llvm::Type *Ty) {
 llvm::PreservedAnalyses LegalizationPass::run(llvm::Module &Mod,
                                               llvm::ModuleAnalysisManager &) {
   llvm::SmallVector<llvm::Function *> FuncsToLegalize;
-
-  if (auto *Main = Mod.getFunction("main")) {
-    if (Main->arg_empty()) {
-      // TODO not sure if this is correct
-      if (auto *Alias = Mod.getNamedAlias("__main_void")) {
-        Alias->eraseFromParent();
-      }
-      Main->setName("__main_void");
-      llvm::SmallVector<llvm::Type *, 2> Params = {
-          llvm::Type::getInt32Ty(Mod.getContext()),
-          llvm::PointerType::get(Mod.getContext(), 0)};
-      auto *FuncTy = llvm::FunctionType::get(
-          llvm::Type::getInt32Ty(Mod.getContext()), Params, false);
-
-      auto *NewMain =
-          llvm::Function::Create(FuncTy, Main->getLinkage(), "main", Mod);
-      Main->setLinkage(llvm::GlobalValue::InternalLinkage);
-
-      auto *EntryBB =
-          llvm::BasicBlock::Create(Mod.getContext(), "entry", NewMain);
-      llvm::IRBuilder<> Builder(EntryBB);
-
-      auto *Call = Builder.CreateCall(Main, {});
-      Builder.CreateRet(Call);
-    }
-  }
 
   // Old Funcs -> New Funcs
   llvm::DenseMap<llvm::Function *, llvm::Function *> FuncMap;

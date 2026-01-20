@@ -7,7 +7,8 @@ set(APP_SOURCES
   opcode.cpp
   opcode-code-table.c
   printer.cpp
-  symbol.cpp)
+  symbol.cpp
+  FixFunctionBitcasts.cpp)
   
 add_library(${PROJECT_NAME}lib ${APP_SOURCES})
 

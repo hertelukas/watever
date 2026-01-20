@@ -22,6 +22,7 @@ struct Symbol {
     DefinedGlobal,
     ImportedFunc,
     DefinedFunc,
+    AliasedFunc,
     UndefinedData,
     DefinedData,
     UndefinedTable,
@@ -101,7 +102,8 @@ struct Function : public Symbol {
 
   static bool classof(const Symbol *S) {
     return S->getClassKind() == Kind::ImportedFunc ||
-           S->getClassKind() == Kind::DefinedFunc;
+           S->getClassKind() == Kind::DefinedFunc ||
+           S->getClassKind() == Kind::AliasedFunc;
   }
 
   ~Function() override = default;
@@ -165,6 +167,19 @@ public:
   /// Check whether \p Val has a user outside of \p BB
   bool hasExternalUser(llvm::Value *Val, llvm::BasicBlock *BB);
   void setupStackFrame(llvm::BasicBlock *Entry);
+};
+
+class AliasedFunc final : public Function {
+
+public:
+  explicit AliasedFunc(uint32_t SymbolIdx, std::string Name, Function *Aliasee)
+      : Function(Kind::AliasedFunc, SymbolIdx, Aliasee->TypeIndex,
+                 Aliasee->FunctionIndex, std::move(Name)) {}
+
+  bool isImport() override { return false; }
+  static bool classof(const Symbol *S) {
+    return S->getClassKind() == Kind::AliasedFunc;
+  }
 };
 
 struct Data : public Symbol {

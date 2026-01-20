@@ -1,3 +1,4 @@
+#include "watever/FixFunctionBitcasts.hpp"
 #include <llvm/Analysis/CGSCCPassManager.h>
 #include <llvm/Analysis/LoopAnalysisManager.h>
 #include <llvm/IR/LLVMContext.h>
@@ -175,6 +176,7 @@ int main(int argc, char *argv[]) {
 
   llvm::ModulePassManager LegalizeMPM;
 
+  LegalizeMPM.addPass(watever::FixFunctionBitcastsPass());
   LegalizeMPM.addPass(watever::LegalizationPass(Config));
 
   LegalizeMPM.run(*Mod, MAM);
