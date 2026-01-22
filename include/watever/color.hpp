@@ -70,7 +70,7 @@ class FunctionColorer {
 
   void computeLastUses(llvm::BasicBlock *BB);
 
-  Local *getFreeLocal(ValType Type, const llvm::DenseSet<Local *> &Assigned);
+  uint32_t getFreeLocal(ValType Type, const llvm::DenseSet<uint32_t> &Assigned);
   bool needsColor(llvm::Instruction &I);
   void color(llvm::BasicBlock *BB);
 

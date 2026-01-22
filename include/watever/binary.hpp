@@ -16,9 +16,12 @@ static constexpr uint32_t Version = 0x1;
 class CodeWriter final : public WasmVisitor {
   Relocation &Reloc;
   llvm::raw_ostream &OS;
+  llvm::SmallVector<uint32_t> &LocalMap;
 
 public:
-  CodeWriter(llvm::raw_ostream &OS, Relocation &Reloc) : Reloc(Reloc), OS(OS) {}
+  CodeWriter(llvm::raw_ostream &OS, Relocation &Reloc,
+             llvm::SmallVector<uint32_t> &LocalMap)
+      : Reloc(Reloc), OS(OS), LocalMap(LocalMap) {}
   void visit(WasmBlock &Block) override;
   void visit(WasmLoop &Loop) override;
   void visit(WasmIf &IfElse) override;

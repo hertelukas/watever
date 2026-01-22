@@ -25,11 +25,10 @@ DefinedFunc::DefinedFunc(uint32_t SymbolIdx, uint32_t TypeIdx, uint32_t FuncIdx,
       TotalArgs(F->arg_size()), FeatureSet(Feat) {
   for (auto &Arg : F->args()) {
     auto ArgType = fromLLVMType(Arg.getType(), F->getDataLayout());
-    auto NewLocal = std::make_unique<Local>(TotalLocals++);
-    auto *Result = NewLocal.get();
-    AllLocals.push_back(std::move(NewLocal));
-    Arguments[ArgType].push_back(Result);
-    LocalMapping[&Arg] = Result;
+    auto NewLocal = TotalLocals++;
+    AllLocals.push_back(NewLocal);
+    Arguments[ArgType].push_back(NewLocal);
+    LocalMapping[&Arg] = NewLocal;
   }
 }
 
@@ -92,7 +91,6 @@ void DefinedFunc::setupStackFrame(llvm::BasicBlock *Entry) {
     FP = getNewLocal(Entry->getDataLayout().getPointerSizeInBits() == 64
                          ? ValType::I64
                          : ValType::I32);
-
     // Convert FP relative to SP relative (positive)
     for (auto *AI : StaticAllocas) {
       StackSlots[AI] += FrameSize;

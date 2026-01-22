@@ -495,7 +495,7 @@ void BlockLowering::visitAllocaInst(llvm::AllocaInst &AI) {
 
   // Static allocation
   if (auto It = Parent->StackSlots.find(&AI); It != Parent->StackSlots.end()) {
-    assert(Parent->FP && "no frame pointer defined");
+    assert(Parent->FP.has_value() && "no frame pointer defined");
     // Offset has already been applied
     if (!AllocaSkipOffsetList.empty() &&
         AllocaSkipOffsetList.back() == WorkList.size()) {
@@ -504,7 +504,8 @@ void BlockLowering::visitAllocaInst(llvm::AllocaInst &AI) {
       Actions.Insts.emplace_back(AddOp);
       Actions.Insts.emplace_back(ConstOp, static_cast<int64_t>(It->second));
     }
-    Actions.Insts.emplace_back(Opcode::LocalGet, Parent->FP);
+    Actions.Insts.emplace_back(Opcode::LocalGet,
+                               std::make_unique<LocalArg>(Parent->FP.value()));
     return;
   }
 
@@ -553,10 +554,12 @@ void BlockLowering::visitAllocaInst(llvm::AllocaInst &AI) {
      * local.get <total array size>
      * sub
      */
-    Local *TotalSizeLocal = Parent->getNewLocal(PtrTy);
-    Actions.Insts.emplace_back(Opcode::LocalGet, TotalSizeLocal);
+    uint32_t TotalSizeLocal = Parent->getNewLocal(PtrTy);
+    Actions.Insts.emplace_back(Opcode::LocalGet,
+                               std::make_unique<LocalArg>(TotalSizeLocal));
     Actions.Insts.emplace_back(Opcode::GlobalGet, StackPointer);
-    Actions.Insts.emplace_back(Opcode::LocalSet, TotalSizeLocal);
+    Actions.Insts.emplace_back(Opcode::LocalSet,
+                               std::make_unique<LocalArg>(TotalSizeLocal));
     // Align
     Actions.Insts.emplace_back(AndOp);
     Actions.Insts.emplace_back(ConstOp, int64_t{-16});
@@ -631,8 +634,9 @@ void BlockLowering::visitLoadInst(llvm::LoadInst &LI) {
   // Check, if we use a promoted alloca
   if (auto *Alloca = llvm::dyn_cast<llvm::AllocaInst>(LI.getPointerOperand())) {
     if (Parent->PromotedAllocas.contains(Alloca)) {
-      auto *Local = Parent->PromotedAllocas[Alloca];
-      Actions.Insts.emplace_back(Opcode::LocalGet, Local);
+      auto Local = Parent->PromotedAllocas[Alloca];
+      Actions.Insts.emplace_back(Opcode::LocalGet,
+                                 std::make_unique<LocalArg>(Local));
       return;
     }
   }
@@ -686,8 +690,9 @@ void BlockLowering::visitStoreInst(llvm::StoreInst &SI) {
   // Check, if we use a promoted alloca
   if (auto *Alloca = llvm::dyn_cast<llvm::AllocaInst>(SI.getPointerOperand())) {
     if (Parent->PromotedAllocas.contains(Alloca)) {
-      auto *Local = Parent->PromotedAllocas[Alloca];
-      Actions.Insts.emplace_back(Opcode::LocalSet, Local);
+      auto Local = Parent->PromotedAllocas[Alloca];
+      Actions.Insts.emplace_back(Opcode::LocalSet,
+                                 std::make_unique<LocalArg>(Local));
       WorkList.push_back(SI.getValueOperand());
       return;
     }
@@ -1184,7 +1189,8 @@ void BlockLowering::visitFCmpInst(llvm::FCmpInst &FI) {
 }
 
 void BlockLowering::visitPHINode(llvm::PHINode &PN) {
-  Actions.Insts.emplace_back(Opcode::LocalGet, Parent->LocalMapping[&PN]);
+  Actions.Insts.emplace_back(
+      Opcode::LocalGet, std::make_unique<LocalArg>(Parent->LocalMapping[&PN]));
 }
 
 void BlockLowering::visitSelectInst(llvm::SelectInst &SI) {
@@ -1240,7 +1246,7 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
         Parent->hasExternalUser(&Inst, BB)) {
       auto *Root = &Inst;
       WATEVER_LOG_TRACE("{} is AST root, materialize", llvmToString(Inst));
-      llvm::DenseMap<llvm::Value *, Local *> ASTLocals;
+      llvm::DenseMap<llvm::Value *, uint32_t> ASTLocals;
       WorkList.push_back(&Inst);
       auto Counts = getDependencyTreeUserCount(&Inst);
 
@@ -1272,7 +1278,8 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
           // in this BB in an earler AST
           if (!Inst || llvm::isa<llvm::PHINode>(Inst) ||
               Inst->getParent() != BB || Emitted.contains(Inst)) {
-            Actions.Insts.emplace_back(Opcode::LocalGet, It->second);
+            Actions.Insts.emplace_back(Opcode::LocalGet,
+                                       std::make_unique<LocalArg>(It->second));
             WATEVER_LOG_TRACE("has already a local, loading");
             continue;
           }
@@ -1284,15 +1291,17 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
           Counts[Next]--;
           // We already have a local for this
           if (auto It = ASTLocals.find(Next); It != ASTLocals.end()) {
-            Actions.Insts.emplace_back(Opcode::LocalGet, It->second);
+            Actions.Insts.emplace_back(Opcode::LocalGet,
+                                       std::make_unique<LocalArg>(It->second));
             continue;
           }
           // Create a local or get one from the colorer
-          auto *L = Parent->LocalMapping.contains(Next)
-                        ? Parent->LocalMapping[Next]
-                        : Parent->getNewLocal(fromLLVMType(
-                              Next->getType(), BB->getDataLayout()));
-          Actions.Insts.emplace_back(Opcode::LocalGet, L);
+          auto L = Parent->LocalMapping.contains(Next)
+                       ? Parent->LocalMapping[Next]
+                       : Parent->getNewLocal(fromLLVMType(Next->getType(),
+                                                          BB->getDataLayout()));
+          Actions.Insts.emplace_back(Opcode::LocalGet,
+                                     std::make_unique<LocalArg>(L));
           ASTLocals[Next] = L;
           continue;
         }
@@ -1305,7 +1314,7 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
           // - If Inst is AllocaInst, and is otherwise always inlined
           // (IsGreedyOptimization)
           if (Inst->getNumUses() > 1 && Inst != Root) {
-            Local *L;
+            uint32_t L;
             if (auto It = ASTLocals.find(Next); It != ASTLocals.end()) {
               L = It->second;
             } else {
@@ -1314,14 +1323,16 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
                       : Parent->getNewLocal(
                             fromLLVMType(Next->getType(), BB->getDataLayout()));
             }
-            Actions.Insts.emplace_back(Opcode::LocalTee, L);
+            Actions.Insts.emplace_back(Opcode::LocalTee,
+                                       std::make_unique<LocalArg>(L));
             Parent->LocalMapping[Next] = L;
           }
           visit(*Inst);
           Emitted.insert(Inst);
         } else if (auto *Arg = llvm::dyn_cast<llvm::Instruction>(Next)) {
-          Actions.Insts.emplace_back(Opcode::LocalGet,
-                                     Parent->LocalMapping.lookup(Arg));
+          Actions.Insts.emplace_back(
+              Opcode::LocalGet,
+              std::make_unique<LocalArg>(Parent->LocalMapping.lookup(Arg)));
         } else if (!putValueOnStack(
                        Next, Actions, M,
                        BB->getDataLayout().getPointerSizeInBits() == 64)) {
@@ -1343,12 +1354,13 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
       // If the instruction has users, ensure that is in a local, so it will
       // never be materialized as a dependency again
       if (Inst.getNumUses() > 0) {
-        auto *L = Parent->LocalMapping.contains(&Inst)
-                      ? Parent->LocalMapping[&Inst]
-                      : Parent->getNewLocal(
-                            fromLLVMType(Inst.getType(), BB->getDataLayout()));
+        auto L = Parent->LocalMapping.contains(&Inst)
+                     ? Parent->LocalMapping[&Inst]
+                     : Parent->getNewLocal(
+                           fromLLVMType(Inst.getType(), BB->getDataLayout()));
         Parent->LocalMapping[&Inst] = L;
-        Result->Insts.emplace_back(Opcode::LocalSet, L);
+        Result->Insts.emplace_back(Opcode::LocalSet,
+                                   std::make_unique<LocalArg>(L));
       } else {
         if (!Inst.getType()->isVoidTy()) {
           Result->Insts.emplace_back(Opcode::Drop);
@@ -1367,7 +1379,7 @@ std::unique_ptr<Wasm> FunctionLowering::doBranch(const llvm::BasicBlock *Source,
   WasmActions PhiActions;
 
   auto GetOrCreateLocal = [&](llvm::Value *Val) {
-    Local *Result;
+    uint32_t Result;
     if (auto It = F->LocalMapping.find(Val); It != F->LocalMapping.end()) {
       Result = It->second;
     } else {
@@ -1378,12 +1390,12 @@ std::unique_ptr<Wasm> FunctionLowering::doBranch(const llvm::BasicBlock *Source,
     return Result;
   };
 
-  llvm::SmallVector<Local *> Destinations;
+  llvm::SmallVector<uint32_t> Destinations;
 
   // Put all phi arguments on the stack
   for (auto &Phi : Target->phis()) {
     auto *IncomingVal = Phi.getIncomingValueForBlock(Source);
-    Local *DestLocal = GetOrCreateLocal(&Phi);
+    uint32_t DestLocal = GetOrCreateLocal(&Phi);
     // Do not move anything into the target local - just keep it as is
     if (llvm::isa<llvm::PoisonValue>(IncomingVal) ||
         llvm::isa<llvm::UndefValue>(IncomingVal)) {
@@ -1395,11 +1407,12 @@ std::unique_ptr<Wasm> FunctionLowering::doBranch(const llvm::BasicBlock *Source,
     } else if (llvm::isa<llvm::Argument>(IncomingVal) ||
                llvm::isa<llvm::Instruction>(IncomingVal)) {
 
-      Local *SourceLocal = GetOrCreateLocal(IncomingVal);
+      uint32_t SourceLocal = GetOrCreateLocal(IncomingVal);
       if (SourceLocal == DestLocal) {
         continue;
       }
-      PhiActions.Insts.push_back(WasmInst(Opcode::LocalGet, SourceLocal));
+      PhiActions.Insts.emplace_back(Opcode::LocalGet,
+                                    std::make_unique<LocalArg>(SourceLocal));
     } else {
       WATEVER_UNIMPLEMENTED("Unsupported phi argument {}",
                             IncomingVal->getNameOrAsOperand());
@@ -1409,8 +1422,9 @@ std::unique_ptr<Wasm> FunctionLowering::doBranch(const llvm::BasicBlock *Source,
 
   // Pop them into their destinations
   while (!Destinations.empty()) {
-    PhiActions.Insts.emplace_back(Opcode::LocalSet,
-                                  Destinations.pop_back_val());
+    PhiActions.Insts.emplace_back(
+        Opcode::LocalSet,
+        std::make_unique<LocalArg>(Destinations.pop_back_val()));
   }
 
   std::unique_ptr<Wasm> BranchNode;
@@ -1767,7 +1781,7 @@ Module ModuleLowering::convert(llvm::Module &Mod,
     FL.lower();
 
     // Generate prologue, if we use a FP
-    if (WasmFunc->FP) {
+    if (WasmFunc->FP.has_value()) {
       const bool Is64Bit = Mod.getDataLayout().getPointerSizeInBits() == 64;
       const auto ConstOp = Is64Bit ? Opcode::I64Const : Opcode::I32Const;
       const auto SubOp = Is64Bit ? Opcode::I64Sub : Opcode::I32Sub;
@@ -1777,7 +1791,8 @@ Module ModuleLowering::convert(llvm::Module &Mod,
       Prologue->Insts.emplace_back(Opcode::GlobalGet, Res.StackPointer);
       Prologue->Insts.emplace_back(ConstOp, WasmFunc->FrameSize);
       Prologue->Insts.emplace_back(SubOp);
-      Prologue->Insts.emplace_back(Opcode::LocalTee, WasmFunc->FP);
+      Prologue->Insts.emplace_back(
+          Opcode::LocalTee, std::make_unique<LocalArg>(WasmFunc->FP.value()));
       Prologue->Insts.emplace_back(Opcode::GlobalSet, Res.StackPointer);
       WasmFunc->Body = std::make_unique<WasmSeq>(std::move(Prologue),
                                                  std::move(WasmFunc->Body));

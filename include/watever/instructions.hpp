@@ -12,6 +12,7 @@ class InstArgument {
 public:
   virtual void encode(llvm::raw_ostream &) const = 0;
   virtual void addRelocation(llvm::raw_ostream &, Relocation &) {};
+  virtual void mapLocal(const llvm::SmallVector<uint32_t> &) {};
   [[nodiscard]] virtual std::string getString() const = 0;
   virtual ~InstArgument() = default;
 };
@@ -50,13 +51,22 @@ public:
 
 class LocalArg final : public InstArgument {
 public:
-  Local *Lo;
-  explicit LocalArg(Local *L) : Lo(L) {}
+  uint32_t Index;
+  explicit LocalArg(uint32_t L) : Index(L) {}
+
   [[nodiscard]] std::string getString() const override {
-    return llvm::formatv("{}", Lo->Index);
+    return llvm::formatv("{}", Index);
   }
   void encode(llvm::raw_ostream &OS) const override {
-    llvm::encodeULEB128(Lo->Index, OS);
+    llvm::encodeULEB128(Index, OS);
+  }
+
+  void mapLocal(const llvm::SmallVector<uint32_t> &Mapping) override {
+    if (Index < Mapping.size()) {
+      Index = Mapping[Index];
+    } else {
+      WATEVER_LOG_WARN("Could not find mapping for local {}", Index);
+    }
   }
 };
 
@@ -218,9 +228,6 @@ public:
   WasmInst(Opcode::Enum O, ImportedGlobal *IG)
       : Arg(std::make_unique<RelocatableGlobalArg>(IG)), Op(O) {}
 
-  WasmInst(Opcode::Enum O, Local *L)
-      : Arg(std::make_unique<LocalArg>(L)), Op(O) {}
-
   WasmInst(Opcode::Enum O, Data *D)
       : Arg(std::make_unique<RelocatablePointerArg>(D)), Op(O) {}
 
@@ -261,7 +268,8 @@ public:
   }
 #endif
 
-  void write(llvm::raw_ostream &OS, Relocation &Reloc) const {
+  void write(llvm::raw_ostream &OS, Relocation &Reloc,
+             llvm::SmallVector<uint32_t> &LocalMap) const {
     Opcode(Op).writeBytes(OS);
 
     std::visit(
@@ -275,6 +283,7 @@ public:
               OS.write(reinterpret_cast<const char *>(&Imm), sizeof(Imm));
             },
             [&](const std::unique_ptr<InstArgument> &Arg) {
+              Arg->mapLocal(LocalMap);
               Arg->addRelocation(OS, Reloc);
               Arg->encode(OS);
             },

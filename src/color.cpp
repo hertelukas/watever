@@ -265,8 +265,9 @@ void FunctionColorer::computeLastUses(llvm::BasicBlock *BB) {
   }
 }
 
-Local *FunctionColorer::getFreeLocal(ValType Type,
-                                     const llvm::DenseSet<Local *> &Assigned) {
+uint32_t
+FunctionColorer::getFreeLocal(ValType Type,
+                              const llvm::DenseSet<uint32_t> &Assigned) {
   for (auto &L : Target->Arguments[Type]) {
     if (!Assigned.contains(L)) {
       return L;
@@ -320,7 +321,7 @@ void FunctionColorer::color(llvm::BasicBlock *BB) {
   WATEVER_LOG_TRACE("Coloring block {}", getBlockName(BB));
   computeLastUses(BB);
   // TODO maybe it is cheaper to keep track of unassigned?
-  llvm::DenseSet<Local *> Assigned;
+  llvm::DenseSet<uint32_t> Assigned;
 
   for (auto *Val : LiveIn[BB]) {
     // Phi nodes are technically live-in but ignored by Hack
@@ -346,14 +347,14 @@ void FunctionColorer::color(llvm::BasicBlock *BB) {
       return;
     }
     auto LocalType = fromLLVMType(AI->getAllocatedType(), BB->getDataLayout());
-    auto *Local = getFreeLocal(LocalType, Assigned);
+    auto Local = getFreeLocal(LocalType, Assigned);
 
     Target->LocalMapping[AI] = Local;
     Target->PromotedAllocas[AI] = Local;
     Assigned.insert(Local);
 
     WATEVER_LOG_TRACE("Mapping promoted {} to local {}",
-                      AI->getNameOrAsOperand(), Local->Index);
+                      AI->getNameOrAsOperand(), Local);
   };
 
   for (auto &Inst : *BB) {
@@ -389,12 +390,12 @@ void FunctionColorer::color(llvm::BasicBlock *BB) {
     if (needsColor(Inst)) {
       auto LocalType = fromLLVMType(Inst.getType(), BB->getDataLayout());
 
-      auto *Local = getFreeLocal(LocalType, Assigned);
+      auto Local = getFreeLocal(LocalType, Assigned);
       Target->LocalMapping[&Inst] = Local;
       Assigned.insert(Local);
 
       WATEVER_LOG_TRACE("Mapping {} to local {}", Inst.getNameOrAsOperand(),
-                        Target->LocalMapping[&Inst]->Index);
+                        Target->LocalMapping[&Inst]);
     }
   }
 

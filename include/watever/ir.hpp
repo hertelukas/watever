@@ -236,7 +236,7 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
   // Terminator Instructions (should not be needed, as these are mapped to
   // blocks)
   void visitReturnInst(llvm::ReturnInst &RI) {
-    if (Parent->FP) {
+    if (Parent->FP.has_value()) {
       // Eplilogue is SP = FP + static_stack_size
       const bool Is64Bit =
           RI.getModule()->getDataLayout().getPointerSizeInBits() == 64;
@@ -248,7 +248,7 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
       Actions.Insts.emplace_back(Opcode::GlobalSet, std::move(GlobalArgVal));
       Actions.Insts.emplace_back(AddOp);
       Actions.Insts.emplace_back(ConstOp, Parent->FrameSize);
-      auto SavedSPArg = std::make_unique<LocalArg>(Parent->FP);
+      auto SavedSPArg = std::make_unique<LocalArg>(Parent->FP.value());
       Actions.Insts.emplace_back(Opcode::LocalGet, std::move(SavedSPArg));
     }
     addOperandsToWorklist(RI.operands());

@@ -4,7 +4,6 @@
 #include "watever/linking.hpp"
 #include "watever/opcode.hpp"
 #include "watever/symbol.hpp"
-#include "watever/utils.hpp"
 #include <cstdint>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/Support/Casting.h>
@@ -48,7 +47,7 @@ void CodeWriter::visit(WasmSeq &Seq) {
 }
 void CodeWriter::visit(WasmActions &Actions) {
   for (auto &Inst : Actions.Insts) {
-    Inst.write(OS, Reloc);
+    Inst.write(OS, Reloc, LocalMap);
   }
 }
 void CodeWriter::visit(WasmBr &Br) {
@@ -137,15 +136,20 @@ void BinaryWriter::writeCode() {
     llvm::encodeULEB128(F->Locals.size(), CodeOS);
     uint32_t CurrentLocal = F->TotalArgs;
     // Locals
+    llvm::SmallVector<uint32_t> LocalMapping(F->AllLocals.size());
+    // Arguments are mapped onto themselves
+    for (uint32_t I = 0; I < F->TotalArgs; ++I) {
+      LocalMapping[I] = I;
+    }
     for (const auto &[Ty, LocalList] : F->Locals) {
       // Assign local indices, based on type
       for (auto &Local : LocalList) {
-        Local->Index = CurrentLocal++;
+        LocalMapping[Local] = CurrentLocal++;
       }
       llvm::encodeULEB128(LocalList.size(), CodeOS);
       CodeOS << static_cast<uint8_t>(Ty);
     }
-    CodeWriter CW{CodeOS, CodeRelocation};
+    CodeWriter CW{CodeOS, CodeRelocation, LocalMapping};
     F->visit(CW);
     Opcode(Opcode::Enum::End).writeBytes(CodeOS);
 
