@@ -374,6 +374,17 @@ void BlockLowering::handleIntrinsic(llvm::CallInst &CI) {
     WorkList.push_back(CI.getArgOperand(0));
     return;
   }
+  // General Intrinsics
+  case llvm::Intrinsic::is_constant: {
+    if (auto *C = llvm::dyn_cast<llvm::Constant>(CI.getArgOperand(0))) {
+      if (C->isManifestConstant()) {
+        Actions.Insts.emplace_back(Opcode::I32Const, int64_t{1});
+        return;
+      }
+    }
+    Actions.Insts.emplace_back(Opcode::I32Const, int64_t{0});
+    return;
+  }
   default: {
     WATEVER_TODO("handle {} intrinsic",
                  CI.getCalledFunction()->getName().str());
@@ -925,8 +936,8 @@ void BlockLowering::visitSExtInst(llvm::SExtInst &SI) {
           WATEVER_UNREACHABLE("illegal from width {} in sign-ext", FromWidth);
         }
 
-        // However, if the origianl Wasm type was only 32-bit, we first need to
-        // extend that type on the stack.
+        // However, if the origianl Wasm type was only 32-bit, we first need
+        // to extend that type on the stack.
         if (FromTrunc == 32) {
           Actions.Insts.emplace_back(Opcode::I64ExtendI32U);
         } else if (FromTrunc != 64) {
@@ -1277,8 +1288,8 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
   auto Result = std::make_unique<WasmActions>();
 
   for (auto &Inst : *BB) {
-    // For each instructions with possible side effects, build a dependency tree
-    // on the stack in reverse order.
+    // For each instructions with possible side effects, build a dependency
+    // tree on the stack in reverse order.
     if (Inst.mayHaveSideEffects() || Inst.isTerminator() ||
         Parent->hasExternalUser(&Inst, BB)) {
       auto *Root = &Inst;
@@ -1296,8 +1307,8 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
             AllocaSkipOffsetList.back() == WorkList.size();
 
         // If this instruction is using a stack slot, we don't want to get it
-        // from a potential local as we have already inlined the offset into the
-        // store/load
+        // from a potential local as we have already inlined the offset into
+        // the store/load
         if (IsGreedyOptimization) {
           if (auto *Inst = llvm::dyn_cast<llvm::AllocaInst>(Next)) {
             visit(*Inst);
@@ -1311,8 +1322,8 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
         if (auto It = Parent->LocalMapping.find(Next);
             It != Parent->LocalMapping.end()) {
           auto *Inst = llvm::dyn_cast<llvm::Instruction>(Next);
-          // Only use the local if it comes from another BB or has been emitted
-          // in this BB in an earler AST
+          // Only use the local if it comes from another BB or has been
+          // emitted in this BB in an earler AST
           if (!Inst || llvm::isa<llvm::PHINode>(Inst) ||
               Inst->getParent() != BB || Emitted.contains(Inst)) {
             Actions.Insts.emplace_back(Opcode::LocalGet,
@@ -1345,8 +1356,8 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
 
         // Next needs to be materialized
         if (auto *Inst = llvm::dyn_cast<llvm::Instruction>(Next)) {
-          // Save to local, if we have a later user in this tree or this block,
-          // who expects to be able to load the value.
+          // Save to local, if we have a later user in this tree or this
+          // block, who expects to be able to load the value.
           // TODO this might lead to unnecessary emissions:
           // - If Inst is AllocaInst, and is otherwise always inlined
           // (IsGreedyOptimization)
@@ -1580,9 +1591,9 @@ std::unique_ptr<Wasm> FunctionLowering::nodeWithin(
       while (Targets.size() <= MaxIdx) {
         Targets.push_back(SparseTargets.lookup_or(Targets.size(), DefaultIdx));
       }
-      // TODO if MaxIdx is large, this branch table can get huge. Therefore, use
-      // if-else chains (maybe during legalization) or at least subtract the
-      // MinIndex.
+      // TODO if MaxIdx is large, this branch table can get huge. Therefore,
+      // use if-else chains (maybe during legalization) or at least subtract
+      // the MinIndex.
       BranchTableArg Argument{std::move(Targets), DefaultIdx};
       WasmActions BranchTable{};
       BranchTable.Insts.emplace_back(
