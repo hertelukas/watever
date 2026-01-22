@@ -8,6 +8,7 @@
 #include <llvm/ADT/SmallPtrSet.h>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/IR/BasicBlock.h>
+#include <llvm/IR/GlobalValue.h>
 #include <llvm/IR/Instruction.h>
 #include <llvm/IR/Instructions.h>
 
@@ -39,6 +40,18 @@ struct Symbol {
   void setFlag(SymbolFlag Flag) { LinkerFlags |= static_cast<uint32_t>(Flag); }
   bool isSet(SymbolFlag Flag) {
     return (LinkerFlags & static_cast<uint32_t>(Flag)) != 0;
+  }
+
+  void setFlags(llvm::GlobalValue &GV) {
+    if (GV.hasLocalLinkage()) {
+      setFlag(SymbolFlag::WASM_SYM_BINDING_LOCAL);
+    }
+    if (GV.hasWeakLinkage() || GV.hasLinkOnceLinkage()) {
+      setFlag(SymbolFlag::WASM_SYM_BINDING_WEAK);
+    }
+    if (GV.hasHiddenVisibility()) {
+      setFlag(SymbolFlag::WASM_SYM_VISIBILITY_HIDDEN);
+    }
   }
 
   [[nodiscard]] virtual SymbolKind getKind() const = 0;
@@ -210,7 +223,7 @@ struct DefinedData final : public Data {
         Active(Active), Content(Content.begin(), Content.end()),
         Relocations(std::move(Relocs)), Sec(S) {}
 
-  void setFlag(SegmentFlag F) { Flags |= static_cast<uint32_t>(F); }
+  void setSegmentFlag(SegmentFlag F) { Flags |= static_cast<uint32_t>(F); }
 
   static bool classof(const Symbol *S) {
     return S->getClassKind() == Kind::DefinedData;

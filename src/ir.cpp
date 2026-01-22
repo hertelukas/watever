@@ -1679,8 +1679,9 @@ Module ModuleLowering::convert(llvm::Module &Mod,
         std::move(Relocs), S);
 
     if (GV.getThreadLocalMode() != llvm::GlobalValue::NotThreadLocal) {
-      DefData->setFlag(SegmentFlag::WASM_SEGMENT_FLAG_TLS);
+      DefData->setSegmentFlag(SegmentFlag::WASM_SEGMENT_FLAG_TLS);
     }
+    DefData->setFlags(GV);
     // TODO check if string or retain flags needed
     // TODO set alignment
     Res.DataMap[&GV] = DefData.get();
@@ -1743,10 +1744,7 @@ Module ModuleLowering::convert(llvm::Module &Mod,
         Res.Symbols.size(), FuncTypeIndex, FunctionIndexCounter++, &F,
         C.EnabledFeatures);
 
-    // TODO use correct flags
-    if (F.hasHiddenVisibility()) {
-      FunctionPtr->setFlag(SymbolFlag::WASM_SYM_VISIBILITY_HIDDEN);
-    }
+    FunctionPtr->setFlags(F);
     Res.FunctionMap[&F] = FunctionPtr.get();
     Res.Functions.push_back(FunctionPtr.get());
     Res.Symbols.push_back(std::move(FunctionPtr));
