@@ -294,6 +294,24 @@ BlockLowering::getDependencyTreeUserCount(llvm::Instruction *Root) const {
 
 void BlockLowering::handleIntrinsic(llvm::CallInst &CI) {
   switch (CI.getCalledFunction()->getIntrinsicID()) {
+    // C/C++ Library Intrinsics
+  case llvm::Intrinsic::memcpy:
+  case llvm::Intrinsic::memmove: {
+    assert(Parent->FeatureSet.bulk_memory_enabled() &&
+           "cannot handle memcpy/memove without bulk_memory");
+
+    // TODO if Len == 0 and any pointer invalid, WebAssembly traps, but it
+    // should be a no-op
+    auto *Dest = CI.getArgOperand(0);
+    auto *Src = CI.getArgOperand(1);
+    auto *Len = CI.getArgOperand(2);
+
+    Actions.Insts.emplace_back(Opcode::MemoryCopy, 0, 0);
+    WorkList.push_back(Dest);
+    WorkList.push_back(Src);
+    WorkList.push_back(Len);
+    break;
+  }
   case llvm::Intrinsic::memset: {
     assert(Parent->FeatureSet.bulk_memory_enabled() &&
            "cannot handle memset without bulk_memory");
@@ -320,22 +338,41 @@ void BlockLowering::handleIntrinsic(llvm::CallInst &CI) {
     WorkList.push_back(Len);
     break;
   }
-  case llvm::Intrinsic::memcpy:
-  case llvm::Intrinsic::memmove: {
-    assert(Parent->FeatureSet.bulk_memory_enabled() &&
-           "cannot handle memcpy/memove without bulk_memory");
-
-    // TODO if Len == 0 and any pointer invalid, WebAssembly traps, but it
-    // should be a no-op
-    auto *Dest = CI.getArgOperand(0);
-    auto *Src = CI.getArgOperand(1);
-    auto *Len = CI.getArgOperand(2);
-
-    Actions.Insts.emplace_back(Opcode::MemoryCopy, 0, 0);
-    WorkList.push_back(Dest);
-    WorkList.push_back(Src);
-    WorkList.push_back(Len);
-    break;
+  case llvm::Intrinsic::floor: {
+    auto *Ty = CI.getArgOperand(0)->getType();
+    if (Ty->isFloatTy()) {
+      Actions.Insts.emplace_back(Opcode::F32Floor);
+    } else if (Ty->isDoubleTy()) {
+      Actions.Insts.emplace_back(Opcode::F64Floor);
+    } else {
+      WATEVER_UNIMPLEMENTED("floor with type {}", llvmToString(*Ty));
+    }
+    WorkList.push_back(CI.getArgOperand(0));
+    return;
+  }
+  case llvm::Intrinsic::ceil: {
+    auto *Ty = CI.getArgOperand(0)->getType();
+    if (Ty->isFloatTy()) {
+      Actions.Insts.emplace_back(Opcode::F32Ceil);
+    } else if (Ty->isDoubleTy()) {
+      Actions.Insts.emplace_back(Opcode::F64Ceil);
+    } else {
+      WATEVER_UNIMPLEMENTED("floor with type {}", llvmToString(*Ty));
+    }
+    WorkList.push_back(CI.getArgOperand(0));
+    return;
+  }
+  case llvm::Intrinsic::trunc: {
+    auto *Ty = CI.getArgOperand(0)->getType();
+    if (Ty->isFloatTy()) {
+      Actions.Insts.emplace_back(Opcode::F32Trunc);
+    } else if (Ty->isDoubleTy()) {
+      Actions.Insts.emplace_back(Opcode::F64Trunc);
+    } else {
+      WATEVER_UNIMPLEMENTED("floor with type {}", llvmToString(*Ty));
+    }
+    WorkList.push_back(CI.getArgOperand(0));
+    return;
   }
   default: {
     WATEVER_TODO("handle {} intrinsic",
