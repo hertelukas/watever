@@ -384,17 +384,68 @@ void FunctionLegalizer::visitSwitchInst(llvm::SwitchInst &SI) {
   PartitionList PL{};
   generateClusters(SI, PL);
 
-  auto *NewSI = Builder.CreateSwitch(CondVal, DefaultDest, SI.getNumCases());
-  for (auto Case : SI.cases()) {
-    LegalValue CaseConstant = legalizeConstant(Case.getCaseValue());
-    assert(CaseConstant.isScalar() && "case constant must be scalar");
-
-    auto *NewCase = llvm::dyn_cast<llvm::ConstantInt>(CaseConstant[0]);
-    auto *NewSucc = llvm::dyn_cast<llvm::BasicBlock>(
-        getMappedValue(Case.getCaseSuccessor())[0]);
-    NewSI->addCase(NewCase, NewSucc);
+  if (PL.empty()) {
+    Builder.CreateBr(DefaultDest);
+    return;
   }
-  ValueMap[&SI] = LegalValue{NewSI};
+
+  // Build binary search tree
+  // Emits a tree for the partitions between Begin and End
+  auto EmitTree = [&](auto &&Self, size_t Begin, size_t End) {
+    // Leave node (one partition)
+    if (Begin == End) {
+      const auto &C = PL[Begin];
+      // If only one case, conditional branch
+      if (C.Cases.size() == 1) {
+        // Needed, as CondVal might be a legalized version of the original
+        // switch
+        auto *CaseVal = llvm::ConstantInt::get(
+            CondVal->getType(), C.Cases[0].getCaseValue()->getSExtValue());
+        auto *Dest = llvm::dyn_cast<llvm::BasicBlock>(
+            getMappedValue(C.Cases[0].getCaseSuccessor())[0]);
+        auto *IsEq = Builder.CreateICmpEQ(CondVal, CaseVal);
+        Builder.CreateCondBr(IsEq, Dest, DefaultDest);
+        return;
+      }
+      // Cluster, emit (shifted) branch table (switch)
+      auto *SwitchCond = CondVal;
+      if (C.Min != 0) {
+        auto *MinConst = llvm::ConstantInt::get(CondVal->getType(), C.Min);
+        SwitchCond = Builder.CreateSub(CondVal, MinConst);
+      }
+      auto *SubSwitch =
+          Builder.CreateSwitch(SwitchCond, DefaultDest, C.Cases.size());
+      for (const auto &Case : C.Cases) {
+        auto *Val = llvm::cast<llvm::ConstantInt>(llvm::ConstantInt::get(
+            CondVal->getType(), Case.getCaseValue()->getSExtValue() - C.Min));
+        auto *Dest = llvm::dyn_cast<llvm::BasicBlock>(
+            getMappedValue(Case.getCaseSuccessor())[0]);
+        SubSwitch->addCase(Val, Dest);
+      }
+      return;
+    }
+
+    // Recurse
+    size_t Mid = Begin + (End - Begin) / 2;
+    int64_t PivotVal = PL[Mid].Max;
+
+    auto *LeftBB =
+        llvm::BasicBlock::Create(NewFunc->getContext(), "sw.left", NewFunc);
+    auto *RightBB =
+        llvm::BasicBlock::Create(NewFunc->getContext(), "sw.right", NewFunc);
+
+    auto *Pivot = llvm::ConstantInt::get(CondVal->getType(), PivotVal);
+    auto *Cmp = Builder.CreateICmpSLE(CondVal, Pivot, "sw.pivot");
+    Builder.CreateCondBr(Cmp, LeftBB, RightBB);
+
+    Builder.SetInsertPoint(LeftBB);
+    Self(Self, Begin, Mid);
+
+    Builder.SetInsertPoint(RightBB);
+    Self(Self, Mid + 1, End);
+  };
+
+  EmitTree(EmitTree, 0, PL.size() - 1);
 }
 //===----------------------------------------------------------------------===//
 // Unary Operations
