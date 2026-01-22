@@ -1726,7 +1726,8 @@ Module ModuleLowering::convert(llvm::Module &Mod,
         Res.Symbols.size(), Res.Datas.size(), true, GV.getName().str(), Content,
         std::move(Relocs), S);
 
-    if (GV.getThreadLocalMode() != llvm::GlobalValue::NotThreadLocal) {
+    if (C.EnabledFeatures.atomics_enabled() &&
+        GV.getThreadLocalMode() != llvm::GlobalValue::NotThreadLocal) {
       DefData->setSegmentFlag(SegmentFlag::WASM_SEGMENT_FLAG_TLS);
     }
     DefData->setFlags(GV);

@@ -1542,6 +1542,14 @@ void FunctionLegalizer::visitIntrinsicInst(llvm::IntrinsicInst &II) {
     ValueMap[&II] = Builder.CreateIntToPtr(Masked, PtrTy);
     return;
   }
+  case llvm::Intrinsic::threadlocal_address: {
+    if (!Config.EnabledFeatures.annotations_enabled()) {
+      ValueMap[&II] = II.getArgOperand(0);
+    } else {
+      WATEVER_UNIMPLEMENTED("atomics support");
+    }
+    return;
+  }
   default:
     break;
   }
