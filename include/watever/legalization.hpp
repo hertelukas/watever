@@ -211,6 +211,19 @@ public:
   // Terminator Instructions
   void visitReturnInst(llvm::ReturnInst &RI);
   void visitBranchInst(llvm::BranchInst &BI);
+
+  struct Cluster {
+    llvm::SmallVector<llvm::SwitchInst::CaseHandle> Cases;
+    int64_t Min;
+    int64_t Max;
+
+    explicit Cluster(int64_t Min, int64_t Max) : Min(Min), Max(Max) {}
+  };
+  using PartitionList = llvm::SmallVector<Cluster>;
+
+  // Algorithm based on "Clustering case statements for indirect branch
+  // predictors" by Menezes et al
+  void generateClusters(llvm::SwitchInst &SI, PartitionList &PL);
   void visitSwitchInst(llvm::SwitchInst &SI);
 
   void visitUnreachableInst(llvm::UnreachableInst &UI) {

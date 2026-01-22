@@ -1,5 +1,6 @@
 #include "watever/legalization.hpp"
 #include "watever/utils.hpp"
+#include <algorithm>
 #include <cstdint>
 #include <llvm/ADT/APInt.h>
 #include <llvm/ADT/DenseMapInfo.h>
@@ -295,6 +296,74 @@ void FunctionLegalizer::visitBranchInst(llvm::BranchInst &BI) {
   ValueMap[&BI] = Builder.CreateBr(NewSuccessor);
 }
 
+void FunctionLegalizer::generateClusters(llvm::SwitchInst &SI,
+                                         PartitionList &PL) {
+  if (SI.getCondition()->getType()->getIntegerBitWidth() > 64) {
+    WATEVER_UNIMPLEMENTED(
+        "Only switch cases up to i64 are supported (due to sext)");
+  }
+
+  auto N = SI.getNumCases();
+  // How large a single generated jump tables can get - used to ensure that
+  // algorithm runs in O(nlogn)
+  unsigned Max = 256;
+  // Minimal density for branch tables.
+  float D = 0.2;
+
+  llvm::SmallVector<llvm::SwitchInst::CaseHandle> SortedCases;
+  for (auto &Case : SI.cases()) {
+    SortedCases.push_back(Case);
+  }
+
+  std::ranges::sort(SortedCases, [](const llvm::SwitchInst::CaseHandle &A,
+                                    const llvm::SwitchInst::CaseHandle &B) {
+    return A.getCaseValue()->getSExtValue() < B.getCaseValue()->getSExtValue();
+  });
+
+  llvm::SmallVector<uint32_t> MinP(N);
+  llvm::SmallVector<uint32_t> LastElement(N);
+
+  MinP[N - 1] = 1;
+  LastElement[N - 1] = N - 1;
+
+  auto Density = [&](uint32_t i, uint32_t j) {
+    return static_cast<float>(j - i + 1) /
+           (SortedCases[j].getCaseValue()->getSExtValue() -
+            SortedCases[i].getCaseValue()->getSExtValue() + 1);
+  };
+
+  for (unsigned i = N - 2; i < N; --i) {
+    MinP[i] = 1 + MinP[i + 1];
+    LastElement[i] = i;
+
+    for (unsigned j = std::min(N - 1, i + Max); j > i; --j) {
+      int64_t L = SortedCases[j].getCaseValue()->getSExtValue() -
+                  SortedCases[i].getCaseValue()->getSExtValue();
+      if (L <= Max && D < Density(i, j)) {
+        uint32_t NumParts = j == N - 1 ? 1 : 1 + MinP[j + 1];
+        if (NumParts < MinP[i]) {
+          MinP[i] = NumParts;
+          LastElement[i] = j;
+        }
+      }
+    }
+  }
+
+  unsigned i = 0;
+  unsigned j;
+  while (i < N) {
+    j = LastElement[i];
+    auto C = Cluster(SortedCases[i].getCaseValue()->getSExtValue(),
+                     SortedCases[j].getCaseValue()->getSExtValue());
+    WATEVER_LOG_TRACE("New cluster from {} to {}", C.Min, C.Max);
+    for (unsigned k = i; k <= j; ++k) {
+      C.Cases.push_back(SortedCases[k]);
+    }
+    PL.push_back(std::move(C));
+    i = j + 1;
+  }
+}
+
 void FunctionLegalizer::visitSwitchInst(llvm::SwitchInst &SI) {
   auto Cond = getMappedValue(SI.getCondition());
   if (!Cond.isScalar()) {
@@ -311,6 +380,9 @@ void FunctionLegalizer::visitSwitchInst(llvm::SwitchInst &SI) {
   }
   auto *DefaultDest =
       llvm::dyn_cast<llvm::BasicBlock>(getMappedValue(SI.getDefaultDest())[0]);
+
+  PartitionList PL{};
+  generateClusters(SI, PL);
 
   auto *NewSI = Builder.CreateSwitch(CondVal, DefaultDest, SI.getNumCases());
   for (auto Case : SI.cases()) {
