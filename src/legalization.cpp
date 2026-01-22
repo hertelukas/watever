@@ -1530,6 +1530,18 @@ void FunctionLegalizer::visitIntrinsicInst(llvm::IntrinsicInst &II) {
     ValueMap[&II] = Builder.CreateFAdd(MulRes, ThirdLegalArg[0]);
     return;
   }
+  // General Intrinsics
+  case llvm::Intrinsic::ptrmask: {
+    auto LegalPointer = getMappedValue(II.getOperand(0));
+    auto LegalMask = getMappedValue(II.getOperand(1));
+    if (!LegalPointer.isScalar() || !LegalMask.isScalar()) {
+      WATEVER_UNIMPLEMENTED("ptrmask only supported on scalar types");
+    }
+    auto *PointerAsInt = Builder.CreatePtrToInt(LegalPointer[0], IntPtrTy);
+    auto *Masked = Builder.CreateAnd(PointerAsInt, LegalMask[0]);
+    ValueMap[&II] = Builder.CreateIntToPtr(Masked, PtrTy);
+    return;
+  }
   default:
     break;
   }
