@@ -1478,7 +1478,11 @@ std::unique_ptr<Wasm> FunctionLowering::doBranch(const llvm::BasicBlock *Source,
   std::unique_ptr<Wasm> BranchNode;
 
   // Backward branch (continue) or forward branch (exit)
-  if (DT.dominates(Target, Source) || isMergeNode(Target)) {
+  if (Target == Ctx.Fallthrough) {
+    WATEVER_LOG_TRACE("Target {} is fallthrough for {}", getBlockName(Target),
+                      getBlockName(Source));
+    BranchNode = std::make_unique<WasmActions>();
+  } else if (DT.dominates(Target, Source) || isMergeNode(Target)) {
 #ifdef WATEVER_LOGGING
     if (DT.dominates(Target, Source)) {
       WATEVER_LOG_TRACE("backwards branch from {} to {}", getBlockName(Source),
@@ -1516,16 +1520,12 @@ std::unique_ptr<Wasm> FunctionLowering::doTree(llvm::BasicBlock *Root,
   // Emit loop block
   if (LI.isLoopHeader(Root)) {
     WATEVER_LOG_TRACE("Generating loop for {}", getBlockName(Root));
-    Ctx.push_back(ContainingSyntax::createLoop(Root));
-    Res = std::make_unique<WasmLoop>(
+    Ctx.Enclosing.push_back(ContainingSyntax::createLoop(Root));
+    return std::make_unique<WasmLoop>(
         WasmLoop{nodeWithin(Root, MergeChildren, Ctx)});
-  } else {
-    Res = nodeWithin(Root, MergeChildren, Ctx);
   }
 
-  auto Unreachable = std::make_unique<WasmActions>();
-  Unreachable->Insts.emplace_back(Opcode::Unreachable);
-  return std::make_unique<WasmSeq>(std::move(Res), std::move(Unreachable));
+  return nodeWithin(Root, MergeChildren, Ctx);
 }
 
 std::unique_ptr<Wasm> FunctionLowering::nodeWithin(
@@ -1545,7 +1545,7 @@ std::unique_ptr<Wasm> FunctionLowering::nodeWithin(
                           getBlockName(Br->getSuccessor(1)));
 
         auto IfCtx = Ctx;
-        IfCtx.push_back(ContainingSyntax::createIf());
+        IfCtx.Enclosing.push_back(ContainingSyntax::createIf());
 
         Leaving = std::make_unique<WasmIf>(
             doBranch(Parent, Br->getSuccessor(0), IfCtx),
@@ -1606,7 +1606,8 @@ std::unique_ptr<Wasm> FunctionLowering::nodeWithin(
                     getBlockName(Follower));
 
   auto FirstContext = Ctx;
-  FirstContext.push_back(ContainingSyntax::createBlock(Follower));
+  FirstContext.Enclosing.push_back(ContainingSyntax::createBlock(Follower));
+  FirstContext.Fallthrough = Follower;
 
   auto First = std::make_unique<WasmBlock>(
       WasmBlock{nodeWithin(Parent, MergeChildren, FirstContext)});
@@ -1622,7 +1623,7 @@ uint32_t FunctionLowering::index(const llvm::BasicBlock *BB,
   uint32_t I = 0;
   // Iterate in reverse to find the innermost matching label (relative index
   // 0)
-  for (auto &It : std::ranges::reverse_view(Ctx)) {
+  for (auto &It : std::ranges::reverse_view(Ctx.Enclosing)) {
     if (It.Label == BB) {
       return I;
     }

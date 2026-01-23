@@ -346,7 +346,11 @@ class FunctionLowering {
   };
 
   DefinedFunc *F;
-  using Context = llvm::SmallVector<ContainingSyntax, 8>;
+  struct Context {
+    llvm::SmallVector<ContainingSyntax> Enclosing;
+    // The label that can be reached by just falling through
+    llvm::BasicBlock *Fallthrough = nullptr;
+  };
 
   llvm::DominatorTree &DT;
   llvm::LoopInfo &LI;
