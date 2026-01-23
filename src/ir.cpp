@@ -1540,9 +1540,6 @@ std::unique_ptr<Wasm> FunctionLowering::nodeWithin(
     auto *Term = Parent->getTerminator();
     if (auto *Br = llvm::dyn_cast<llvm::BranchInst>(Term)) {
       if (Br->isConditional()) {
-        assert(Br->getNumSuccessors() == 2 &&
-               "expected two successors in conditional branch");
-
         WATEVER_LOG_TRACE("{} branches to {} and {}", getBlockName(Parent),
                           getBlockName(Br->getSuccessor(0)),
                           getBlockName(Br->getSuccessor(1)));
@@ -1554,9 +1551,6 @@ std::unique_ptr<Wasm> FunctionLowering::nodeWithin(
             doBranch(Parent, Br->getSuccessor(0), IfCtx),
             doBranch(Parent, Br->getSuccessor(1), IfCtx));
       } else {
-        assert(Br->getNumSuccessors() == 1 &&
-               "expected only one successor in unconditional branch");
-
         WATEVER_LOG_TRACE("{} branches to {}", getBlockName(Parent),
                           getBlockName(Br->getSuccessor(0)));
 
@@ -1569,30 +1563,28 @@ std::unique_ptr<Wasm> FunctionLowering::nodeWithin(
       UnreachableAction.Insts.emplace_back(Opcode::Unreachable);
       Leaving = std::make_unique<WasmActions>(std::move(UnreachableAction));
     } else if (auto *SI = llvm::dyn_cast<llvm::SwitchInst>(Term)) {
-      // TODO handle PHI nodes
       WATEVER_LOG_TRACE("{} ends with a switch", getBlockName(Parent));
+      auto *DefaultTarget = SI->getDefaultDest();
+      auto DefaultIdx = index(DefaultTarget, Ctx);
+
       // Map each case to the target block index
-      llvm::DenseMap<uint32_t, uint32_t> SparseTargets;
-      uint32_t MaxIdx = 0;
+      // These have been ordered during legalization
+      llvm::SmallVector<uint32_t> Targets;
+      [[maybe_unused]] uint32_t LastCase = 0;
       for (auto &Case : SI->cases()) {
         auto *Target = Case.getCaseSuccessor();
         auto BlockIdx = index(Target, Ctx);
         auto CaseValue = Case.getCaseValue()->getZExtValue();
-        SparseTargets[CaseValue] = BlockIdx;
-        if (CaseValue > MaxIdx) {
-          MaxIdx = CaseValue;
-        }
-      }
-      auto *DefaultTarget = SI->getDefaultDest();
-      auto DefaultIdx = index(DefaultTarget, Ctx);
 
-      llvm::SmallVector<uint32_t> Targets;
-      while (Targets.size() <= MaxIdx) {
-        Targets.push_back(SparseTargets.lookup_or(Targets.size(), DefaultIdx));
+        // Fill gaps
+        while (Targets.size() < CaseValue) {
+          Targets.push_back(DefaultIdx);
+        }
+        assert(LastCase <= CaseValue &&
+               "cases have not been ordered correctly");
+        LastCase = CaseValue;
+        Targets.push_back(BlockIdx);
       }
-      // TODO if MaxIdx is large, this branch table can get huge. Therefore,
-      // use if-else chains (maybe during legalization) or at least subtract
-      // the MinIndex.
       BranchTableArg Argument{std::move(Targets), DefaultIdx};
       WasmActions BranchTable{};
       BranchTable.Insts.emplace_back(
