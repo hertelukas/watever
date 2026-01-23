@@ -15,23 +15,20 @@ namespace watever {
 
 void CodeWriter::visit(WasmBlock &Block) {
   Opcode(Opcode::Enum::Block).writeBytes(OS);
-  // TODO blocktype
-  OS << static_cast<char>(0x40);
+  OS << static_cast<char>(Block.Ty);
   Block.InnerWasm->accept(*this);
   Opcode(Opcode::Enum::End).writeBytes(OS);
 };
 
 void CodeWriter::visit(WasmLoop &Loop) {
   Opcode(Opcode::Enum::Loop).writeBytes(OS);
-  // TODO blocktype
-  OS << static_cast<char>(0x40);
+  OS << static_cast<char>(Loop.Ty);
   Loop.InnerWasm->accept(*this);
   Opcode(Opcode::Enum::End).writeBytes(OS);
 }
 void CodeWriter::visit(WasmIf &IfElse) {
   Opcode(Opcode::Enum::If).writeBytes(OS);
-  // TODO blocktype
-  OS << static_cast<char>(0x40);
+  OS << static_cast<char>(IfElse.Ty);
   IfElse.True->accept(*this);
   Opcode(Opcode::Enum::Else).writeBytes(OS);
   IfElse.False->accept(*this);

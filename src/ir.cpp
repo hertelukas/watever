@@ -30,6 +30,7 @@
 #include <llvm/Support/Casting.h>
 #include <llvm/Support/MathExtras.h>
 #include <memory>
+#include <optional>
 #include <ranges>
 
 using namespace watever;
@@ -1422,7 +1423,8 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
 
 std::unique_ptr<Wasm> FunctionLowering::doBranch(const llvm::BasicBlock *Source,
                                                  llvm::BasicBlock *Target,
-                                                 const Context &Ctx) {
+                                                 const Context &Ctx,
+                                                 ValType FTy) {
   // Actions to be executed on the edge
   WasmActions PhiActions;
 
@@ -1497,7 +1499,7 @@ std::unique_ptr<Wasm> FunctionLowering::doBranch(const llvm::BasicBlock *Source,
 
     WATEVER_LOG_TRACE("no branch needed from {} to {}, fall through",
                       getBlockName(Source), getBlockName(Target));
-    BranchNode = doTree(Target, Ctx);
+    BranchNode = doTree(Target, Ctx, FTy);
   }
 
   if (!PhiActions.Insts.empty()) {
@@ -1509,7 +1511,7 @@ std::unique_ptr<Wasm> FunctionLowering::doBranch(const llvm::BasicBlock *Source,
 }
 
 std::unique_ptr<Wasm> FunctionLowering::doTree(llvm::BasicBlock *Root,
-                                               Context Ctx) {
+                                               Context Ctx, ValType FTy) {
   WATEVER_LOG_TRACE("doTree with root {}", getBlockName(Root));
 
   llvm::SmallVector<llvm::BasicBlock *> MergeChildren;
@@ -1522,15 +1524,16 @@ std::unique_ptr<Wasm> FunctionLowering::doTree(llvm::BasicBlock *Root,
     WATEVER_LOG_TRACE("Generating loop for {}", getBlockName(Root));
     Ctx.Enclosing.push_back(ContainingSyntax::createLoop(Root));
     return std::make_unique<WasmLoop>(
-        WasmLoop{nodeWithin(Root, MergeChildren, Ctx)});
+        FTy, nodeWithin(Root, MergeChildren, Ctx, FTy));
   }
 
-  return nodeWithin(Root, MergeChildren, Ctx);
+  return nodeWithin(Root, MergeChildren, Ctx, FTy);
 }
 
 std::unique_ptr<Wasm> FunctionLowering::nodeWithin(
     llvm::BasicBlock *Parent,
-    llvm::SmallVector<llvm::BasicBlock *> MergeChildren, const Context &Ctx) {
+    llvm::SmallVector<llvm::BasicBlock *> MergeChildren, const Context &Ctx,
+    ValType FTy) {
 
   // Base case
   if (MergeChildren.empty()) {
@@ -1548,13 +1551,13 @@ std::unique_ptr<Wasm> FunctionLowering::nodeWithin(
         IfCtx.Enclosing.push_back(ContainingSyntax::createIf());
 
         Leaving = std::make_unique<WasmIf>(
-            doBranch(Parent, Br->getSuccessor(0), IfCtx),
-            doBranch(Parent, Br->getSuccessor(1), IfCtx));
+            FTy, doBranch(Parent, Br->getSuccessor(0), IfCtx, FTy),
+            doBranch(Parent, Br->getSuccessor(1), IfCtx, FTy));
       } else {
         WATEVER_LOG_TRACE("{} branches to {}", getBlockName(Parent),
                           getBlockName(Br->getSuccessor(0)));
 
-        Leaving = doBranch(Parent, Br->getSuccessor(0), Ctx);
+        Leaving = doBranch(Parent, Br->getSuccessor(0), Ctx, FTy);
       }
     } else if (llvm::isa<llvm::ReturnInst>(Term)) {
       Leaving = std::make_unique<WasmReturn>();
@@ -1610,12 +1613,12 @@ std::unique_ptr<Wasm> FunctionLowering::nodeWithin(
   FirstContext.Fallthrough = Follower;
 
   auto First = std::make_unique<WasmBlock>(
-      WasmBlock{nodeWithin(Parent, MergeChildren, FirstContext)});
+      ValType::Void,
+      nodeWithin(Parent, MergeChildren, FirstContext, ValType::Void));
 
-  auto Second = doTree(Follower, Ctx);
+  auto Second = doTree(Follower, Ctx, FTy);
 
-  return std::make_unique<WasmSeq>(
-      WasmSeq{std::move(First), std::move(Second)});
+  return std::make_unique<WasmSeq>(std::move(First), std::move(Second));
 }
 
 uint32_t FunctionLowering::index(const llvm::BasicBlock *BB,
@@ -1817,7 +1820,11 @@ Module ModuleLowering::convert(llvm::Module &Mod,
 
     FunctionLowering FL{WasmFunc, DT, LI, Res};
     WATEVER_LOG_DBG("Lowering function {}", F.getName().str());
-    FL.lower();
+    ValType RetTy = ValType::Void;
+    if (!F.getReturnType()->isVoidTy()) {
+      RetTy = fromLLVMType(F.getReturnType(), Mod.getDataLayout());
+    }
+    FL.lower(RetTy);
 
     // Generate prologue, if we use a FP
     if (WasmFunc->FP.has_value()) {

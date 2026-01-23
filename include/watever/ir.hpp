@@ -65,30 +65,33 @@ public:
 
 class WasmBlock final : public Wasm {
 public:
+  ValType Ty;
   std::unique_ptr<Wasm> InnerWasm;
 
-  explicit WasmBlock(std::unique_ptr<Wasm> Inner)
-      : InnerWasm(std::move(Inner)) {};
+  explicit WasmBlock(ValType Ty, std::unique_ptr<Wasm> Inner)
+      : Ty(Ty), InnerWasm(std::move(Inner)) {};
 
   void accept(WasmVisitor &V) override { V.visit(*this); }
 };
 
 class WasmLoop final : public Wasm {
-
 public:
+  ValType Ty;
   std::unique_ptr<Wasm> InnerWasm;
-  explicit WasmLoop(std::unique_ptr<Wasm> Inner)
-      : InnerWasm(std::move(Inner)) {};
+  explicit WasmLoop(ValType Ty, std::unique_ptr<Wasm> Inner)
+      : Ty(Ty), InnerWasm(std::move(Inner)) {};
   void accept(WasmVisitor &V) override { V.visit(*this); }
 };
 
 class WasmIf final : public Wasm {
 public:
+  ValType Ty;
   std::unique_ptr<Wasm> True;
   std::unique_ptr<Wasm> False;
 
-  explicit WasmIf(std::unique_ptr<Wasm> True, std::unique_ptr<Wasm> False)
-      : True(std::move(True)), False(std::move(False)) {}
+  explicit WasmIf(ValType Ty, std::unique_ptr<Wasm> True,
+                  std::unique_ptr<Wasm> False)
+      : Ty(Ty), True(std::move(True)), False(std::move(False)) {}
   void accept(WasmVisitor &V) override { V.visit(*this); }
 };
 
@@ -358,15 +361,16 @@ class FunctionLowering {
 
   std::unique_ptr<Wasm> doBranch(const llvm::BasicBlock *SourceBlock,
                                  llvm::BasicBlock *TargetBlock,
-                                 const Context &Ctx);
+                                 const Context &Ctx, ValType FTy);
 
   // TODO MergeChildren needs better type
   std::unique_ptr<Wasm>
   nodeWithin(llvm::BasicBlock *Parent,
              llvm::SmallVector<llvm::BasicBlock *> MergeChildren,
-             const Context &Ctx);
+             const Context &Ctx, ValType FTy);
 
-  std::unique_ptr<Wasm> doTree(llvm::BasicBlock *Root, Context Ctx);
+  std::unique_ptr<Wasm> doTree(llvm::BasicBlock *Root, Context Ctx,
+                               ValType FTy);
 
   static uint32_t index(const llvm::BasicBlock *BB, const Context &Ctx);
 
@@ -408,9 +412,9 @@ public:
     }
   }
 
-  void lower() {
+  void lower(ValType RetTy) {
     Context Ctx;
-    F->Body = doTree(DT.getRoot(), Ctx);
+    F->Body = doTree(DT.getRoot(), Ctx, RetTy);
   }
 };
 
