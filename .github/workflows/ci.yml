@@ -2,7 +2,7 @@
 # See: https://github.com/actions/starter-workflows/blob/main/ci/cmake-multi-platform.yml
 name: CI
 
-on: [push]
+on: []
 
 env:
   BUILD_TYPE: Debug

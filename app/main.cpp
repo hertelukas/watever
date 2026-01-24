@@ -11,6 +11,7 @@
 #include <llvm/Support/SourceMgr.h>
 #include <llvm/Transforms/Scalar/ADCE.h>
 #include <llvm/Transforms/Utils/BreakCriticalEdges.h>
+#include <llvm/Transforms/Utils/FixIrreducible.h>
 
 #define ARGS_NOEXCEPT
 #include "args/args.hxx"
@@ -175,7 +176,12 @@ int main(int argc, char *argv[]) {
   PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
 
   llvm::ModulePassManager LegalizeMPM;
+  llvm::FunctionPassManager LegalizeFPM;
 
+  LegalizeFPM.addPass(llvm::FixIrreduciblePass());
+
+  LegalizeMPM.addPass(
+      llvm::createModuleToFunctionPassAdaptor(std::move(LegalizeFPM)));
   LegalizeMPM.addPass(watever::FixFunctionBitcastsPass());
   LegalizeMPM.addPass(watever::LegalizationPass(Config));
 

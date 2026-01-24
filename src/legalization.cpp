@@ -44,11 +44,16 @@ LegalValue FunctionLegalizer::legalizeConstant(llvm::Constant *C) {
     auto Value = CI->getValue();
 
     llvm::SmallVector<llvm::Value *> Vs;
-    for (unsigned I = 0; I < NumParts; ++I) {
-      // TODO think about order
+    for (unsigned I = 0; I < NumParts - 1; ++I) {
       Vs.push_back(llvm::ConstantInt::get(
           Builder.getInt64Ty(), Value.extractBitsAsZExtValue(64, I * 64)));
     }
+    // Handle last
+    unsigned LastNumBits = Width % 64;
+    LastNumBits = LastNumBits == 0 ? 64 : LastNumBits;
+    Vs.push_back(llvm::ConstantInt::get(
+        Builder.getInt64Ty(),
+        Value.extractBitsAsZExtValue(LastNumBits, (NumParts - 1) * 64)));
 
     return LegalValue{Vs};
   }

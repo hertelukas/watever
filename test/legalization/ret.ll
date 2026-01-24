@@ -32,9 +32,10 @@ define i64 @ret_i64(i64 %a) {
 
 define i128 @ret_i128_const() {
 ; CHECK-LABEL: void @ret_i128_const(ptr
-; CHECK: store i64 10
-; CHECK: store i64 0
-  ret i128 10
+; CHECK: store i64 -1
+; CHECK: store i64 -1
+; Storing -1
+  ret i128 340282366920938463463374607431768211455
 }
 
 define i128 @ret_i128(i128 %a) {
@@ -44,10 +45,11 @@ define i128 @ret_i128(i128 %a) {
   ret i128 %a
 }
 
+
 define i160 @ret_i160_const() {
 ; CHECK-LABEL: void @ret_i160_const(ptr
-; CHECK: store i64 10
-; CHECK: store i64 0
-; CHECK: store i64 0
-  ret i160 10
+; CHECK: store i64 7518985003190562062
+; CHECK: store i64 3829132567781352747
+; CHECK: store i64 29
+  ret i160 9938823669209384347192374607431768583438
 }

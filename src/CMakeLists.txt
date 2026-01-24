@@ -19,7 +19,10 @@ target_include_directories(${PROJECT_NAME}lib SYSTEM PUBLIC
   ${LLVM_INCLUDE_DIRS}
 )
 
-target_link_libraries(${PROJECT_NAME}lib PUBLIC LLVM)
+target_link_libraries(${PROJECT_NAME}lib PUBLIC
+  LLVMCore
+  LLVMPasses
+  LLVMSupport)
 
 set(WATEVER_LOGGING "DebugOnly" CACHE STRING "Enable logging with spdlog (DebugOnly(default)/ON/OFF)")
 set_property(CACHE WATEVER_LOGGING PROPERTY STRINGS DebugOnly ON OFF)
