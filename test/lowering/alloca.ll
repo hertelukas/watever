@@ -160,9 +160,7 @@ define void @alloca_i32_dynamic(i32 %n) {
 ;
 ; Calculate size of dynamic
 ; CHECK: local.get 0
-; Size of i8
-; CHECK-NEXT: i32.const 1
-; CHECK-NEXT: i32.mul
+; Size of i8 doesn't need mul
 ; Align to 16-byte
 ; CHECK-NEXT: i32.const 15
 ; CHECK-NEXT: i32.add
@@ -211,9 +209,7 @@ define void @alloca_dynamic_i32(i32 %n) {
 ;
 ; Calculate size of dynamic
 ; CHECK: local.get 0
-; Size of i8
-; CHECK-NEXT: i32.const 1
-; CHECK-NEXT: i32.mul
+; Size of i8 doesn't need mul
 ; Align to 16-byte
 ; CHECK-NEXT: i32.const 15
 ; CHECK-NEXT: i32.add

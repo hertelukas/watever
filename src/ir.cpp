@@ -616,8 +616,10 @@ void BlockLowering::visitAllocaInst(llvm::AllocaInst &AI) {
     Actions.Insts.emplace_back(ConstOp, int64_t{15});
     // Calculate total size
     // TODO we probably can use a shl in most cases here
-    Actions.Insts.emplace_back(MulOp);
-    Actions.Insts.emplace_back(ConstOp, Size);
+    if (Size != 1) {
+      Actions.Insts.emplace_back(MulOp);
+      Actions.Insts.emplace_back(ConstOp, Size);
+    }
     WorkList.push_back(AI.getArraySize());
   } else {
     Size = llvm::alignTo(Size, 16);

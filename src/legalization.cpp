@@ -1005,7 +1005,9 @@ void FunctionLegalizer::visitGetElementPtrInst(llvm::GetElementPtrInst &GI) {
   WATEVER_LOG_TRACE("Accessing type at index {}, with a type size of {}",
                     llvmToString(*SextIdx), FirstTypeSize);
 
-  if (FirstTypeSize != 0) {
+  if (FirstTypeSize == 1) {
+    TotalOffset = SextIdx;
+  } else if (FirstTypeSize != 0) {
     TotalOffset = Builder.CreateMul(
         SextIdx, llvm::ConstantInt::get(IntPtrTy, FirstTypeSize));
   }
@@ -1025,8 +1027,10 @@ void FunctionLegalizer::visitGetElementPtrInst(llvm::GetElementPtrInst &GI) {
       WATEVER_LOG_TRACE("Accessing struct at index {}, with offset of {}",
                         FieldIdx, FieldOffset);
 
-      TotalOffset = Builder.CreateAdd(
-          TotalOffset, llvm::ConstantInt::get(IntPtrTy, FieldOffset));
+      if (FieldOffset != 0) {
+        TotalOffset = Builder.CreateAdd(
+            TotalOffset, llvm::ConstantInt::get(IntPtrTy, FieldOffset));
+      }
       CurrentTy = STy->getElementType(FieldIdx);
     } else {
       CurrentTy = CurrentTy->getContainedType(0);
@@ -1035,8 +1039,11 @@ void FunctionLegalizer::visitGetElementPtrInst(llvm::GetElementPtrInst &GI) {
       WATEVER_LOG_TRACE("Accessing array at index {}, with element sizes of {}",
                         llvmToString(*SextIdx), ElementSize);
 
-      llvm::Value *ScaledOffset = Builder.CreateMul(
-          SextIdx, llvm::ConstantInt::get(IntPtrTy, ElementSize));
+      llvm::Value *ScaledOffset = SextIdx;
+      if (ElementSize != 1) {
+        ScaledOffset = Builder.CreateMul(
+            SextIdx, llvm::ConstantInt::get(IntPtrTy, ElementSize));
+      }
       TotalOffset = Builder.CreateAdd(TotalOffset, ScaledOffset);
     }
   }
