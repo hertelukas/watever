@@ -1526,23 +1526,34 @@ std::unique_ptr<Wasm> FunctionLowering::doTree(llvm::BasicBlock *Root,
     WATEVER_LOG_TRACE("Generating loop for {}", getBlockName(Root));
     Ctx.Enclosing.push_back(ContainingSyntax::createLoop(Root));
     return std::make_unique<WasmLoop>(
-        FTy, nodeWithin(Root, MergeChildren, Ctx, FTy));
+        FTy, nodeWithin(Root, MergeChildren, Ctx, FTy, nullptr));
   }
 
-  return nodeWithin(Root, MergeChildren, Ctx, FTy);
+  return nodeWithin(Root, MergeChildren, Ctx, FTy, nullptr);
 }
 
 std::unique_ptr<Wasm> FunctionLowering::nodeWithin(
     llvm::BasicBlock *Parent,
     llvm::SmallVector<llvm::BasicBlock *> MergeChildren, const Context &Ctx,
-    ValType FTy) {
-
+    ValType FTy, llvm::BasicBlock *Follower) {
   // Base case
   if (MergeChildren.empty()) {
-    auto Body = translateBB(Parent);
-
-    std::unique_ptr<Wasm> Leaving;
     auto *Term = Parent->getTerminator();
+    bool GeneratesIf = false;
+    if (auto *Br = llvm::dyn_cast<llvm::BranchInst>(Term)) {
+      GeneratesIf = Br->isConditional();
+    }
+
+    // Follower but without if - so block wrap is needed
+    if (Follower && !GeneratesIf) {
+      auto NewContext = Ctx;
+      NewContext.Enclosing.push_back(ContainingSyntax::createBlock(Follower));
+      return std::make_unique<WasmBlock>(
+          FTy, nodeWithin(Parent, MergeChildren, NewContext, FTy, nullptr));
+    }
+    auto Body = translateBB(Parent);
+    std::unique_ptr<Wasm> Leaving;
+
     if (auto *Br = llvm::dyn_cast<llvm::BranchInst>(Term)) {
       if (Br->isConditional()) {
         WATEVER_LOG_TRACE("{} branches to {} and {}", getBlockName(Parent),
@@ -1550,7 +1561,7 @@ std::unique_ptr<Wasm> FunctionLowering::nodeWithin(
                           getBlockName(Br->getSuccessor(1)));
 
         auto IfCtx = Ctx;
-        IfCtx.Enclosing.push_back(ContainingSyntax::createIf());
+        IfCtx.Enclosing.push_back(ContainingSyntax::createIf(Follower));
 
         Leaving = std::make_unique<WasmIf>(
             FTy, doBranch(Parent, Br->getSuccessor(0), IfCtx, FTy),
@@ -1604,21 +1615,26 @@ std::unique_ptr<Wasm> FunctionLowering::nodeWithin(
         WasmSeq{std::move(Body), std::move(Leaving)});
   }
 
-  auto *Follower = MergeChildren.back();
+  if (Follower) {
+    auto NewContext = Ctx;
+    NewContext.Enclosing.push_back(ContainingSyntax::createBlock(Follower));
+    auto Inner = nodeWithin(Parent, MergeChildren, NewContext, FTy, nullptr);
+    return std::make_unique<WasmBlock>(FTy, std::move(Inner));
+  }
+
+  auto *NextFollower = MergeChildren.back();
   MergeChildren.pop_back();
 
   WATEVER_LOG_TRACE("{} is followed by {}", getBlockName(Parent),
-                    getBlockName(Follower));
+                    getBlockName(NextFollower));
 
   auto FirstContext = Ctx;
-  FirstContext.Enclosing.push_back(ContainingSyntax::createBlock(Follower));
-  FirstContext.Fallthrough = Follower;
+  FirstContext.Fallthrough = NextFollower;
 
-  auto First = std::make_unique<WasmBlock>(
-      ValType::Void,
-      nodeWithin(Parent, MergeChildren, FirstContext, ValType::Void));
+  auto First = nodeWithin(Parent, MergeChildren, FirstContext, ValType::Void,
+                          NextFollower);
 
-  auto Second = doTree(Follower, Ctx, FTy);
+  auto Second = doTree(NextFollower, Ctx, FTy);
 
   return std::make_unique<WasmSeq>(std::move(First), std::move(Second));
 }

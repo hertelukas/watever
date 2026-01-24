@@ -337,8 +337,8 @@ class FunctionLowering {
 
   public:
     llvm::BasicBlock *Label;
-    static ContainingSyntax createIf() {
-      return {BlockType::IfThenElse, nullptr};
+    static ContainingSyntax createIf(llvm::BasicBlock *Follow) {
+      return {BlockType::IfThenElse, Follow};
     }
     static ContainingSyntax createLoop(llvm::BasicBlock *Header) {
       return {BlockType::Loop, Header};
@@ -367,7 +367,7 @@ class FunctionLowering {
   std::unique_ptr<Wasm>
   nodeWithin(llvm::BasicBlock *Parent,
              llvm::SmallVector<llvm::BasicBlock *> MergeChildren,
-             const Context &Ctx, ValType FTy);
+             const Context &Ctx, ValType FTy, llvm::BasicBlock *Follow);
 
   std::unique_ptr<Wasm> doTree(llvm::BasicBlock *Root, Context Ctx,
                                ValType FTy);

@@ -250,9 +250,6 @@ define void @alloca_conditional(i1 %cond) {
 ; CHECK-NEXT: local.tee [[FP:[0-9]+]]
 ; CHECK-NEXT: global.set [[SP:[0-9]+]]
 ;
-; Do not allocate anything else statically
-; CHECK-NEXT: block
-;
 ; In the if case, do dynamic allocation
 ; CHECK: global.get [[SP]]
 ; CHECK-NEXT: i32.const 16
