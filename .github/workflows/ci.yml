@@ -38,7 +38,7 @@ jobs:
 
     steps:
     - name: Dependencies
-      run: pacman -Sy --noconfirm base-devel git cmake ninja llvm python wabt sudo wasmtime
+      run: pacman -Sy --noconfirm base-devel git cmake ninja llvm python wabt sudo wasmtime wget unzip time binaryen
 
     - name: Install wasi-sdk-bin (AUR)
       run: |
@@ -54,9 +54,51 @@ jobs:
       uses: actions/download-artifact@v5
       with:
         path: build
- 
+
     - name: Fix Permissions
       run: chmod +x build/app/watever
 
     - name: Test
       run: lit -sv build/test
+
+    - name: Run SQLite Benchmark
+      run: |
+        wget -q https://sqlite.org/2026/sqlite-amalgamation-3510200.zip
+        unzip -q sqlite-amalgamation-3510200.zip
+        mv sqlite-amalgamation-3510200 sqlite
+
+        CLANG=/opt/wasi-sdk/bin/clang
+        CFLAGS="-S -emit-llvm --target=wasm32-wasip2 -D_WASI_EMULATED_GETPID -D_WASI_EMULATED_PROCESS_CLOCKS -D_WASI_EMULATED_SIGNAL -DSQLITE_NOHAVE_SYSTEM"
+
+        echo "Generating LLVM IR..."
+        $CLANG $CFLAGS sqlite/sqlite3.c -o sqlite3.ll
+        $CLANG $CFLAGS sqlite/shell.c -o shell.ll
+
+        echo "Benchmarking watever..."
+        echo "=== WATEVER BENCHMARK REPORT ===" > metrics.txt
+        echo "Date: $(date)" >> metrics.txt
+        echo "Commit: $GITHUB_SHA" >> metrics.txt
+        echo "" >> metrics.txt
+
+        echo "[Compile Time & Memory]" >> metrics.txt
+        /usr/bin/time -f "sqlite3.o: %E real, %M KB mem" -a -o metrics.txt ./build/app/watever sqlite3.ll -o sqlite3.o
+        /usr/bin/time -f "shell.o:   %E real, %M KB mem" -a -o metrics.txt ./build/app/watever shell.ll -o shell.o
+        echo "" >> metrics.txt
+
+        echo "Linking..."
+        $CLANG sqlite3.o shell.o -o sqlite3.wasm -lm -lwasi-emulated-getpid -lwasi-emulated-process-clocks -lwasi-emulated-signal
+
+        echo "[File Sizes]" >> metrics.txt
+        ls -l sqlite3.o shell.o sqlite3.wasm | awk '{print $5, $9}' >> metrics.txt
+        echo "" >> metrics.txt
+
+        echo "[wasm-opt Metrics]" >> metrics.txt
+        wasm-opt --metrics sqlite3.wasm >> metrics.txt 2>&1 || echo "wasm-opt failed" >> metrics.txt
+
+        cat metrics.txt
+
+    - name: Upload Benchmark Results
+      uses: actions/upload-artifact@v5
+      with:
+        name: benchmark-metrics
+        path: metrics.txt
