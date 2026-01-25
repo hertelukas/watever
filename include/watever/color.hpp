@@ -55,6 +55,9 @@ class FunctionColorer {
   llvm::EquivalenceClasses<llvm::Value *> Chunks;
   llvm::SmallVector<AffinityEdge> Affinities;
 
+  llvm::DenseSet<llvm::Value *> Fixed;
+  llvm::DenseMap<llvm::Value *, uint32_t> OldColor;
+
   /// Checks whether all uses of \p AI can be realized with set/get operations
   /// on locals. Returns the NCD block of all load/stores \p AI is used in, or
   /// nullptr, if promotion is not possible.
@@ -83,6 +86,11 @@ class FunctionColorer {
                         llvm::DenseSet<llvm::BasicBlock *> &Visited);
 
   void computeAffinityGraph();
+  void setColor(llvm::Value *Node, uint32_t Local,
+                llvm::DenseSet<llvm::Value *> &ChangedSet);
+  bool avoidColor(llvm::Value *Node, uint32_t Local,
+                  llvm::DenseSet<llvm::Value *> &ChangedSet);
+  void recolor(llvm::Value *Node, uint32_t Local);
   void recolorChunk(const llvm::EquivalenceClasses<llvm::Value *>::ECValue *EC);
   void buildChunks();
   void coalesce();

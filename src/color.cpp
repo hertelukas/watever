@@ -478,8 +478,11 @@ void FunctionColorer::getInterferenceNeighbors(
     llvm::Value *Val, llvm::DenseSet<llvm::Value *> &Neighbors) {
   llvm::DenseSet<llvm::BasicBlock *> Visited;
 
-  for (auto *U : Val->users()) {
-    if (auto *Inst = llvm::dyn_cast<llvm::Instruction>(U)) {
+  for (auto &Use : Val->uses()) {
+    auto *User = Use.getUser();
+    if (auto *Phi = llvm::dyn_cast<llvm::PHINode>(User)) {
+      findInterference(Phi->getIncomingBlock(Use), Val, Neighbors, Visited);
+    } else if (auto *Inst = llvm::dyn_cast<llvm::Instruction>(User)) {
       findInterference(Inst->getParent(), Val, Neighbors, Visited);
     }
   }
@@ -493,13 +496,17 @@ void FunctionColorer::findInterference(
     llvm::DenseSet<llvm::BasicBlock *> &Visited) {
   Visited.insert(BB);
 
-  bool IsLiveIn = false;
-  for (auto *LiveInVal : LiveIn[BB]) {
-    if (LiveInVal == Val) {
-      IsLiveIn = true;
-      break;
+  // As we know that Val is used in this block it is live-in iff if it is not
+  // defined in this block. (Phi nodes are technically live-in, but not for
+  // Hack, which is what is wanted here - as we don't want to check for
+  // interferences in predecessors of that phi node)
+  bool IsLiveIn = true;
+  if (auto *Inst = llvm::dyn_cast<llvm::Instruction>(Val)) {
+    if (Inst->getParent() == BB) {
+      IsLiveIn = false;
     }
   }
+
   bool IsLiveOut = false;
   for (auto *LiveOutVal : LiveOut[BB]) {
     if (LiveOutVal == Val) {
@@ -511,25 +518,25 @@ void FunctionColorer::findInterference(
   llvm::Instruction *KillingInst = nullptr;
   // Val dies in this block, lookup where exactly
   if (!IsLiveOut) {
-    assert(DyingAt.contains(BB) &&
-           "no dying information for the current block");
-    assert(DyingAt.lookup(BB).contains(Val) &&
-           "live-in but not live-out value does not seem to die in the current "
-           "block");
-    auto *KillingInst = DyingAt[BB][Val];
-    for (auto &Inst : *BB) {
-      if (&Inst != KillingInst) {
-        Neighbors.insert(&Inst);
-      } else {
-        break;
-      }
+    if (!DyingAt.contains(BB)) {
+      WATEVER_UNREACHABLE("No dying information for block {}",
+                          getBlockName(BB));
     }
+    if (!DyingAt.lookup(BB).contains(Val)) {
+      WATEVER_UNREACHABLE("Not-live-out value {} does not die in block {}",
+                          Val->getNameOrAsOperand(), getBlockName(BB));
+    }
+    KillingInst = DyingAt[BB][Val];
   }
-  bool SkipBecauseNotYetDefined = !IsLiveIn;
+
+  bool SkipUntilDef = !IsLiveIn;
 
   for (auto &Inst : *BB) {
-    if (SkipBecauseNotYetDefined) {
-      SkipBecauseNotYetDefined = &Inst == Val;
+    if (SkipUntilDef) {
+      // Once the function is defined, no longer skip
+      if (&Inst == Val) {
+        SkipUntilDef = false;
+      }
       continue;
     }
     Neighbors.insert(&Inst);
@@ -584,6 +591,106 @@ void FunctionColorer::computeAffinityGraph() {
 #endif
 }
 
+void FunctionColorer::setColor(llvm::Value *Node, uint32_t Local,
+                               llvm::DenseSet<llvm::Value *> &ChangedSet) {
+  Fixed.insert(Node);
+  OldColor[Node] = Local;
+  ChangedSet.insert(Node);
+  Target->LocalMapping[Node] = Local;
+}
+
+bool FunctionColorer::avoidColor(llvm::Value *Node, uint32_t Local,
+                                 llvm::DenseSet<llvm::Value *> &ChangedSet) {
+  if (Target->LocalMapping.lookup_or(Node, UINT32_MAX) != Local) {
+    return true;
+  }
+
+  if (Fixed.contains(Node)) {
+    WATEVER_LOG_TRACE("{} is fixed while avoiding {}",
+                      Node->getNameOrAsOperand(), Local);
+    return false;
+  }
+
+  // Try to get a color which is not used by any neighbor
+  llvm::DenseSet<uint32_t> FreeLocals;
+  auto Ty = fromLLVMType(Node->getType(), Source.getDataLayout());
+
+  // Set all locals as possible targets
+  for (auto Local : Target->Locals.lookup(Ty)) {
+    FreeLocals.insert(Local);
+  }
+
+  llvm::DenseSet<llvm::Value *> Neighbors;
+  getInterferenceNeighbors(Node, Neighbors);
+
+  // Delete colors of neighbors as possibilities
+  for (auto *Neighbor : Neighbors) {
+    FreeLocals.erase(Target->LocalMapping.lookup_or(Neighbor, UINT32_MAX));
+  }
+
+  // TODO Hack tries to select the color "which is used least by Node's
+  // neighbors". However, we can ensure that is used by none of its neighbors,
+  // and it might make sense to retry all "free" locals until we have to create
+  // a new local, which has to succeed.
+  uint32_t NewLocal;
+  if (FreeLocals.empty()) {
+    WATEVER_LOG_TRACE("No interference free color available for {}",
+                      Node->getNameOrAsOperand());
+    NewLocal = Target->getNewLocal(Ty);
+  } else {
+    NewLocal = *FreeLocals.begin();
+  }
+
+  setColor(Node, NewLocal, ChangedSet);
+
+  for (auto *Neighbor : Neighbors) {
+    if (!avoidColor(Neighbor, NewLocal, ChangedSet)) {
+      WATEVER_LOG_TRACE("Could not recolor {} without assiging it {}",
+                        Neighbor->getNameOrAsOperand(), NewLocal);
+      return false;
+    }
+  }
+
+  WATEVER_LOG_TRACE("Successfully recolored {} to {}",
+                    Node->getNameOrAsOperand(), NewLocal);
+  return true;
+}
+
+void FunctionColorer::recolor(llvm::Value *Node, uint32_t Local) {
+  WATEVER_LOG_TRACE("Trying to recolor {} to {}", Node->getNameOrAsOperand(),
+                    Local);
+  if (Fixed.contains(Node)) {
+    // If already fixed, do not try to recolor
+    WATEVER_LOG_TRACE("{} is fixed to {}, not recoloring",
+                      Node->getNameOrAsOperand(), Local);
+    return;
+  }
+  llvm::DenseSet<llvm::Value *> ChangedSet;
+  setColor(Node, Local, ChangedSet);
+  llvm::DenseSet<llvm::Value *> Neighbors;
+  getInterferenceNeighbors(Node, Neighbors);
+  // Check, if any neighbor interferes
+  for (auto *Neighbor : Neighbors) {
+    if (Target->LocalMapping.lookup_or(Neighbor, UINT32_MAX) == Local) {
+      // Try to recolor the neighbor
+      if (!avoidColor(Neighbor, Local, ChangedSet)) {
+        // If this failed, reset all colors
+        WATEVER_LOG_TRACE(
+            "Recoloring {} failed, could not assign {} a different color",
+            Node->getNameOrAsOperand(), Neighbor->getNameOrAsOperand());
+        for (auto *RecoloredValues : ChangedSet) {
+          assert(OldColor.contains(RecoloredValues) &&
+                 "could not find original color after failed recoloring");
+          Target->LocalMapping[RecoloredValues] = OldColor[RecoloredValues];
+        }
+      }
+    }
+  }
+  for (auto *RecoloredValue : ChangedSet) {
+    Fixed.insert(RecoloredValue);
+  }
+}
+
 void FunctionColorer::recolorChunk(
     const llvm::EquivalenceClasses<llvm::Value *>::ECValue *EC) {
   // A single member does not need to be recolored
@@ -591,13 +698,24 @@ void FunctionColorer::recolorChunk(
     return;
   }
 
-  // If any of the values in this class are arguments, they cannot be recolored.
-  // Therefore, we have to recolor the entire graph (or give up, by recoloring
-  // everything except the argument - if that's done, arguments should be
-  // ignored during affinity calculation).
-  for (auto *Member : Chunks.members(*EC)) {
-    if (llvm::isa<llvm::Argument>(Member)) {
-      // TODO recolor via interference graphs
+  Fixed.clear();
+
+  // If any of the values in this class is an argument, it cannot be recolored.
+  // Therefore, we have to recolor the entire graph
+  // TODO If we fail to recolor everything to the argument, try recoloring
+  // everything except the argument (e.g., remove the argument from the chunk
+  // and continue as usual). If this is often the case, this might lead to
+  // suboptimal affinities - e.g., it might make sense to weigh affinities with
+  // arguments lower, as they are less likely to get fulfilled
+  for (auto *MaybeArgument : Chunks.members(*EC)) {
+    // As all arguments necessarily interfere, there will never be multiple in
+    // an equivalence class
+    if (llvm::isa<llvm::Argument>(MaybeArgument)) {
+      uint32_t Local = Target->LocalMapping.lookup(MaybeArgument);
+      for (auto *Member : Chunks.members(*EC)) {
+        recolor(Member, Local);
+        Fixed.insert(Member);
+      }
       return;
     }
   }
