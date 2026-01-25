@@ -76,8 +76,14 @@ class FunctionColorer {
 
   /// Returns true, iff the \p A is live in a block in which \p B is also live
   bool interfere(llvm::Value *A, llvm::Value *B);
+  void getInterferenceNeighbors(llvm::Value *Val,
+                                llvm::DenseSet<llvm::Value *> &Neighbors);
+  void findInterference(llvm::BasicBlock *BB, llvm::Value *Val,
+                        llvm::DenseSet<llvm::Value *> &Neighbors,
+                        llvm::DenseSet<llvm::BasicBlock *> &Visited);
 
   void computeAffinityGraph();
+  void recolorChunk(const llvm::EquivalenceClasses<llvm::Value *>::ECValue *EC);
   void buildChunks();
   void coalesce();
 

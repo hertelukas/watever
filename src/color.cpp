@@ -474,6 +474,79 @@ bool FunctionColorer::interfere(llvm::Value *A, llvm::Value *B) {
   return false;
 }
 
+void FunctionColorer::getInterferenceNeighbors(
+    llvm::Value *Val, llvm::DenseSet<llvm::Value *> &Neighbors) {
+  llvm::DenseSet<llvm::BasicBlock *> Visited;
+
+  for (auto *U : Val->users()) {
+    if (auto *Inst = llvm::dyn_cast<llvm::Instruction>(U)) {
+      findInterference(Inst->getParent(), Val, Neighbors, Visited);
+    }
+  }
+}
+
+// Val is used in this BB, or in one of the blocks dominated by BB. Find all
+// interfering values on the path to BB.
+void FunctionColorer::findInterference(
+    llvm::BasicBlock *BB, llvm::Value *Val,
+    llvm::DenseSet<llvm::Value *> &Neighbors,
+    llvm::DenseSet<llvm::BasicBlock *> &Visited) {
+  Visited.insert(BB);
+
+  bool IsLiveIn = false;
+  for (auto *LiveInVal : LiveIn[BB]) {
+    if (LiveInVal == Val) {
+      IsLiveIn = true;
+      break;
+    }
+  }
+  bool IsLiveOut = false;
+  for (auto *LiveOutVal : LiveOut[BB]) {
+    if (LiveOutVal == Val) {
+      IsLiveOut = true;
+      break;
+    }
+  }
+
+  llvm::Instruction *KillingInst = nullptr;
+  // Val dies in this block, lookup where exactly
+  if (!IsLiveOut) {
+    assert(DyingAt.contains(BB) &&
+           "no dying information for the current block");
+    assert(DyingAt.lookup(BB).contains(Val) &&
+           "live-in but not live-out value does not seem to die in the current "
+           "block");
+    auto *KillingInst = DyingAt[BB][Val];
+    for (auto &Inst : *BB) {
+      if (&Inst != KillingInst) {
+        Neighbors.insert(&Inst);
+      } else {
+        break;
+      }
+    }
+  }
+  bool SkipBecauseNotYetDefined = !IsLiveIn;
+
+  for (auto &Inst : *BB) {
+    if (SkipBecauseNotYetDefined) {
+      SkipBecauseNotYetDefined = &Inst == Val;
+      continue;
+    }
+    Neighbors.insert(&Inst);
+    if (&Inst == KillingInst) {
+      break;
+    }
+  }
+
+  if (IsLiveIn) {
+    for (auto *Predecessor : llvm::predecessors(BB)) {
+      if (!Visited.contains(Predecessor)) {
+        findInterference(Predecessor, Val, Neighbors, Visited);
+      }
+    }
+  }
+}
+
 // We will only ever have moves between phi nodes, so only iterate over them
 // when building the affinity graph
 void FunctionColorer::computeAffinityGraph() {
@@ -511,9 +584,44 @@ void FunctionColorer::computeAffinityGraph() {
 #endif
 }
 
-void FunctionColorer::coalesce() {
-  computeAffinityGraph();
-  buildChunks();
+void FunctionColorer::recolorChunk(
+    const llvm::EquivalenceClasses<llvm::Value *>::ECValue *EC) {
+  // A single member does not need to be recolored
+  if (!EC->getNext()) {
+    return;
+  }
+
+  // If any of the values in this class are arguments, they cannot be recolored.
+  // Therefore, we have to recolor the entire graph (or give up, by recoloring
+  // everything except the argument - if that's done, arguments should be
+  // ignored during affinity calculation).
+  for (auto *Member : Chunks.members(*EC)) {
+    if (llvm::isa<llvm::Argument>(Member)) {
+      // TODO recolor via interference graphs
+      return;
+    }
+  }
+
+  // Avoid all possible interferences by creating a new local for the chunk.
+  // This is the "cheap" solution, but forcing a new color, which might not be
+  // necessary.
+  // TODO Think about these open questions:
+  // - Do we prefer one local more for perfect chunks, or do we prefer splitting
+  // chunks
+  // - Should we only try once (e.g., with the most common color in the chunk,
+  // or with the color having the fewest interferences, ...), or should we try
+  // every generated color so far? This could be a large number of locals
+  auto *Leader = *Chunks.findLeader(*EC);
+  auto Ty = fromLLVMType(Leader->getType(), Source.getDataLayout());
+  auto Local = Target->getNewLocal(Ty);
+
+  for (auto *Member : Chunks.members(*EC)) {
+    if (Target->LocalMapping.contains(Member)) {
+      WATEVER_LOG_TRACE("Remapping {} to {}", Member->getNameOrAsOperand(),
+                        Local);
+      Target->LocalMapping[Member] = Local;
+    }
+  }
 }
 
 void FunctionColorer::buildChunks() {
@@ -554,6 +662,14 @@ void FunctionColorer::buildChunks() {
                         Edge.Target->getNameOrAsOperand());
       Chunks.unionSets(Edge.Source, Edge.Target);
     }
+  }
+}
+
+void FunctionColorer::coalesce() {
+  computeAffinityGraph();
+  buildChunks();
+  for (auto *Chunk : Chunks) {
+    recolorChunk(Chunk);
   }
 }
 
