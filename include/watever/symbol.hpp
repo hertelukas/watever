@@ -8,6 +8,7 @@
 #include <llvm/ADT/SmallPtrSet.h>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/IR/BasicBlock.h>
+#include <llvm/IR/DataLayout.h>
 #include <llvm/IR/GlobalValue.h>
 #include <llvm/IR/Instruction.h>
 #include <llvm/IR/Instructions.h>
@@ -164,6 +165,17 @@ public:
     AllLocals.push_back(NewLocal);
     Locals[Ty].push_back(NewLocal);
     return NewLocal;
+  }
+
+  uint32_t getOrCreateLocal(llvm::Value *V, const llvm::DataLayout &DL) {
+    if (LocalMapping.contains(V)) {
+      return LocalMapping.lookup(V);
+    }
+    WATEVER_LOG_WARN("{} did not have a local assigned to it, creating...",
+                     V->getNameOrAsOperand());
+
+    auto Ty = fromLLVMType(V->getType(), DL);
+    return getNewLocal(Ty);
   }
 
   bool isImport() override { return false; }

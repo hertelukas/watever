@@ -1347,10 +1347,7 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
             continue;
           }
           // Create a local or get one from the colorer
-          auto L = Parent->LocalMapping.contains(Next)
-                       ? Parent->LocalMapping[Next]
-                       : Parent->getNewLocal(fromLLVMType(Next->getType(),
-                                                          BB->getDataLayout()));
+          auto L = Parent->getOrCreateLocal(Next, BB->getDataLayout());
           Actions.Insts.emplace_back(Opcode::LocalGet,
                                      std::make_unique<LocalArg>(L));
           ASTLocals[Next] = L;
@@ -1369,10 +1366,7 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
             if (auto It = ASTLocals.find(Next); It != ASTLocals.end()) {
               L = It->second;
             } else {
-              L = Parent->LocalMapping.contains(Next)
-                      ? Parent->LocalMapping[Next]
-                      : Parent->getNewLocal(
-                            fromLLVMType(Next->getType(), BB->getDataLayout()));
+              L = Parent->getOrCreateLocal(Next, BB->getDataLayout());
             }
             Actions.Insts.emplace_back(Opcode::LocalTee,
                                        std::make_unique<LocalArg>(L));
@@ -1405,10 +1399,7 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
       // If the instruction has users, ensure that is in a local, so it will
       // never be materialized as a dependency again
       if (Inst.getNumUses() > 0) {
-        auto L = Parent->LocalMapping.contains(&Inst)
-                     ? Parent->LocalMapping[&Inst]
-                     : Parent->getNewLocal(
-                           fromLLVMType(Inst.getType(), BB->getDataLayout()));
+        auto L = Parent->getOrCreateLocal(&Inst, BB->getDataLayout());
         Parent->LocalMapping[&Inst] = L;
         Result->Insts.emplace_back(Opcode::LocalSet,
                                    std::make_unique<LocalArg>(L));
@@ -1430,24 +1421,12 @@ std::unique_ptr<Wasm> FunctionLowering::doBranch(const llvm::BasicBlock *Source,
   // Actions to be executed on the edge
   WasmActions PhiActions;
 
-  auto GetOrCreateLocal = [&](llvm::Value *Val) {
-    uint32_t Result;
-    if (auto It = F->LocalMapping.find(Val); It != F->LocalMapping.end()) {
-      Result = It->second;
-    } else {
-      Result =
-          F->getNewLocal(fromLLVMType(Val->getType(), Source->getDataLayout()));
-      F->LocalMapping[Val] = Result;
-    };
-    return Result;
-  };
-
   llvm::SmallVector<uint32_t> Destinations;
 
   // Put all phi arguments on the stack
   for (auto &Phi : Target->phis()) {
     auto *IncomingVal = Phi.getIncomingValueForBlock(Source);
-    uint32_t DestLocal = GetOrCreateLocal(&Phi);
+    uint32_t DestLocal = F->getOrCreateLocal(&Phi, Source->getDataLayout());
     // Do not move anything into the target local - just keep it as is
     if (llvm::isa<llvm::PoisonValue>(IncomingVal) ||
         llvm::isa<llvm::UndefValue>(IncomingVal)) {
@@ -1459,7 +1438,8 @@ std::unique_ptr<Wasm> FunctionLowering::doBranch(const llvm::BasicBlock *Source,
     } else if (llvm::isa<llvm::Argument>(IncomingVal) ||
                llvm::isa<llvm::Instruction>(IncomingVal)) {
 
-      uint32_t SourceLocal = GetOrCreateLocal(IncomingVal);
+      uint32_t SourceLocal =
+          F->getOrCreateLocal(IncomingVal, Source->getDataLayout());
       if (SourceLocal == DestLocal) {
         continue;
       }
