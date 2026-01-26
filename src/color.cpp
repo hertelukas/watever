@@ -593,6 +593,11 @@ void FunctionColorer::computeAffinityGraph() {
 
 void FunctionColorer::setColor(llvm::Value *Node, uint32_t Local,
                                llvm::DenseSet<llvm::Value *> &ChangedSet) {
+  if (llvm::isa<llvm::Argument>(Node) &&
+      Target->LocalMapping.lookup_or(Node, UINT32_MAX) != Local) {
+    WATEVER_UNREACHABLE("Cannot recolor argument {}",
+                        Node->getNameOrAsOperand());
+  }
   Fixed.insert(Node);
   OldColor[Node] = Local;
   ChangedSet.insert(Node);
@@ -608,6 +613,12 @@ bool FunctionColorer::avoidColor(llvm::Value *Node, uint32_t Local,
   if (Fixed.contains(Node)) {
     WATEVER_LOG_TRACE("{} is fixed while avoiding {}",
                       Node->getNameOrAsOperand(), Local);
+    return false;
+  }
+
+  if (llvm::isa<llvm::Argument>(Node)) {
+    WATEVER_LOG_WARN("Cannot avoid fixed local {} for argument {}", Local,
+                     Node->getNameOrAsOperand());
     return false;
   }
 
@@ -628,30 +639,38 @@ bool FunctionColorer::avoidColor(llvm::Value *Node, uint32_t Local,
     FreeLocals.erase(Target->LocalMapping.lookup_or(Neighbor, UINT32_MAX));
   }
 
-  // TODO Hack tries to select the color "which is used least by Node's
-  // neighbors". However, we can ensure that is used by none of its neighbors,
-  // and it might make sense to retry all "free" locals until we have to create
-  // a new local, which has to succeed.
+  // Hack tries to select the color "which is used least by Node's neighbors".
+  // However, we can ensure that is used by none of its neighbors, and even
+  // create a new local as fallback.
+  auto TryColor = [&](uint32_t Color) {
+    setColor(Node, Color, ChangedSet);
+    for (auto *Neighbor : Neighbors) {
+      if (!avoidColor(Neighbor, Color, ChangedSet)) {
+        WATEVER_LOG_TRACE("Could not recolor {} without assiging it {}",
+                          Neighbor->getNameOrAsOperand(), Color);
+        return false;
+      }
+    }
+    return true;
+  };
+
   uint32_t NewLocal;
-  if (FreeLocals.empty()) {
-    WATEVER_LOG_TRACE("No interference free color available for {}",
-                      Node->getNameOrAsOperand());
-    NewLocal = Target->getNewLocal(Ty);
-  } else {
+  while (!FreeLocals.empty()) {
     NewLocal = *FreeLocals.begin();
-  }
-
-  setColor(Node, NewLocal, ChangedSet);
-
-  for (auto *Neighbor : Neighbors) {
-    if (!avoidColor(Neighbor, NewLocal, ChangedSet)) {
-      WATEVER_LOG_TRACE("Could not recolor {} without assiging it {}",
-                        Neighbor->getNameOrAsOperand(), NewLocal);
-      return false;
+    FreeLocals.erase(FreeLocals.begin());
+    if (TryColor(NewLocal)) {
+      WATEVER_LOG_TRACE("Successfully recolored {} to {}",
+                        Node->getNameOrAsOperand(), NewLocal);
+      return true;
     }
   }
+  NewLocal = Target->getNewLocal(Ty);
+  if (!TryColor(NewLocal)) {
+    WATEVER_UNREACHABLE("Failed to recolor {} to completely new local {}",
+                        Node->getNameOrAsOperand(), NewLocal);
+  }
 
-  WATEVER_LOG_TRACE("Successfully recolored {} to {}",
+  WATEVER_LOG_TRACE("Successfully recolored {} to completely new local {}",
                     Node->getNameOrAsOperand(), NewLocal);
   return true;
 }
