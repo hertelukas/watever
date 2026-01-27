@@ -1354,10 +1354,8 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
           // - If Inst is AllocaInst, and is otherwise always inlined
           // (IsGreedyOptimization)
           if (Inst->getNumUses() > 1 && Inst != Root) {
-            // If materialization is needed, a local should have been defined
-            // during coloring or by the AST local.get
-            assert(Parent->LocalMapping.contains(Next) &&
-                   "materialization needs predefined local");
+            // Creation is needed, if Next is not used outside this block, but
+            // in a later AST.
             uint32_t L = Parent->getOrCreateLocal(Next, BB->getDataLayout());
             Actions.Insts.emplace_back(Opcode::LocalTee,
                                        std::make_unique<LocalArg>(L));
