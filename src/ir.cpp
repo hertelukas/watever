@@ -274,8 +274,10 @@ BlockLowering::getDependencyTreeUserCount(llvm::Instruction *Root) const {
       }
       for (llvm::Value *Op : Inst->operands()) {
         if (auto *OpInst = llvm::dyn_cast<llvm::Instruction>(Op)) {
-          if (ASTNodes.insert(OpInst).second) {
-            WorkList.push_back(OpInst);
+          if (OpInst->getParent() == Root->getParent()) {
+            if (ASTNodes.insert(OpInst).second) {
+              WorkList.push_back(OpInst);
+            }
           }
         }
       }
