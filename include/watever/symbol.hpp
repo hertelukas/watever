@@ -175,7 +175,9 @@ public:
                      V->getNameOrAsOperand());
 
     auto Ty = fromLLVMType(V->getType(), DL);
-    return getNewLocal(Ty);
+    uint32_t Local = getNewLocal(Ty);
+    LocalMapping[V] = Local;
+    return Local;
   }
 
   bool isImport() override { return false; }

@@ -1297,7 +1297,6 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
         Parent->hasExternalUser(&Inst, BB)) {
       auto *Root = &Inst;
       WATEVER_LOG_TRACE("{} is AST root, materialize", llvmToString(Inst));
-      llvm::DenseMap<llvm::Value *, uint32_t> ASTLocals;
       WorkList.push_back(&Inst);
       auto Counts = getDependencyTreeUserCount(&Inst);
 
@@ -1325,8 +1324,8 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
         if (auto It = Parent->LocalMapping.find(Next);
             It != Parent->LocalMapping.end()) {
           auto *Inst = llvm::dyn_cast<llvm::Instruction>(Next);
-          // Only use the local if it comes from another BB or has been
-          // emitted in this BB in an earler AST
+          // Only use the local if it comes from another BB, or has been
+          // emitted in this BB in an earler AST.
           if (!Inst || llvm::isa<llvm::PHINode>(Inst) ||
               Inst->getParent() != BB || Emitted.contains(Inst)) {
             Actions.Insts.emplace_back(Opcode::LocalGet,
@@ -1340,17 +1339,10 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
         if (Counts[Next] > 1) {
           WATEVER_LOG_TRACE("will get materialized later");
           Counts[Next]--;
-          // We already have a local for this
-          if (auto It = ASTLocals.find(Next); It != ASTLocals.end()) {
-            Actions.Insts.emplace_back(Opcode::LocalGet,
-                                       std::make_unique<LocalArg>(It->second));
-            continue;
-          }
           // Create a local or get one from the colorer
           auto L = Parent->getOrCreateLocal(Next, BB->getDataLayout());
           Actions.Insts.emplace_back(Opcode::LocalGet,
                                      std::make_unique<LocalArg>(L));
-          ASTLocals[Next] = L;
           continue;
         }
 
@@ -1362,15 +1354,13 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
           // - If Inst is AllocaInst, and is otherwise always inlined
           // (IsGreedyOptimization)
           if (Inst->getNumUses() > 1 && Inst != Root) {
-            uint32_t L;
-            if (auto It = ASTLocals.find(Next); It != ASTLocals.end()) {
-              L = It->second;
-            } else {
-              L = Parent->getOrCreateLocal(Next, BB->getDataLayout());
-            }
+            // If materialization is needed, a local should have been defined
+            // during coloring or by the AST local.get
+            assert(Parent->LocalMapping.contains(Next) &&
+                   "materialization needs predefined local");
+            uint32_t L = Parent->getOrCreateLocal(Next, BB->getDataLayout());
             Actions.Insts.emplace_back(Opcode::LocalTee,
                                        std::make_unique<LocalArg>(L));
-            Parent->LocalMapping[Next] = L;
           }
           visit(*Inst);
           Emitted.insert(Inst);
@@ -1392,9 +1382,6 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
                            std::make_move_iterator(Actions.Insts.begin()),
                            std::make_move_iterator(Actions.Insts.end()));
       Actions.Insts.clear();
-      for (auto &[Val, Loc] : ASTLocals) {
-        Parent->LocalMapping[Val] = Loc;
-      }
 
       // If the instruction has users, ensure that is in a local, so it will
       // never be materialized as a dependency again
