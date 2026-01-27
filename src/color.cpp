@@ -303,6 +303,16 @@ bool FunctionColorer::needsColor(llvm::Instruction &I) {
     return true;
   }
 
+  // If the instruction has multiple uses, it needs a local, except if the
+  // instruction is
+  // - an IntToPtr, as this likely is due to an inlinable offset
+  // - an alloca, where the offset is always inlined and only the FP needs a
+  // local (and has)
+  if (!llvm::isa<llvm::IntToPtrInst>(I) && !llvm::isa<llvm::AllocaInst>(I) &&
+      I.getNumUses() > 1) {
+    return true;
+  }
+
   auto *Parent = I.getParent();
   for (auto *U : I.users()) {
     if (auto *UserInst = llvm::dyn_cast<llvm::Instruction>(U)) {
@@ -323,7 +333,7 @@ void FunctionColorer::color(llvm::BasicBlock *BB) {
   // TODO maybe it is cheaper to keep track of unassigned?
   llvm::DenseSet<uint32_t> Assigned;
 
-  for (auto *Val : LiveIn[BB]) {
+  for (auto *Val : LiveIn.lookup(BB)) {
     // Phi nodes are technically live-in but ignored by Hack
     if (auto *Phi = llvm::dyn_cast<llvm::PHINode>(Val)) {
       if (Phi->getParent() == BB)
@@ -359,7 +369,7 @@ void FunctionColorer::color(llvm::BasicBlock *BB) {
 
   for (auto &Inst : *BB) {
     // Remove last uses
-    for (auto *Val : LastUses[&Inst]) {
+    for (auto *Val : LastUses.lookup(&Inst)) {
       if (auto It = Target->LocalMapping.find(Val);
           It != Target->LocalMapping.end()) {
         if (Assigned.erase(It->second)) {
@@ -456,7 +466,7 @@ bool FunctionColorer::interfere(llvm::Value *A, llvm::Value *B) {
 
   // If the value of the first is live out at the block defining second, we
   // interfere
-  for (llvm::Value *LiveOut : LiveOut[getParent(Second)]) {
+  for (llvm::Value *LiveOut : LiveOut.lookup(getParent(Second))) {
     if (LiveOut == First) {
       return true;
     }
@@ -465,7 +475,7 @@ bool FunctionColorer::interfere(llvm::Value *A, llvm::Value *B) {
   // At this point, first might be live in the block where second is defined,
   // but not at its end. They interfere if the last using root of first comes
   // after the definition of second.
-  if (auto *DeathFirst = DyingAt[getParent(Second)].lookup(First)) {
+  if (auto *DeathFirst = DyingAt.lookup(getParent(Second)).lookup(First)) {
     if (DT.dominates(Second, DeathFirst)) {
       return true;
     }
