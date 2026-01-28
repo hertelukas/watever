@@ -142,7 +142,7 @@ merge:
 define i32 @promoted_alloca(i1 %cond, i32 %val) {
 ; CHECK-LABEL: liveness for promoted_alloca
 ;
-; Promoted allocas live from the NCD of their users to their last
+; Promoted allocas live from the NCD of their users to their last + until all loaded values are dead
 ;
 ; CHECK: block entry
 ; CHECK-NEXT: Live In {
@@ -207,5 +207,39 @@ else:
 
 merge:
   %res = load i32, ptr %ptr1
+  ret i32 %res
+}
+
+define i32 @promoted_alloca_live_in_loaded(i32 %val, i32 %bar) {
+; CHECK-LABEL: liveness for promoted_alloca_live_in_loaded
+;
+; Even though %ptr dies in entry, the promoted local lives in %foo
+;
+; CHECK: block entry
+; CHECK-NEXT: Live In {
+; CHECK-NEXT:   %bar
+; CHECK-NEXT:   %val
+; CHECK-NEXT: }
+; CHECK-NEXT: Live Out {
+; CHECK-NEXT:   %conflict
+; CHECK-NEXT:   %ptr
+; CHECK-NEXT: }
+
+; CHECK: block foo
+; CHECK-NEXT: Live In {
+; CHECK-NEXT:   %conflict
+; CHECK-NEXT:   %ptr
+; CHECK-NEXT: }
+; CHECK-NEXT: Live Out {
+; CHECK-NEXT: }
+entry:
+  %ptr = alloca i32
+  store i32 %val, ptr %ptr
+  %promoted = load i32, ptr %ptr
+  %conflict = add i32 %bar, 2
+  br label %foo
+
+foo:
+  %res = add i32 %promoted, %conflict
   ret i32 %res
 }

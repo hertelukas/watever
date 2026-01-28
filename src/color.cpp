@@ -99,6 +99,16 @@ bool FunctionColorer::isDefinedInBlock(llvm::Value *Val, llvm::BasicBlock *BB) {
 // If \p Val is used in \p BB, marks \p Val as live-in/live-out on all paths
 // from \p def(Val) to \p BB.
 void FunctionColorer::upAndMark(llvm::BasicBlock *BB, llvm::Value *Val) {
+  // If the value is a load from a promoted alloca, we want to propagate the
+  // ptr, not the load itself
+  if (auto *LI = llvm::dyn_cast<llvm::LoadInst>(Val)) {
+    if (auto *AI = llvm::dyn_cast<llvm::AllocaInst>(LI->getPointerOperand())) {
+      if (PromotedAIStartBlocks.contains(AI)) {
+        Val = AI;
+      }
+    }
+  }
+
   if (isDefinedInBlock(Val, BB)) {
     return;
   }
