@@ -139,6 +139,7 @@ void FunctionColorer::computeLiveSets() {
       if (auto *StartBlock = canBePromoted(AI)) {
         PromotedAIStartBlocks[AI] = StartBlock;
         AllocsStartingAt[StartBlock].push_back(AI);
+        Target->PromotedAllocas.insert(AI);
       }
     }
   }
@@ -218,7 +219,7 @@ void FunctionColorer::dumpLiveness() {
 //
 // %c could safely reuse the local used for %b. However, the local for %b is
 // only available after the branch (the root of this evaluation tree).
-void FunctionColorer::computeLastUses(llvm::BasicBlock *BB) {
+void FunctionColorer::computeBlockSchedule(llvm::BasicBlock *BB) {
   // All these values' lifetime end during this BB
   llvm::DenseSet<llvm::Value *> MustDie(LiveIn[BB].begin(), LiveIn[BB].end());
   for (auto &I : *BB) {
@@ -265,6 +266,7 @@ void FunctionColorer::computeLastUses(llvm::BasicBlock *BB) {
         }
       }
       Roots.insert(&Inst);
+      Target->Roots[BB].push_back(&Inst);
     }
   }
 
@@ -323,23 +325,18 @@ bool FunctionColorer::needsColor(llvm::Instruction &I) {
     return true;
   }
 
-  auto *Parent = I.getParent();
-  for (auto *U : I.users()) {
-    if (auto *UserInst = llvm::dyn_cast<llvm::Instruction>(U)) {
-      if (llvm::isa<llvm::PHINode>(UserInst)) {
-        return true;
-      }
-      if (UserInst->getParent() != Parent) {
-        return true;
-      }
+  for (auto *Root : Target->Roots.lookup(I.getParent())) {
+    if (Root == &I) {
+      return I.getNumUses() > 0;
     }
   }
+
   return false;
 }
 
 void FunctionColorer::color(llvm::BasicBlock *BB) {
   WATEVER_LOG_TRACE("Coloring block {}", getBlockName(BB));
-  computeLastUses(BB);
+  computeBlockSchedule(BB);
   // TODO maybe it is cheaper to keep track of unassigned?
   llvm::DenseSet<uint32_t> Assigned;
 
@@ -370,7 +367,6 @@ void FunctionColorer::color(llvm::BasicBlock *BB) {
     auto Local = getFreeLocal(LocalType, Assigned);
 
     Target->LocalMapping[AI] = Local;
-    Target->PromotedAllocas[AI] = Local;
     Assigned.insert(Local);
 
     WATEVER_LOG_TRACE("Mapping promoted {} to local {}",

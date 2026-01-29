@@ -687,7 +687,7 @@ void BlockLowering::visitLoadInst(llvm::LoadInst &LI) {
   // Check, if we use a promoted alloca
   if (auto *Alloca = llvm::dyn_cast<llvm::AllocaInst>(LI.getPointerOperand())) {
     if (Parent->PromotedAllocas.contains(Alloca)) {
-      auto Local = Parent->PromotedAllocas[Alloca];
+      auto Local = Parent->LocalMapping.lookup(Alloca);
       Actions.Insts.emplace_back(Opcode::LocalGet,
                                  std::make_unique<LocalArg>(Local));
       return;
@@ -743,7 +743,7 @@ void BlockLowering::visitStoreInst(llvm::StoreInst &SI) {
   // Check, if we use a promoted alloca
   if (auto *Alloca = llvm::dyn_cast<llvm::AllocaInst>(SI.getPointerOperand())) {
     if (Parent->PromotedAllocas.contains(Alloca)) {
-      auto Local = Parent->PromotedAllocas[Alloca];
+      auto Local = Parent->LocalMapping.lookup(Alloca);
       Actions.Insts.emplace_back(Opcode::LocalSet,
                                  std::make_unique<LocalArg>(Local));
       WorkList.push_back(SI.getValueOperand());
@@ -1292,109 +1292,111 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
 
   auto Result = std::make_unique<WasmActions>();
 
-  for (auto &Inst : *BB) {
+  const auto &Roots = Parent->Roots.lookup(BB);
+
+  for (auto *Root : Roots) {
     // For each instructions with possible side effects, build a dependency
     // tree on the stack in reverse order.
-    if (Inst.mayHaveSideEffects() || Inst.isTerminator() ||
-        Parent->hasExternalUser(&Inst, BB)) {
-      auto *Root = &Inst;
-      WATEVER_LOG_TRACE("{} is AST root, materialize", llvmToString(Inst));
-      WorkList.push_back(&Inst);
-      auto Counts = getDependencyTreeUserCount(&Inst);
+    WATEVER_LOG_TRACE("{} is AST root, materialize", llvmToString(*Root));
 
-      while (!WorkList.empty()) {
-        auto *Next = WorkList.pop_back_val();
-        WATEVER_LOG_TRACE("handling {}", llvmToString(*Next));
+    WorkList.push_back(Root);
+    auto Counts = getDependencyTreeUserCount(Root);
 
-        bool IsGreedyOptimization =
-            !AllocaSkipOffsetList.empty() &&
-            AllocaSkipOffsetList.back() == WorkList.size();
+    while (!WorkList.empty()) {
+      auto *Next = WorkList.pop_back_val();
+      WATEVER_LOG_TRACE("handling {}", llvmToString(*Next));
 
-        // If this instruction is using a stack slot, we don't want to get it
-        // from a potential local as we have already inlined the offset into
-        // the store/load
-        if (IsGreedyOptimization) {
-          if (auto *Inst = llvm::dyn_cast<llvm::AllocaInst>(Next)) {
-            visit(*Inst);
-            continue;
-          }
-          WATEVER_UNREACHABLE("trying to inline memory offset on non-alloca");
-        }
+      bool IsGreedyOptimization =
+          !AllocaSkipOffsetList.empty() &&
+          AllocaSkipOffsetList.back() == WorkList.size();
 
-        // Check if an earlier instrucion has already produced this value
-        // outside this AST (e.g., we might be the second user)
-        if (auto It = Parent->LocalMapping.find(Next);
-            It != Parent->LocalMapping.end()) {
-          auto *Inst = llvm::dyn_cast<llvm::Instruction>(Next);
-          // Only use the local if it comes from another BB, or has been
-          // emitted in this BB in an earler AST.
-          if (!Inst || llvm::isa<llvm::PHINode>(Inst) ||
-              Inst->getParent() != BB || Emitted.contains(Inst)) {
-            Actions.Insts.emplace_back(Opcode::LocalGet,
-                                       std::make_unique<LocalArg>(It->second));
-            WATEVER_LOG_TRACE("has already a local, loading");
-            continue;
-          }
-        }
-
-        // There will come an instruction in the worklist materializing Next
-        if (Counts[Next] > 1) {
-          WATEVER_LOG_TRACE("will get materialized later");
-          Counts[Next]--;
-          // Create a local or get one from the colorer
-          auto L = Parent->getOrCreateLocal(Next, BB->getDataLayout());
-          Actions.Insts.emplace_back(Opcode::LocalGet,
-                                     std::make_unique<LocalArg>(L));
+      // If this instruction is using a stack slot, we don't want to get it
+      // from a potential local as we have already inlined the offset into
+      // the store/load
+      if (IsGreedyOptimization) {
+        if (auto *Inst = llvm::dyn_cast<llvm::AllocaInst>(Next)) {
+          visit(*Inst);
           continue;
         }
+        WATEVER_UNREACHABLE("trying to inline memory offset on non-alloca");
+      }
 
-        // Next needs to be materialized
-        if (auto *Inst = llvm::dyn_cast<llvm::Instruction>(Next)) {
-          // Save to local, if we have a later user in this tree or this
-          // block, who expects to be able to load the value.
-          // TODO this might lead to unnecessary emissions:
-          // - If Inst is AllocaInst, and is otherwise always inlined
-          // (IsGreedyOptimization)
-          if (Inst->getNumUses() > 1 && Inst != Root) {
-            // Creation is needed, if Next is not used outside this block, but
-            // in a later AST.
-            uint32_t L = Parent->getOrCreateLocal(Next, BB->getDataLayout());
-            Actions.Insts.emplace_back(Opcode::LocalTee,
-                                       std::make_unique<LocalArg>(L));
-          }
-          visit(*Inst);
-          Emitted.insert(Inst);
-        } else if (auto *Arg = llvm::dyn_cast<llvm::Instruction>(Next)) {
-          Actions.Insts.emplace_back(
-              Opcode::LocalGet,
-              std::make_unique<LocalArg>(Parent->LocalMapping.lookup(Arg)));
-        } else if (!putValueOnStack(
-                       Next, Actions, M,
-                       BB->getDataLayout().getPointerSizeInBits() == 64)) {
-          WATEVER_UNIMPLEMENTED("put {} on top of the stack",
-                                llvmToString(*Next));
+      // Check if an earlier instrucion has already produced this value
+      // outside this AST (e.g., we might be the second user)
+      if (auto It = Parent->LocalMapping.find(Next);
+          It != Parent->LocalMapping.end()) {
+        auto *Inst = llvm::dyn_cast<llvm::Instruction>(Next);
+        // Only use the local if it comes from another BB, or has been
+        // emitted in this BB in an earler AST.
+        if (!Inst || llvm::isa<llvm::PHINode>(Inst) ||
+            Inst->getParent() != BB || Emitted.contains(Inst)) {
+          Actions.Insts.emplace_back(Opcode::LocalGet,
+                                     std::make_unique<LocalArg>(It->second));
+          WATEVER_LOG_TRACE("has already a local, loading");
+          continue;
         }
       }
-      assert(AllocaSkipOffsetList.empty() &&
-             "empty worklist expects no remaining no-offset alloca");
-      std::ranges::reverse(Actions.Insts);
-      Result->Insts.insert(Result->Insts.end(),
-                           std::make_move_iterator(Actions.Insts.begin()),
-                           std::make_move_iterator(Actions.Insts.end()));
-      Actions.Insts.clear();
 
-      // If the instruction has users, ensure that is in a local, so it will
-      // never be materialized as a dependency again
-      if (Inst.getNumUses() > 0) {
-        auto L = Parent->getOrCreateLocal(&Inst, BB->getDataLayout());
-        Parent->LocalMapping[&Inst] = L;
-        Result->Insts.emplace_back(Opcode::LocalSet,
+      // There will come an instruction in the worklist materializing Next
+      if (Counts[Next] > 1) {
+        WATEVER_LOG_TRACE("will get materialized later");
+        Counts[Next]--;
+        // Create a local or get one from the colorer
+        auto L = Parent->getOrCreateLocal(Next, BB->getDataLayout());
+        Actions.Insts.emplace_back(Opcode::LocalGet,
                                    std::make_unique<LocalArg>(L));
-      } else {
-        if (!Inst.getType()->isVoidTy()) {
-          Result->Insts.emplace_back(Opcode::Drop);
-        }
+        continue;
       }
+
+      // Next needs to be materialized
+      if (auto *Inst = llvm::dyn_cast<llvm::Instruction>(Next)) {
+        // Save to local, if we have a later user in this tree or this
+        // block, who expects to be able to load the value.
+        // TODO this might lead to unnecessary emissions:
+        // - If Inst is AllocaInst, and is otherwise always inlined
+        // (IsGreedyOptimization)
+        if (Inst->getNumUses() > 1 && Inst != Root) {
+          // Creation is needed, if Next is not used outside this block, but
+          // in a later AST.
+          uint32_t L = Parent->getOrCreateLocal(Next, BB->getDataLayout());
+          Actions.Insts.emplace_back(Opcode::LocalTee,
+                                     std::make_unique<LocalArg>(L));
+        }
+        visit(*Inst);
+        Emitted.insert(Inst);
+      } else if (auto *Arg = llvm::dyn_cast<llvm::Instruction>(Next)) {
+        Actions.Insts.emplace_back(
+            Opcode::LocalGet,
+            std::make_unique<LocalArg>(Parent->LocalMapping.lookup(Arg)));
+      } else if (!putValueOnStack(Next, Actions, M,
+                                  BB->getDataLayout().getPointerSizeInBits() ==
+                                      64)) {
+        WATEVER_UNIMPLEMENTED("put {} on top of the stack",
+                              llvmToString(*Next));
+      }
+    }
+    assert(AllocaSkipOffsetList.empty() &&
+           "empty worklist expects no remaining no-offset alloca");
+    std::ranges::reverse(Actions.Insts);
+    Result->Insts.insert(Result->Insts.end(),
+                         std::make_move_iterator(Actions.Insts.begin()),
+                         std::make_move_iterator(Actions.Insts.end()));
+    Actions.Insts.clear();
+
+    if (Parent->LocalMapping.contains(Root)) {
+      Result->Insts.emplace_back(
+          Opcode::LocalSet,
+          std::make_unique<LocalArg>(Parent->LocalMapping.lookup(Root)));
+    } else if (Root->getNumUses() > 0) {
+      // TODO set to unreachable once load-store hazards are fixed in coloring
+      WATEVER_LOG_WARN(
+          "Multi-use instruction did not have a local assigned to it");
+      auto L = Parent->getOrCreateLocal(Root, BB->getDataLayout());
+      Parent->LocalMapping[Root] = L;
+      Result->Insts.emplace_back(Opcode::LocalSet,
+                                 std::make_unique<LocalArg>(L));
+    } else if (!Root->getType()->isVoidTy()) {
+      Result->Insts.emplace_back(Opcode::Drop);
     }
   }
 

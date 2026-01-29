@@ -71,7 +71,7 @@ class FunctionColorer {
   void dumpLiveness();
 #endif
 
-  void computeLastUses(llvm::BasicBlock *BB);
+  void computeBlockSchedule(llvm::BasicBlock *BB);
 
   uint32_t getFreeLocal(ValType Type, const llvm::DenseSet<uint32_t> &Assigned);
   bool needsColor(llvm::Instruction &I);

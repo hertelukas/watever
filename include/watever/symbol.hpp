@@ -153,7 +153,8 @@ public:
   llvm::DenseMap<ValType, llvm::SmallVector<uint32_t>> Arguments{};
   llvm::DenseMap<llvm::Instruction *, uint32_t> StackSlots{};
 
-  llvm::DenseMap<llvm::AllocaInst *, uint32_t> PromotedAllocas{};
+  llvm::DenseSet<llvm::AllocaInst *> PromotedAllocas{};
+  llvm::DenseMap<llvm::BasicBlock *, llvm::SmallVector<llvm::Instruction *>> Roots;
 
   std::optional<uint32_t> FP{};
   int64_t FrameSize{};
@@ -171,7 +172,7 @@ public:
     if (LocalMapping.contains(V)) {
       return LocalMapping.lookup(V);
     }
-    WATEVER_LOG_WARN("{} did not have a local assigned to it, creating...",
+    WATEVER_LOG_INFO("{} did not have a local assigned to it, creating...",
                      V->getNameOrAsOperand());
 
     auto Ty = fromLLVMType(V->getType(), DL);
