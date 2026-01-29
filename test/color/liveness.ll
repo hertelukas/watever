@@ -221,14 +221,14 @@ define i32 @promoted_alloca_live_in_loaded(i32 %val, i32 %bar) {
 ; CHECK-NEXT:   %val
 ; CHECK-NEXT: }
 ; CHECK-NEXT: Live Out {
+; CHECK-NEXT:   %0
 ; CHECK-NEXT:   %conflict
-; CHECK-NEXT:   %ptr
 ; CHECK-NEXT: }
 
 ; CHECK: block foo
 ; CHECK-NEXT: Live In {
+; CHECK-NEXT:   %0
 ; CHECK-NEXT:   %conflict
-; CHECK-NEXT:   %ptr
 ; CHECK-NEXT: }
 ; CHECK-NEXT: Live Out {
 ; CHECK-NEXT: }
@@ -242,4 +242,50 @@ entry:
 foo:
   %res = add i32 %promoted, %conflict
   ret i32 %res
+}
+
+define void @promoted_alloca_starting_in_header(i1 %cond) {
+; CHECK-LABEL: liveness for promoted_alloca_starting_in_header
+;
+; The issue here is that %ptr's lifetime is "starting" at entry. However, this means that
+; it is also has to be live-out in body.
+; This code is basically this:
+;
+; ...
+; while (cond) {
+;   ptr = 2;
+;   res = start_live();
+;   arg_live(res);
+; }
+; ptr = 3;
+; return;
+;
+; And res cannot be in the same local as ptr
+; 
+; CHECK: block body
+; CHECK-NEXT: Live In {
+; CHECK-NEXT:   %cond
+; CHECK-NEXT:   %ptr
+; CHECK-NEXT: }
+; CHECK-NEXT: Live Out {
+; CHECK-NEXT:   %cond
+; CHECK-NEXT:   %ptr
+; CHECK-NEXT: }
+entry:
+  %ptr = alloca i32
+  br label %header
+
+header:
+  br i1 %cond, label %body, label %exit
+
+body:
+  store i32 2, ptr %ptr
+; Force a new local. %ptr cannot die here, as it would allow the same assignment to %res
+  %res = call i32 @start_live()
+  call i32 @arg_live(i32 %res)
+  br label %header
+
+exit:
+  store i32 3, ptr %ptr
+  ret void
 }

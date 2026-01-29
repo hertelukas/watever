@@ -272,3 +272,40 @@ then:
 merge:
   ret void
 }
+
+define void @multi_user_promoted_alloca(ptr %0) {
+; CHECK-LABEL: $multi_user_promoted_alloca
+entry:
+  %ptr = alloca ptr
+  store ptr %0, ptr %ptr
+  %1 = load ptr, ptr %ptr
+  %2 = load i64, ptr %1
+  %3 = add i64 %2, 5
+  store i64 %3, ptr %1
+  ret void
+}
+
+define void @multi_user_promoted_alloca_cross_block(ptr %0) {
+; CHECK-LABEL: $multi_user_promoted_alloca
+entry:
+  %ptr = alloca ptr
+  store ptr %0, ptr %ptr
+  %1 = load ptr, ptr %ptr
+  %2 = load i64, ptr %1
+  %3 = add i64 %2, 5
+  store i64 %3, ptr %1
+  br label %exit
+
+exit:
+  store i64 12, ptr %1
+  ret void
+}
+
+define i32 @unoredered_use_promoted_alloca() {
+entry:
+  %ptr = alloca i32
+  store i32 1, ptr %ptr
+  %1 = load i32, ptr %ptr
+  store i32 2, ptr %ptr
+  ret i32 %1
+}

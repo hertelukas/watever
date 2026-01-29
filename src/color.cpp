@@ -99,25 +99,29 @@ bool FunctionColorer::isDefinedInBlock(llvm::Value *Val, llvm::BasicBlock *BB) {
 // If \p Val is used in \p BB, marks \p Val as live-in/live-out on all paths
 // from \p def(Val) to \p BB.
 void FunctionColorer::upAndMark(llvm::BasicBlock *BB, llvm::Value *Val) {
-  // If the value is a load from a promoted alloca, we want to propagate the
-  // ptr, not the load itself
-  if (auto *LI = llvm::dyn_cast<llvm::LoadInst>(Val)) {
-    if (auto *AI = llvm::dyn_cast<llvm::AllocaInst>(LI->getPointerOperand())) {
-      if (PromotedAIStartBlocks.contains(AI)) {
-        Val = AI;
-      }
+  bool IsDefinedHere = isDefinedInBlock(Val, BB);
+  bool IsPromotedAlloca = false;
+
+  if (IsDefinedHere) {
+    if (auto *AI = llvm::dyn_cast<llvm::AllocaInst>(Val)) {
+      IsPromotedAlloca = PromotedAIStartBlocks.lookup(AI) == BB;
     }
   }
 
-  if (isDefinedInBlock(Val, BB)) {
+  // Stop if defined here, unless it's a promoted alloca (which might have
+  // backedges)
+  if (IsDefinedHere && !IsPromotedAlloca) {
     return;
   }
+
   // Propagation done, stop
   if (!LiveIn[BB].empty() && LiveIn[BB].back() == Val) {
     return;
   }
 
-  LiveIn[BB].push_back(Val);
+  if (!IsDefinedHere) {
+    LiveIn[BB].push_back(Val);
+  }
 
   // Do not propagate phi definitions
   if (auto *Phi = llvm::dyn_cast<llvm::PHINode>(Val)) {
@@ -126,6 +130,14 @@ void FunctionColorer::upAndMark(llvm::BasicBlock *BB, llvm::Value *Val) {
   }
 
   for (auto *Pred : llvm::predecessors(BB)) {
+    // If it is defined here, only propagate to predecessors which are dominated
+    // by BB
+    if (IsDefinedHere && IsPromotedAlloca) {
+      if (!DT.dominates(BB, Pred)) {
+        continue;
+      }
+    }
+
     if (LiveOut[Pred].empty() || LiveOut[Pred].back() != Val) {
       LiveOut[Pred].push_back(Val);
     }
@@ -209,6 +221,44 @@ void FunctionColorer::dumpLiveness() {
 }
 #endif
 
+bool FunctionColorer::isRoot(llvm::Instruction &I) {
+  // Everything with side effects needs to be scheduled in order
+  if (I.mayHaveSideEffects()) {
+    return true;
+  }
+
+  // Terminators need to be evaluated
+  if (I.isTerminator()) {
+    return true;
+  }
+
+  // Also, if I is used in another block, it needs to be materialized to a local
+  if (Target->hasExternalUser(&I, I.getParent())) {
+    return true;
+  }
+
+  // Loads are side-effect free. Nevertheless, they need to be executed in order
+  if (auto *LI = llvm::dyn_cast<llvm::LoadInst>(&I)) {
+    // If the load is an expanding load, the sext/zext is the root
+    if (LI->getNumUses() == 1) {
+      auto *User = *LI->users().begin();
+      if (llvm::isa<llvm::ZExtInst>(User) || llvm::isa<llvm::SExtInst>(User)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  if (llvm::isa<llvm::ZExtInst>(I) || llvm::isa<llvm::SExtInst>(I)) {
+    if (auto *LI = llvm::dyn_cast<llvm::LoadInst>(I.getOperand(0))) {
+      if (LI->getNumUses() == 1) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 // This is not optimal. It sets the last use as the root of the last tree using
 // each value. This is not optimal, e.g., here:
 // loop:
@@ -239,8 +289,7 @@ void FunctionColorer::computeBlockSchedule(llvm::BasicBlock *BB) {
   llvm::DenseSet<llvm::Value *> Roots;
 
   for (auto &Inst : *BB) {
-    if (Inst.mayHaveSideEffects() || Inst.isTerminator() ||
-        Target->hasExternalUser(&Inst, BB)) {
+    if (isRoot(Inst)) {
       VisitedInCurrentTree.clear();
       WorkList.push_back(&Inst);
 
@@ -390,7 +439,6 @@ void FunctionColorer::color(llvm::BasicBlock *BB) {
               llvm::dyn_cast<llvm::AllocaInst>(LI->getPointerOperand())) {
         if (PromotedAIStartBlocks.contains(AI)) {
           colorPromotedAlloca(AI);
-          continue;
         }
       }
     } else if (auto *SI = llvm::dyn_cast<llvm::StoreInst>(&Inst)) {

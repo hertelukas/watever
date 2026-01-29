@@ -1388,13 +1388,9 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
           Opcode::LocalSet,
           std::make_unique<LocalArg>(Parent->LocalMapping.lookup(Root)));
     } else if (Root->getNumUses() > 0) {
-      // TODO set to unreachable once load-store hazards are fixed in coloring
-      WATEVER_LOG_WARN(
-          "Multi-use instruction did not have a local assigned to it");
-      auto L = Parent->getOrCreateLocal(Root, BB->getDataLayout());
-      Parent->LocalMapping[Root] = L;
-      Result->Insts.emplace_back(Opcode::LocalSet,
-                                 std::make_unique<LocalArg>(L));
+      WATEVER_UNREACHABLE(
+          "Multi-use instruction {} did not have a local assigned to it",
+          Root->getNameOrAsOperand());
     } else if (!Root->getType()->isVoidTy()) {
       Result->Insts.emplace_back(Opcode::Drop);
     }
