@@ -10,6 +10,24 @@
 namespace watever {
 class InstArgument {
 public:
+  enum class InstArgKind : uint8_t {
+    Mem,
+    Local,
+    BranchTable,
+    RelocatableFunc,
+    RelocatableGlobal,
+    RelocatablePointer,
+    RelocatableIndirectCall,
+    RelocatableTableIndex,
+    MemCpy,
+  };
+
+private:
+  const InstArgKind Kind;
+
+public:
+  InstArgument(InstArgKind K) : Kind(K) {}
+  [[nodiscard]] InstArgKind getKind() const { return Kind; }
   virtual void encode(llvm::raw_ostream &) const = 0;
   virtual void addRelocation(llvm::raw_ostream &, Relocation &) {};
   virtual void mapLocal(const llvm::SmallVector<uint32_t> &) {};
@@ -23,9 +41,9 @@ class MemArg final : public InstArgument {
   uint64_t Offset{};
 
 public:
-  MemArg() = default;
+  MemArg() : InstArgument(InstArgKind::Mem) {}
   MemArg(uint32_t Alignment, uint64_t Offset)
-      : Alignment(Alignment), Offset(Offset) {}
+      : InstArgument(InstArgKind::Mem), Alignment(Alignment), Offset(Offset) {}
 
   [[nodiscard]] std::string getString() const override {
     return llvm::formatv("align: {}, idx: {}, offset: {}", Alignment, MemIdx,
@@ -47,12 +65,16 @@ public:
     }
     llvm::encodeULEB128(Offset, OS);
   }
+
+  static bool classof(const InstArgument *IA) {
+    return IA->getKind() == InstArgKind::Mem;
+  }
 };
 
 class LocalArg final : public InstArgument {
 public:
   uint32_t Index;
-  explicit LocalArg(uint32_t L) : Index(L) {}
+  explicit LocalArg(uint32_t L) : InstArgument(InstArgKind::Local), Index(L) {}
 
   [[nodiscard]] std::string getString() const override {
     return llvm::formatv("{}", Index);
@@ -68,6 +90,9 @@ public:
       WATEVER_LOG_WARN("Could not find mapping for local {}", Index);
     }
   }
+  static bool classof(const InstArgument *IA) {
+    return IA->getKind() == InstArgKind::Local;
+  }
 };
 
 class BranchTableArg final : public InstArgument {
@@ -76,7 +101,8 @@ public:
   uint32_t DefaultTarget;
 
   explicit BranchTableArg(llvm::SmallVector<uint32_t> T, uint32_t D)
-      : Targets(std::move(T)), DefaultTarget(D) {}
+      : InstArgument(InstArgKind::BranchTable), Targets(std::move(T)),
+        DefaultTarget(D) {}
 
   [[nodiscard]] std::string getString() const override {
     return llvm::formatv("[{0:$[, ]}] : {1}",
@@ -91,12 +117,17 @@ public:
     }
     llvm::encodeULEB128(DefaultTarget, OS);
   }
+
+  static bool classof(const InstArgument *IA) {
+    return IA->getKind() == InstArgKind::BranchTable;
+  }
 };
 
 class RelocatableFuncArg final : public InstArgument {
 public:
   Function *Func;
-  explicit RelocatableFuncArg(Function *F) : Func(F) {}
+  explicit RelocatableFuncArg(Function *F)
+      : InstArgument(InstArgKind::RelocatableFunc), Func(F) {}
   [[nodiscard]] std::string getString() const override {
     return llvm::formatv("{}", Func->FunctionIndex);
   }
@@ -109,13 +140,18 @@ public:
     Reloc.Entries.emplace_back(RelocationType::R_WASM_FUNCTION_INDEX_LEB,
                                OS.tell(), Func->SymbolIndex);
   }
+
+  static bool classof(const InstArgument *IA) {
+    return IA->getKind() == InstArgKind::RelocatableFunc;
+  }
 };
 
 class RelocatableGlobalArg final : public InstArgument {
   Global *Gl;
 
 public:
-  explicit RelocatableGlobalArg(Global *G) : Gl(G) {}
+  explicit RelocatableGlobalArg(Global *G)
+      : InstArgument(InstArgKind::RelocatableGlobal), Gl(G) {}
   [[nodiscard]] std::string getString() const override {
     return llvm::formatv("{}", Gl->GlobalIdx);
   }
@@ -127,13 +163,18 @@ public:
     Reloc.Entries.emplace_back(RelocationType::R_WASM_GLOBAL_INDEX_LEB,
                                OS.tell(), Gl->SymbolIndex);
   }
+
+  static bool classof(const InstArgument *IA) {
+    return IA->getKind() == InstArgKind::RelocatableFunc;
+  }
 };
 
 class RelocatablePointerArg final : public InstArgument {
   Data *DT;
 
 public:
-  explicit RelocatablePointerArg(Data *D) : DT(D) {}
+  explicit RelocatablePointerArg(Data *D)
+      : InstArgument(InstArgKind::RelocatablePointer), DT(D) {}
   [[nodiscard]] std::string getString() const override {
     return llvm::formatv("{}", DT->Name);
   }
@@ -145,6 +186,10 @@ public:
     Reloc.Entries.emplace_back(RelocationType::R_WASM_MEMORY_ADDR_SLEB,
                                OS.tell(), DT->SymbolIndex);
   }
+
+  static bool classof(const InstArgument *IA) {
+    return IA->getKind() == InstArgKind::RelocatablePointer;
+  }
 };
 
 class RelocatableIndirectCallArg final : public InstArgument {
@@ -154,7 +199,8 @@ class RelocatableIndirectCallArg final : public InstArgument {
 public:
   explicit RelocatableIndirectCallArg(uint32_t TypeIdx,
                                       Table *IndirectFunctionTable)
-      : TypeIndex(TypeIdx), Tab(IndirectFunctionTable) {}
+      : InstArgument(InstArgKind::RelocatableIndirectCall), TypeIndex(TypeIdx),
+        Tab(IndirectFunctionTable) {}
 
   [[nodiscard]] std::string getString() const override {
     return llvm::formatv("{} {}", TypeIndex, Tab->TableIndex).str();
@@ -170,13 +216,18 @@ public:
     Reloc.Entries.emplace_back(RelocationType::R_WASM_TABLE_NUMBER_LEB,
                                OS.tell() + 5, Tab->SymbolIndex);
   }
+
+  static bool classof(const InstArgument *IA) {
+    return IA->getKind() == InstArgKind::RelocatableIndirectCall;
+  }
 };
 
 class RelocatableTableIndexArg final : public InstArgument {
   Function *F;
 
 public:
-  explicit RelocatableTableIndexArg(Function *F) : F(F) {}
+  explicit RelocatableTableIndexArg(Function *F)
+      : InstArgument(InstArgKind::RelocatableTableIndex), F(F) {}
 
   [[nodiscard]] std::string getString() const override {
     return llvm::formatv("table index for {}", F->Name).str();
@@ -189,6 +240,10 @@ public:
     Reloc.Entries.emplace_back(RelocationType::R_WASM_TABLE_INDEX_SLEB,
                                OS.tell(), F->SymbolIndex);
   }
+
+  static bool classof(const InstArgument *IA) {
+    return IA->getKind() == InstArgKind::RelocatableTableIndex;
+  }
 };
 
 class MemCpyArg final : public InstArgument {
@@ -197,7 +252,7 @@ class MemCpyArg final : public InstArgument {
 
 public:
   explicit MemCpyArg(uint32_t From, uint32_t To)
-      : FromMemory(From), ToMemory(To) {}
+      : InstArgument(InstArgKind::MemCpy), FromMemory(From), ToMemory(To) {}
 
   [[nodiscard]] std::string getString() const override {
     return llvm::formatv("{} {}", FromMemory, ToMemory);
@@ -206,6 +261,10 @@ public:
   void encode(llvm::raw_ostream &OS) const override {
     llvm::encodeULEB128(FromMemory, OS);
     llvm::encodeULEB128(ToMemory, OS);
+  }
+
+  static bool classof(const InstArgument *IA) {
+    return IA->getKind() == InstArgKind::MemCpy;
   }
 };
 
