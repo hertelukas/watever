@@ -1294,6 +1294,9 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
 
   const auto &Roots = Parent->Roots.lookup(BB);
 
+  std::optional<uint32_t> LastSetRoot = std::nullopt;
+  bool RootOnlyOneUse = false;
+
   for (auto *Root : Roots) {
     // For each instructions with possible side effects, build a dependency
     // tree on the stack in reverse order.
@@ -1361,6 +1364,7 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
           uint32_t L = Parent->getOrCreateLocal(Next, BB->getDataLayout());
           Actions.Insts.emplace_back(Opcode::LocalTee,
                                      std::make_unique<LocalArg>(L));
+          WATEVER_LOG_TRACE("has multiple users so we tee it");
         }
         visit(*Inst);
         Emitted.insert(Inst);
@@ -1377,22 +1381,86 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
     }
     assert(AllocaSkipOffsetList.empty() &&
            "empty worklist expects no remaining no-offset alloca");
+
+    // Some intrinsics or branches might not generate any instructions
+    if (Actions.Insts.empty()) {
+      continue;
+    }
+    // Optimize away local.set local.get
+    if (Actions.Insts.back().Op == Opcode::LocalGet) {
+      if (const auto *Arg = llvm::dyn_cast_or_null<LocalArg>(
+              Actions.Insts.back().getArgument())) {
+        if (Arg->Index == LastSetRoot) {
+          Actions.Insts.pop_back(); // Remove get
+          assert(Result->Insts.back().Op == Opcode::LocalSet &&
+                 "old root did not set its root");
+          Result->Insts.pop_back(); // Remove set
+          // If others need this value, the local still has to be set
+          if (!RootOnlyOneUse) {
+            Result->Insts.emplace_back(
+                Opcode::LocalTee,
+                std::make_unique<LocalArg>(LastSetRoot.value()));
+          }
+        }
+      }
+    }
     std::ranges::reverse(Actions.Insts);
     Result->Insts.insert(Result->Insts.end(),
                          std::make_move_iterator(Actions.Insts.begin()),
                          std::make_move_iterator(Actions.Insts.end()));
     Actions.Insts.clear();
 
-    if (Parent->LocalMapping.contains(Root)) {
-      Result->Insts.emplace_back(
-          Opcode::LocalSet,
-          std::make_unique<LocalArg>(Parent->LocalMapping.lookup(Root)));
-    } else if (Root->getNumUses() > 0) {
-      WATEVER_UNREACHABLE(
-          "Multi-use instruction {} did not have a local assigned to it",
-          Root->getNameOrAsOperand());
-    } else if (!Root->getType()->isVoidTy()) {
-      Result->Insts.emplace_back(Opcode::Drop);
+    if (auto It = Parent->LocalMapping.find(Root);
+        It != Parent->LocalMapping.end()) {
+      // Mark the just-set value, so the next tree can reuse it if needed
+      LastSetRoot = It->second;
+
+      // TODO This might be a bit expensive and unnecessary. If there is no
+      // better way, use bounded loop
+      auto CanSkipLocal = [](auto &&Self, llvm::Instruction *I) -> bool {
+        if (I->getNumUses() > 1) {
+          // Not safe - the multiple uses might all have been inlined
+          if (llvm::isa<llvm::AllocaInst>(I) ||
+              llvm::isa<llvm::IntToPtrInst>(I)) {
+            return false;
+          }
+          // Sure that this instruction will end up in a local
+          return true;
+        }
+
+        // No uses do not need a local
+        if (I->use_empty()) {
+          return true;
+        }
+        if (auto *Next =
+                llvm::dyn_cast<llvm::Instruction>(I->use_begin()->getUser())) {
+          return Self(Self, Next);
+        }
+        WATEVER_LOG_WARN(
+            "{} is used by {} - not sure if only living on the stack is fine",
+            I->getNameOrAsOperand(), llvmToString(*I->use_begin()->getUser()));
+        return true;
+      };
+
+      RootOnlyOneUse = Root->getNumUses() <= 1;
+      // TODO this is very unclean, there might be a better solution. See
+      // regression 260130
+      if (RootOnlyOneUse) {
+        RootOnlyOneUse = CanSkipLocal(CanSkipLocal, Root);
+      }
+
+      Result->Insts.emplace_back(Opcode::LocalSet,
+                                 std::make_unique<LocalArg>(It->second));
+    } else {
+      LastSetRoot = std::nullopt;
+      if (Root->getNumUses() > 0) {
+        WATEVER_UNREACHABLE(
+            "Multi-use instruction {} did not have a local assigned to it",
+            Root->getNameOrAsOperand());
+      }
+      if (!Root->getType()->isVoidTy()) {
+        Result->Insts.emplace_back(Opcode::Drop);
+      }
     }
   }
 

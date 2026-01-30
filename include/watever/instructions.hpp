@@ -6,6 +6,7 @@
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/LEB128.h>
 #include <llvm/Support/raw_ostream.h>
+#include <memory>
 
 namespace watever {
 class InstArgument {
@@ -274,6 +275,12 @@ class WasmInst {
   Storage Arg;
 
 public:
+  [[nodiscard]] const InstArgument *getArgument() const {
+    if (auto *Ptr = std::get_if<std::unique_ptr<InstArgument>>(&Arg)) {
+      return Ptr->get();
+    }
+    return nullptr;
+  }
   Opcode::Enum Op;
 
   WasmInst(Opcode::Enum O) : Arg(std::monostate{}), Op(O) {}

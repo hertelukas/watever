@@ -237,7 +237,10 @@ bool FunctionColorer::isRoot(llvm::Instruction &I) {
     return true;
   }
 
-  // Loads are side-effect free. Nevertheless, they need to be executed in order
+  // Loads are side-effect free. Nevertheless, they need to be executed in
+  // order.
+  // TODO (A load would not need a to be a root, if we would know the first root
+  // scheduling it comes before any side-effect instruction.)
   if (auto *LI = llvm::dyn_cast<llvm::LoadInst>(&I)) {
     // If the load is an expanding load, the sext/zext is the root
     if (LI->getNumUses() == 1) {

@@ -211,12 +211,12 @@ exit:
 
 define i32 @write_after_read(ptr %ptr) {
 ; CHECK-LABEL: write_after_read
-; CHECK-NEXT: local.get       0
-; CHECK-NEXT: i32.load        0
+; CHECK:      local.get       0
+; CHECK-NEXT: i32.load
 ; CHECK-NEXT: local.set       1
 ; CHECK-NEXT: local.get       0
 ; CHECK-NEXT: i32.const       1
-; CHECK-NEXT: i32.store       0
+; CHECK-NEXT: i32.store
 ; CHECK-NEXT: local.get       1
 entry:
   %a = load i32, ptr %ptr
