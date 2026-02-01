@@ -1,0 +1,22 @@
+# RUN: python3 %s 2000 -o %t.ll | watever -l 0 | wasm2wat - | FileCheck %s
+
+import sys
+
+print('target datalayout = "e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-i128:128-n32:64-S128-ni:1:10:20"')
+print('target triple = "wasm32-unknown-unknown"')
+
+n = int(sys.argv[1])
+print("define i32 @f(ptr %p) {")
+for i in range(n):
+    print(f'b{i}:')
+    print(f'  %g{i} = getelementptr i32, ptr %p, i32 {i}')
+    print(f'  %l{i} = load i32, ptr %g{i}')
+    print(f'  %c{i} = icmp sle i32 %l{i}, {i}')
+    print(f'  br i1 %c{i}, label %merge, label %b{i+1}')
+print(f'b{n}:')
+print('  br label %merge')
+print('merge:')
+print(f'  %r = phi i32 [0,%b{n}]', "".join(f",[%l{i},%b{i}]" for i in range(n)))
+print('  ret i32 %r')
+print('}')
+# CHECK: <f>:

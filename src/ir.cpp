@@ -300,7 +300,7 @@ void BlockLowering::handleIntrinsic(llvm::CallInst &CI) {
     // C/C++ Library Intrinsics
   case llvm::Intrinsic::memcpy:
   case llvm::Intrinsic::memmove: {
-    assert(Parent->FeatureSet.bulk_memory_enabled() &&
+    assert(Parent.FeatureSet.bulk_memory_enabled() &&
            "cannot handle memcpy/memove without bulk_memory");
 
     // TODO if Len == 0 and any pointer invalid, WebAssembly traps, but it
@@ -316,7 +316,7 @@ void BlockLowering::handleIntrinsic(llvm::CallInst &CI) {
     break;
   }
   case llvm::Intrinsic::memset: {
-    assert(Parent->FeatureSet.bulk_memory_enabled() &&
+    assert(Parent.FeatureSet.bulk_memory_enabled() &&
            "cannot handle memset without bulk_memory");
     // TODO if Len == 0 and Dest invalid, WebAssembly traps, but it should be a
     // no-op. This should either be handled in legalization or we somehow need a
@@ -531,7 +531,7 @@ void BlockLowering::visitBinaryOperator(llvm::BinaryOperator &BO) {
 //===----------------------------------------------------------------------===//
 
 void BlockLowering::visitAllocaInst(llvm::AllocaInst &AI) {
-  if (Parent->PromotedAllocas.contains(&AI)) {
+  if (Parent.PromotedAllocas.contains(&AI)) {
     return;
   }
 
@@ -545,8 +545,8 @@ void BlockLowering::visitAllocaInst(llvm::AllocaInst &AI) {
   const auto MulOp = Is64Bit ? Opcode::I64Mul : Opcode::I32Mul;
 
   // Static allocation
-  if (auto It = Parent->StackSlots.find(&AI); It != Parent->StackSlots.end()) {
-    assert(Parent->FP.has_value() && "no frame pointer defined");
+  if (auto It = Parent.StackSlots.find(&AI); It != Parent.StackSlots.end()) {
+    assert(Parent.FP.has_value() && "no frame pointer defined");
     // Offset has already been applied
     if (!AllocaSkipOffsetList.empty() &&
         AllocaSkipOffsetList.back() == WorkList.size()) {
@@ -556,7 +556,7 @@ void BlockLowering::visitAllocaInst(llvm::AllocaInst &AI) {
       Actions.Insts.emplace_back(ConstOp, static_cast<int64_t>(It->second));
     }
     Actions.Insts.emplace_back(Opcode::LocalGet,
-                               std::make_unique<LocalArg>(Parent->FP.value()));
+                               std::make_unique<LocalArg>(Parent.FP.value()));
     return;
   }
 
@@ -605,7 +605,7 @@ void BlockLowering::visitAllocaInst(llvm::AllocaInst &AI) {
      * local.get <total array size>
      * sub
      */
-    uint32_t TotalSizeLocal = Parent->getNewLocal(PtrTy);
+    uint32_t TotalSizeLocal = Parent.getNewLocal(PtrTy);
     Actions.Insts.emplace_back(Opcode::LocalGet,
                                std::make_unique<LocalArg>(TotalSizeLocal));
     Actions.Insts.emplace_back(Opcode::GlobalGet, StackPointer);
@@ -638,7 +638,7 @@ void BlockLowering::doGreedyMemOp(llvm::Instruction &I, Opcode::Enum Op) {
 
   // If we already have a local containing the pointer, we can just use our
   // pointer with offset instead of inlining offsets.
-  if (Parent->LocalMapping.contains(Ptr)) {
+  if (Parent.LocalMapping.contains(Ptr)) {
     Actions.Insts.emplace_back(Op, std::make_unique<MemArg>());
     WorkList.push_back(Ptr);
     return;
@@ -670,9 +670,9 @@ void BlockLowering::doGreedyMemOp(llvm::Instruction &I, Opcode::Enum Op) {
   // If using a static stack slot, inline it based of the FP
   if (auto *AI = llvm::dyn_cast<llvm::AllocaInst>(Ptr)) {
     // Check if this is a static slot
-    if (Parent->StackSlots.contains(AI)) {
+    if (Parent.StackSlots.contains(AI)) {
       Actions.Insts.emplace_back(
-          Op, std::make_unique<MemArg>(0, Parent->StackSlots[AI]));
+          Op, std::make_unique<MemArg>(0, Parent.StackSlots[AI]));
       AllocaSkipOffsetList.push_back(WorkList.size());
       WorkList.push_back(AI);
       return;
@@ -686,8 +686,8 @@ void BlockLowering::doGreedyMemOp(llvm::Instruction &I, Opcode::Enum Op) {
 void BlockLowering::visitLoadInst(llvm::LoadInst &LI) {
   // Check, if we use a promoted alloca
   if (auto *Alloca = llvm::dyn_cast<llvm::AllocaInst>(LI.getPointerOperand())) {
-    if (Parent->PromotedAllocas.contains(Alloca)) {
-      auto Local = Parent->LocalMapping.lookup(Alloca);
+    if (Parent.PromotedAllocas.contains(Alloca)) {
+      auto Local = Parent.LocalMapping.lookup(Alloca);
       Actions.Insts.emplace_back(Opcode::LocalGet,
                                  std::make_unique<LocalArg>(Local));
       return;
@@ -742,8 +742,8 @@ void BlockLowering::visitLoadInst(llvm::LoadInst &LI) {
 void BlockLowering::visitStoreInst(llvm::StoreInst &SI) {
   // Check, if we use a promoted alloca
   if (auto *Alloca = llvm::dyn_cast<llvm::AllocaInst>(SI.getPointerOperand())) {
-    if (Parent->PromotedAllocas.contains(Alloca)) {
-      auto Local = Parent->LocalMapping.lookup(Alloca);
+    if (Parent.PromotedAllocas.contains(Alloca)) {
+      auto Local = Parent.LocalMapping.lookup(Alloca);
       Actions.Insts.emplace_back(Opcode::LocalSet,
                                  std::make_unique<LocalArg>(Local));
       WorkList.push_back(SI.getValueOperand());
@@ -871,7 +871,7 @@ void BlockLowering::visitZExtInst(llvm::ZExtInst &ZI) {
     // load
     bool IsPromoted = false;
     if (auto *AI = llvm::dyn_cast<llvm::AllocaInst>(LI->getPointerOperand())) {
-      IsPromoted = Parent->PromotedAllocas.contains(AI);
+      IsPromoted = Parent.PromotedAllocas.contains(AI);
     }
     // TODO use alignment
     // uint32_t Alignment = LoadInst->getAlign().value();
@@ -1243,7 +1243,7 @@ void BlockLowering::visitFCmpInst(llvm::FCmpInst &FI) {
 
 void BlockLowering::visitPHINode(llvm::PHINode &PN) {
   Actions.Insts.emplace_back(
-      Opcode::LocalGet, std::make_unique<LocalArg>(Parent->LocalMapping[&PN]));
+      Opcode::LocalGet, std::make_unique<LocalArg>(Parent.LocalMapping[&PN]));
 }
 
 void BlockLowering::visitSelectInst(llvm::SelectInst &SI) {
@@ -1287,12 +1287,10 @@ void BlockLowering::visitCallInst(llvm::CallInst &CI) {
   }
 }
 
-std::unique_ptr<WasmActions> BlockLowering::lower() {
+void BlockLowering::lower() {
   WATEVER_LOG_TRACE("Lowering {}", getBlockName(BB));
 
-  auto Result = std::make_unique<WasmActions>();
-
-  const auto &Roots = Parent->Roots.lookup(BB);
+  const auto &Roots = Parent.Roots.lookup(BB);
 
   std::optional<uint32_t> LastSetRoot = std::nullopt;
   bool RootOnlyOneUse = false;
@@ -1326,8 +1324,8 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
 
       // Check if an earlier instrucion has already produced this value
       // outside this AST (e.g., we might be the second user)
-      if (auto It = Parent->LocalMapping.find(Next);
-          It != Parent->LocalMapping.end()) {
+      if (auto It = Parent.LocalMapping.find(Next);
+          It != Parent.LocalMapping.end()) {
         auto *Inst = llvm::dyn_cast<llvm::Instruction>(Next);
         // Only use the local if it comes from another BB, or has been
         // emitted in this BB in an earler AST.
@@ -1345,7 +1343,7 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
         WATEVER_LOG_TRACE("will get materialized later");
         Counts[Next]--;
         // Create a local or get one from the colorer
-        auto L = Parent->getOrCreateLocal(Next, BB->getDataLayout());
+        auto L = Parent.getOrCreateLocal(Next, BB->getDataLayout());
         Actions.Insts.emplace_back(Opcode::LocalGet,
                                    std::make_unique<LocalArg>(L));
         continue;
@@ -1361,7 +1359,7 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
         if (Inst->getNumUses() > 1 && Inst != Root) {
           // Creation is needed, if Next is not used outside this block, but
           // in a later AST.
-          uint32_t L = Parent->getOrCreateLocal(Next, BB->getDataLayout());
+          uint32_t L = Parent.getOrCreateLocal(Next, BB->getDataLayout());
           Actions.Insts.emplace_back(Opcode::LocalTee,
                                      std::make_unique<LocalArg>(L));
           WATEVER_LOG_TRACE("has multiple users so we tee it");
@@ -1371,7 +1369,7 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
       } else if (auto *Arg = llvm::dyn_cast<llvm::Instruction>(Next)) {
         Actions.Insts.emplace_back(
             Opcode::LocalGet,
-            std::make_unique<LocalArg>(Parent->LocalMapping.lookup(Arg)));
+            std::make_unique<LocalArg>(Parent.LocalMapping.lookup(Arg)));
       } else if (!putValueOnStack(Next, Actions, M,
                                   BB->getDataLayout().getPointerSizeInBits() ==
                                       64)) {
@@ -1392,12 +1390,12 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
               Actions.Insts.back().getArgument())) {
         if (Arg->Index == LastSetRoot) {
           Actions.Insts.pop_back(); // Remove get
-          assert(Result->Insts.back().Op == Opcode::LocalSet &&
+          assert(Parent.Body.Insts.back().Op == Opcode::LocalSet &&
                  "old root did not set its root");
-          Result->Insts.pop_back(); // Remove set
+          Parent.Body.Insts.pop_back(); // Remove set
           // If others need this value, the local still has to be set
           if (!RootOnlyOneUse) {
-            Result->Insts.emplace_back(
+            Parent.Body.Insts.emplace_back(
                 Opcode::LocalTee,
                 std::make_unique<LocalArg>(LastSetRoot.value()));
           }
@@ -1405,13 +1403,13 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
       }
     }
     std::ranges::reverse(Actions.Insts);
-    Result->Insts.insert(Result->Insts.end(),
-                         std::make_move_iterator(Actions.Insts.begin()),
-                         std::make_move_iterator(Actions.Insts.end()));
+    Parent.Body.Insts.insert(Parent.Body.Insts.end(),
+                             std::make_move_iterator(Actions.Insts.begin()),
+                             std::make_move_iterator(Actions.Insts.end()));
     Actions.Insts.clear();
 
-    if (auto It = Parent->LocalMapping.find(Root);
-        It != Parent->LocalMapping.end()) {
+    if (auto It = Parent.LocalMapping.find(Root);
+        It != Parent.LocalMapping.end()) {
       // Mark the just-set value, so the next tree can reuse it if needed
       LastSetRoot = It->second;
 
@@ -1449,8 +1447,8 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
         RootOnlyOneUse = CanSkipLocal(CanSkipLocal, Root);
       }
 
-      Result->Insts.emplace_back(Opcode::LocalSet,
-                                 std::make_unique<LocalArg>(It->second));
+      Parent.Body.Insts.emplace_back(Opcode::LocalSet,
+                                     std::make_unique<LocalArg>(It->second));
     } else {
       LastSetRoot = std::nullopt;
       if (Root->getNumUses() > 0) {
@@ -1459,45 +1457,40 @@ std::unique_ptr<WasmActions> BlockLowering::lower() {
             Root->getNameOrAsOperand());
       }
       if (!Root->getType()->isVoidTy()) {
-        Result->Insts.emplace_back(Opcode::Drop);
+        Parent.Body.Insts.emplace_back(Opcode::Drop);
       }
     }
   }
-
-  return Result;
 }
 
-std::unique_ptr<Wasm> FunctionLowering::doBranch(const llvm::BasicBlock *Source,
-                                                 llvm::BasicBlock *Target,
-                                                 const Context &Ctx,
-                                                 ValType FTy) {
+void FunctionLowering::doBranch(const llvm::BasicBlock *Source,
+                                llvm::BasicBlock *Target, const Context &Ctx,
+                                ValType FTy) {
   // Actions to be executed on the edge
-  WasmActions PhiActions;
-
   llvm::SmallVector<uint32_t> Destinations;
 
   // Put all phi arguments on the stack
   for (auto &Phi : Target->phis()) {
     auto *IncomingVal = Phi.getIncomingValueForBlock(Source);
-    uint32_t DestLocal = F->getOrCreateLocal(&Phi, Source->getDataLayout());
+    uint32_t DestLocal = F.getOrCreateLocal(&Phi, Source->getDataLayout());
     // Do not move anything into the target local - just keep it as is
     if (llvm::isa<llvm::PoisonValue>(IncomingVal) ||
         llvm::isa<llvm::UndefValue>(IncomingVal)) {
       continue;
     }
 
-    if (putValueOnStack(IncomingVal, PhiActions, M,
+    if (putValueOnStack(IncomingVal, F.Body, M,
                         Source->getDataLayout().getPointerSizeInBits() == 64)) {
     } else if (llvm::isa<llvm::Argument>(IncomingVal) ||
                llvm::isa<llvm::Instruction>(IncomingVal)) {
 
       uint32_t SourceLocal =
-          F->getOrCreateLocal(IncomingVal, Source->getDataLayout());
+          F.getOrCreateLocal(IncomingVal, Source->getDataLayout());
       if (SourceLocal == DestLocal) {
         continue;
       }
-      PhiActions.Insts.emplace_back(Opcode::LocalGet,
-                                    std::make_unique<LocalArg>(SourceLocal));
+      F.Body.Insts.emplace_back(Opcode::LocalGet,
+                                std::make_unique<LocalArg>(SourceLocal));
     } else {
       WATEVER_UNIMPLEMENTED("Unsupported phi argument {}",
                             IncomingVal->getNameOrAsOperand());
@@ -1507,18 +1500,15 @@ std::unique_ptr<Wasm> FunctionLowering::doBranch(const llvm::BasicBlock *Source,
 
   // Pop them into their destinations
   while (!Destinations.empty()) {
-    PhiActions.Insts.emplace_back(
+    F.Body.Insts.emplace_back(
         Opcode::LocalSet,
         std::make_unique<LocalArg>(Destinations.pop_back_val()));
   }
-
-  std::unique_ptr<Wasm> BranchNode;
 
   // Backward branch (continue) or forward branch (exit)
   if (Target == Ctx.Fallthrough) {
     WATEVER_LOG_TRACE("Target {} is fallthrough for {}", getBlockName(Target),
                       getBlockName(Source));
-    BranchNode = std::make_unique<WasmActions>();
   } else if (DT.dominates(Target, Source) || isMergeNode(Target)) {
 #ifdef WATEVER_LOGGING
     if (DT.dominates(Target, Source)) {
@@ -1529,43 +1519,36 @@ std::unique_ptr<Wasm> FunctionLowering::doBranch(const llvm::BasicBlock *Source,
                         getBlockName(Target));
     }
 #endif
-    BranchNode = std::make_unique<WasmBr>(WasmBr{index(Target, Ctx)});
+    F.Body.Insts.emplace_back(Opcode::Br, index(Target, Ctx));
   } else {
 
     WATEVER_LOG_TRACE("no branch needed from {} to {}, fall through",
                       getBlockName(Source), getBlockName(Target));
-    BranchNode = doTree(Target, Ctx, FTy);
+    doTree(Target, Ctx, FTy);
   }
-
-  if (!PhiActions.Insts.empty()) {
-    return std::make_unique<WasmSeq>(
-        std::make_unique<WasmActions>(std::move(PhiActions)),
-        std::move(BranchNode));
-  }
-  return BranchNode;
 }
 
-std::unique_ptr<Wasm> FunctionLowering::doTree(llvm::BasicBlock *Root,
-                                               Context Ctx, ValType FTy) {
+void FunctionLowering::doTree(llvm::BasicBlock *Root, Context Ctx,
+                              ValType FTy) {
   WATEVER_LOG_TRACE("doTree with root {}", getBlockName(Root));
 
   llvm::SmallVector<llvm::BasicBlock *> MergeChildren;
   getMergeChildren(Root, MergeChildren);
 
-  std::unique_ptr<Wasm> Res;
-
   // Emit loop block
   if (LI.isLoopHeader(Root)) {
     WATEVER_LOG_TRACE("Generating loop for {}", getBlockName(Root));
     Ctx.Enclosing.push_back(ContainingSyntax::createLoop(Root));
-    return std::make_unique<WasmLoop>(
-        FTy, nodeWithin(Root, MergeChildren, Ctx, FTy, nullptr));
+    F.Body.Insts.push_back(WasmInst::createLoop(FTy));
+    nodeWithin(Root, MergeChildren, Ctx, FTy, nullptr);
+    F.Body.Insts.emplace_back(Opcode::End);
+    return;
   }
 
-  return nodeWithin(Root, MergeChildren, Ctx, FTy, nullptr);
+  nodeWithin(Root, MergeChildren, Ctx, FTy, nullptr);
 }
 
-std::unique_ptr<Wasm> FunctionLowering::nodeWithin(
+void FunctionLowering::nodeWithin(
     llvm::BasicBlock *Parent,
     llvm::SmallVector<llvm::BasicBlock *> MergeChildren, const Context &Ctx,
     ValType FTy, llvm::BasicBlock *Follower) {
@@ -1581,11 +1564,13 @@ std::unique_ptr<Wasm> FunctionLowering::nodeWithin(
     if (Follower && !GeneratesIf) {
       auto NewContext = Ctx;
       NewContext.Enclosing.push_back(ContainingSyntax::createBlock(Follower));
-      return std::make_unique<WasmBlock>(
-          FTy, nodeWithin(Parent, MergeChildren, NewContext, FTy, nullptr));
+      F.Body.Insts.push_back(WasmInst::createBlock(FTy));
+      nodeWithin(Parent, MergeChildren, NewContext, FTy, nullptr);
+      F.Body.Insts.emplace_back(Opcode::End);
+      return;
     }
-    auto Body = translateBB(Parent);
-    std::unique_ptr<Wasm> Leaving;
+
+    translateBB(Parent);
 
     if (auto *Br = llvm::dyn_cast<llvm::BranchInst>(Term)) {
       if (Br->isConditional()) {
@@ -1596,22 +1581,52 @@ std::unique_ptr<Wasm> FunctionLowering::nodeWithin(
         auto IfCtx = Ctx;
         IfCtx.Enclosing.push_back(ContainingSyntax::createIf(Follower));
 
-        Leaving = std::make_unique<WasmIf>(
-            FTy, doBranch(Parent, Br->getSuccessor(0), IfCtx, FTy),
-            doBranch(Parent, Br->getSuccessor(1), IfCtx, FTy));
-      } else {
-        WATEVER_LOG_TRACE("{} branches to {}", getBlockName(Parent),
-                          getBlockName(Br->getSuccessor(0)));
+        // TODO In the following case, a br_if might be prefered:
+        //    A
+        //   / \.
+        //  B-->C
+        //
+        //  Goal           Current
+        // ------         ---------
+        // block          A
+        //   A            if
+        //   br_if        else
+        //   B              B
+        // end            end
+        // C              C
+        //
+        // In theory one could check, if one of the successors is follower: we
+        // could satisfy the branch with a br_if.
+        // However, this will never be the case, as the edge from A to C is
+        // critical and therefore always split (what ends up in the empty
+        // if-case). And at this point, it cannot be decided, whether the PHI
+        // nodes in C needs a move in the critical-edge-block or not.
+        //
+        // if-else statements are basically always shorter, but nest the control
+        // flow.
 
-        Leaving = doBranch(Parent, Br->getSuccessor(0), Ctx, FTy);
+        F.Body.Insts.push_back(WasmInst::createIfElse(FTy));
+        doBranch(Parent, Br->getSuccessor(0), IfCtx, FTy);
+        F.Body.Insts.emplace_back(Opcode::Else);
+        doBranch(Parent, Br->getSuccessor(1), IfCtx, FTy);
+        F.Body.Insts.emplace_back(Opcode::End);
+        return;
       }
-    } else if (llvm::isa<llvm::ReturnInst>(Term)) {
-      Leaving = std::make_unique<WasmReturn>();
-    } else if (llvm::isa<llvm::UnreachableInst>(Term)) {
-      WasmActions UnreachableAction;
-      UnreachableAction.Insts.emplace_back(Opcode::Unreachable);
-      Leaving = std::make_unique<WasmActions>(std::move(UnreachableAction));
-    } else if (auto *SI = llvm::dyn_cast<llvm::SwitchInst>(Term)) {
+      WATEVER_LOG_TRACE("{} branches to {}", getBlockName(Parent),
+                        getBlockName(Br->getSuccessor(0)));
+
+      doBranch(Parent, Br->getSuccessor(0), Ctx, FTy);
+      return;
+    }
+    if (llvm::isa<llvm::ReturnInst>(Term)) {
+      F.Body.Insts.emplace_back(Opcode::Return);
+      return;
+    }
+    if (llvm::isa<llvm::UnreachableInst>(Term)) {
+      F.Body.Insts.emplace_back(Opcode::Unreachable);
+      return;
+    }
+    if (auto *SI = llvm::dyn_cast<llvm::SwitchInst>(Term)) {
       WATEVER_LOG_TRACE("{} ends with a switch", getBlockName(Parent));
       auto *DefaultTarget = SI->getDefaultDest();
       auto DefaultIdx = index(DefaultTarget, Ctx);
@@ -1635,28 +1650,24 @@ std::unique_ptr<Wasm> FunctionLowering::nodeWithin(
         Targets.push_back(BlockIdx);
       }
       BranchTableArg Argument{std::move(Targets), DefaultIdx};
-      WasmActions BranchTable{};
-      BranchTable.Insts.emplace_back(
-          Opcode::BrTable, std::make_unique<BranchTableArg>(Argument));
-      Leaving = std::make_unique<WasmActions>(std::move(BranchTable));
-    } else {
-      WATEVER_UNREACHABLE("unsupported terminator: {}",
-                          Parent->getTerminator()->getOpcodeName());
+      F.Body.Insts.emplace_back(Opcode::BrTable,
+                                std::make_unique<BranchTableArg>(Argument));
+      return;
     }
-
-    return std::make_unique<WasmSeq>(
-        WasmSeq{std::move(Body), std::move(Leaving)});
+    WATEVER_UNREACHABLE("unsupported terminator: {}",
+                        Parent->getTerminator()->getOpcodeName());
   }
 
   if (Follower) {
     auto NewContext = Ctx;
     NewContext.Enclosing.push_back(ContainingSyntax::createBlock(Follower));
-    auto Inner = nodeWithin(Parent, MergeChildren, NewContext, FTy, nullptr);
-    return std::make_unique<WasmBlock>(FTy, std::move(Inner));
+    F.Body.Insts.push_back(WasmInst::createBlock(FTy));
+    nodeWithin(Parent, MergeChildren, NewContext, FTy, nullptr);
+    F.Body.Insts.emplace_back(Opcode::End);
+    return;
   }
 
-  auto *NextFollower = MergeChildren.back();
-  MergeChildren.pop_back();
+  auto *NextFollower = MergeChildren.pop_back_val();
 
   WATEVER_LOG_TRACE("{} is followed by {}", getBlockName(Parent),
                     getBlockName(NextFollower));
@@ -1664,12 +1675,9 @@ std::unique_ptr<Wasm> FunctionLowering::nodeWithin(
   auto FirstContext = Ctx;
   FirstContext.Fallthrough = NextFollower;
 
-  auto First = nodeWithin(Parent, MergeChildren, FirstContext, ValType::Void,
-                          NextFollower);
+  nodeWithin(Parent, MergeChildren, FirstContext, ValType::Void, NextFollower);
 
-  auto Second = doTree(NextFollower, Ctx, FTy);
-
-  return std::make_unique<WasmSeq>(std::move(First), std::move(Second));
+  doTree(NextFollower, Ctx, FTy);
 }
 
 uint32_t FunctionLowering::index(const llvm::BasicBlock *BB,
@@ -1686,8 +1694,7 @@ uint32_t FunctionLowering::index(const llvm::BasicBlock *BB,
   WATEVER_UNREACHABLE("unknown branch target");
 }
 
-std::unique_ptr<WasmActions>
-FunctionLowering::translateBB(llvm::BasicBlock *BB) const {
+void FunctionLowering::translateBB(llvm::BasicBlock *BB) const {
   BlockLowering BL{BB, M, F};
   return BL.lower();
 }
@@ -1868,35 +1875,33 @@ Module ModuleLowering::convert(llvm::Module &Mod,
     }
 
     WasmFunc->setupStackFrame(&F.front());
-
-    FunctionLowering FL{WasmFunc, DT, LI, Res};
-    WATEVER_LOG_DBG("Lowering function {}", F.getName().str());
-    ValType RetTy = ValType::Void;
-    if (!F.getReturnType()->isVoidTy()) {
-      RetTy = fromLLVMType(F.getReturnType(), Mod.getDataLayout());
-    }
-    FL.lower(RetTy);
-
     // Generate prologue, if we use a FP
     if (WasmFunc->FP.has_value()) {
       const bool Is64Bit = Mod.getDataLayout().getPointerSizeInBits() == 64;
       const auto ConstOp = Is64Bit ? Opcode::I64Const : Opcode::I32Const;
       const auto SubOp = Is64Bit ? Opcode::I64Sub : Opcode::I32Sub;
-
-      auto Prologue = std::make_unique<WasmActions>();
+      const auto PtrTy = Is64Bit ? ValType::I64 : ValType::I32;
       // SP = SP - frame_size
-      Prologue->Insts.emplace_back(Opcode::GlobalGet, Res.StackPointer);
-      Prologue->Insts.emplace_back(ConstOp, WasmFunc->FrameSize);
-      Prologue->Insts.emplace_back(SubOp);
-      Prologue->Insts.emplace_back(
+      WasmFunc->Body.Insts.emplace_back(Opcode::GlobalGet,
+                                        Res.getStackPointer(PtrTy));
+      WasmFunc->Body.Insts.emplace_back(ConstOp, WasmFunc->FrameSize);
+      WasmFunc->Body.Insts.emplace_back(SubOp);
+      WasmFunc->Body.Insts.emplace_back(
           Opcode::LocalTee, std::make_unique<LocalArg>(WasmFunc->FP.value()));
-      Prologue->Insts.emplace_back(Opcode::GlobalSet, Res.StackPointer);
-      WasmFunc->Body = std::make_unique<WasmSeq>(std::move(Prologue),
-                                                 std::move(WasmFunc->Body));
+      WasmFunc->Body.Insts.emplace_back(Opcode::GlobalSet, Res.StackPointer);
     }
 
+    FunctionLowering FL{*WasmFunc, DT, LI, Res};
+    WATEVER_LOG_DBG("Lowering function {}", F.getName().str());
+    ValType RetTy = ValType::Void;
+    if (!F.getReturnType()->isVoidTy()) {
+      RetTy = fromLLVMType(F.getReturnType(), Mod.getDataLayout());
+    }
+
+    FL.lower(RetTy);
+
 #ifdef WATEVER_LOGGING
-    dumpWasm(*WasmFunc->Body);
+    dumpWasm(WasmFunc->Body);
 #endif
   }
 

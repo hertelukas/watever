@@ -4,7 +4,7 @@ import os
 
 config.name = 'Watever'
 config.test_format = lit.formats.ShTest(True)
-config.suffixes = ['.ll', '.c', '.cpp']
+config.suffixes = ['.ll', '.c', '.cpp', '.test']
 
 # Add watever to PATH
 path = os.path.pathsep.join((config.watever_binary_dir, config.environment['PATH']))

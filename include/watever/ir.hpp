@@ -34,93 +34,6 @@
 #include <memory>
 
 namespace watever {
-class Wasm;
-class WasmBlock;
-class WasmLoop;
-class WasmIf;
-class WasmBr;
-class WasmReturn;
-class WasmActions;
-class WasmSeq;
-
-class WasmVisitor {
-public:
-  virtual ~WasmVisitor() = default;
-
-  virtual void visit(Wasm &) {};
-  virtual void visit(WasmBlock &) = 0;
-  virtual void visit(WasmLoop &) = 0;
-  virtual void visit(WasmIf &) = 0;
-  virtual void visit(WasmBr &) = 0;
-  virtual void visit(WasmReturn &) = 0;
-  virtual void visit(WasmActions &) = 0;
-  virtual void visit(WasmSeq &) = 0;
-};
-
-class Wasm {
-public:
-  virtual ~Wasm() = default;
-  virtual void accept(WasmVisitor &V) { V.visit(*this); }
-};
-
-class WasmBlock final : public Wasm {
-public:
-  ValType Ty;
-  std::unique_ptr<Wasm> InnerWasm;
-
-  explicit WasmBlock(ValType Ty, std::unique_ptr<Wasm> Inner)
-      : Ty(Ty), InnerWasm(std::move(Inner)) {};
-
-  void accept(WasmVisitor &V) override { V.visit(*this); }
-};
-
-class WasmLoop final : public Wasm {
-public:
-  ValType Ty;
-  std::unique_ptr<Wasm> InnerWasm;
-  explicit WasmLoop(ValType Ty, std::unique_ptr<Wasm> Inner)
-      : Ty(Ty), InnerWasm(std::move(Inner)) {};
-  void accept(WasmVisitor &V) override { V.visit(*this); }
-};
-
-class WasmIf final : public Wasm {
-public:
-  ValType Ty;
-  std::unique_ptr<Wasm> True;
-  std::unique_ptr<Wasm> False;
-
-  explicit WasmIf(ValType Ty, std::unique_ptr<Wasm> True,
-                  std::unique_ptr<Wasm> False)
-      : Ty(Ty), True(std::move(True)), False(std::move(False)) {}
-  void accept(WasmVisitor &V) override { V.visit(*this); }
-};
-
-class WasmBr final : public Wasm {
-public:
-  uint32_t Nesting;
-  explicit WasmBr(uint32_t Nesting) : Nesting(Nesting) {}
-  void accept(WasmVisitor &V) override { V.visit(*this); }
-};
-
-class WasmReturn final : public Wasm {
-  void accept(WasmVisitor &V) override { V.visit(*this); }
-};
-
-class WasmActions final : public Wasm {
-public:
-  llvm::SmallVector<WasmInst, 8> Insts;
-
-  void accept(WasmVisitor &V) override { V.visit(*this); }
-};
-
-class WasmSeq final : public Wasm {
-public:
-  std::pair<std::unique_ptr<Wasm>, std::unique_ptr<Wasm>> Flow;
-  explicit WasmSeq(std::unique_ptr<Wasm> First, std::unique_ptr<Wasm> Second)
-      : Flow(std::move(First), std::move(Second)) {}
-  void accept(WasmVisitor &V) override { V.visit(*this); }
-};
-
 class Module {
   friend class ModuleLowering;
   uint32_t TotalGlobals{};
@@ -226,7 +139,7 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
   getDependencyTreeUserCount(llvm::Instruction *Root) const;
 
   Module &M;
-  DefinedFunc *Parent;
+  DefinedFunc &Parent;
 
   void addOperandsToWorklist(llvm::iterator_range<llvm::Use *> Ops) {
     for (llvm::Value *Op : Ops) {
@@ -239,7 +152,7 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
   // Terminator Instructions (should not be needed, as these are mapped to
   // blocks)
   void visitReturnInst(llvm::ReturnInst &RI) {
-    if (Parent->FP.has_value()) {
+    if (Parent.FP.has_value()) {
       // Eplilogue is SP = FP + static_stack_size
       const bool Is64Bit =
           RI.getModule()->getDataLayout().getPointerSizeInBits() == 64;
@@ -250,8 +163,8 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
       auto GlobalArgVal = std::make_unique<RelocatableGlobalArg>(StackPointer);
       Actions.Insts.emplace_back(Opcode::GlobalSet, std::move(GlobalArgVal));
       Actions.Insts.emplace_back(AddOp);
-      Actions.Insts.emplace_back(ConstOp, Parent->FrameSize);
-      auto SavedSPArg = std::make_unique<LocalArg>(Parent->FP.value());
+      Actions.Insts.emplace_back(ConstOp, Parent.FrameSize);
+      auto SavedSPArg = std::make_unique<LocalArg>(Parent.FP.value());
       Actions.Insts.emplace_back(Opcode::LocalGet, std::move(SavedSPArg));
     }
     addOperandsToWorklist(RI.operands());
@@ -315,10 +228,10 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
   }
 
 public:
-  explicit BlockLowering(llvm::BasicBlock *BB, Module &M, DefinedFunc *F)
+  explicit BlockLowering(llvm::BasicBlock *BB, Module &M, DefinedFunc &F)
       : BB(BB), M(M), Parent(F) {}
 
-  std::unique_ptr<WasmActions> lower();
+  void lower();
 };
 
 class FunctionLowering {
@@ -348,7 +261,7 @@ class FunctionLowering {
     }
   };
 
-  DefinedFunc *F;
+  DefinedFunc &F;
   struct Context {
     llvm::SmallVector<ContainingSyntax> Enclosing;
     // The label that can be reached by just falling through
@@ -359,22 +272,19 @@ class FunctionLowering {
   llvm::LoopInfo &LI;
   Module &M;
 
-  std::unique_ptr<Wasm> doBranch(const llvm::BasicBlock *SourceBlock,
-                                 llvm::BasicBlock *TargetBlock,
-                                 const Context &Ctx, ValType FTy);
+  void doBranch(const llvm::BasicBlock *SourceBlock,
+                llvm::BasicBlock *TargetBlock, const Context &Ctx, ValType FTy);
 
   // TODO MergeChildren needs better type
-  std::unique_ptr<Wasm>
-  nodeWithin(llvm::BasicBlock *Parent,
-             llvm::SmallVector<llvm::BasicBlock *> MergeChildren,
-             const Context &Ctx, ValType FTy, llvm::BasicBlock *Follow);
+  void nodeWithin(llvm::BasicBlock *Parent,
+                  llvm::SmallVector<llvm::BasicBlock *> MergeChildren,
+                  const Context &Ctx, ValType FTy, llvm::BasicBlock *Follow);
 
-  std::unique_ptr<Wasm> doTree(llvm::BasicBlock *Root, Context Ctx,
-                               ValType FTy);
+  void doTree(llvm::BasicBlock *Root, Context Ctx, ValType FTy);
 
   static uint32_t index(const llvm::BasicBlock *BB, const Context &Ctx);
 
-  std::unique_ptr<WasmActions> translateBB(llvm::BasicBlock *BB) const;
+  void translateBB(llvm::BasicBlock *BB) const;
 
   void
   getMergeChildren(const llvm::BasicBlock *R,
@@ -401,7 +311,7 @@ class FunctionLowering {
   llvm::DenseMap<llvm::BasicBlock *, uint64_t> RPOOrdering;
 
 public:
-  FunctionLowering(DefinedFunc *F, llvm::DominatorTree &DT, llvm::LoopInfo &LI,
+  FunctionLowering(DefinedFunc &F, llvm::DominatorTree &DT, llvm::LoopInfo &LI,
                    Module &M)
       : F(F), DT(DT), LI(LI), M(M) {
     uint64_t Idx = 0;
@@ -414,7 +324,7 @@ public:
 
   void lower(ValType RetTy) {
     Context Ctx;
-    F->Body = doTree(DT.getRoot(), Ctx, RetTy);
+    doTree(DT.getRoot(), Ctx, RetTy);
   }
 };
 

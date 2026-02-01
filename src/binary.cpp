@@ -13,43 +13,10 @@
 
 namespace watever {
 
-void CodeWriter::visit(WasmBlock &Block) {
-  Opcode(Opcode::Enum::Block).writeBytes(OS);
-  OS << static_cast<char>(Block.Ty);
-  Block.InnerWasm->accept(*this);
-  Opcode(Opcode::Enum::End).writeBytes(OS);
-};
-
-void CodeWriter::visit(WasmLoop &Loop) {
-  Opcode(Opcode::Enum::Loop).writeBytes(OS);
-  OS << static_cast<char>(Loop.Ty);
-  Loop.InnerWasm->accept(*this);
-  Opcode(Opcode::Enum::End).writeBytes(OS);
-}
-void CodeWriter::visit(WasmIf &IfElse) {
-  Opcode(Opcode::Enum::If).writeBytes(OS);
-  OS << static_cast<char>(IfElse.Ty);
-  IfElse.True->accept(*this);
-  Opcode(Opcode::Enum::Else).writeBytes(OS);
-  IfElse.False->accept(*this);
-  Opcode(Opcode::Enum::End).writeBytes(OS);
-}
-
-void CodeWriter::visit(WasmReturn &) {
-  Opcode(Opcode::Enum::Return).writeBytes(OS);
-}
-void CodeWriter::visit(WasmSeq &Seq) {
-  Seq.Flow.first->accept(*this);
-  Seq.Flow.second->accept(*this);
-}
 void CodeWriter::visit(WasmActions &Actions) {
   for (auto &Inst : Actions.Insts) {
     Inst.write(OS, Reloc, LocalMap);
   }
-}
-void CodeWriter::visit(WasmBr &Br) {
-  Opcode(Opcode::Enum::Br).writeBytes(OS);
-  llvm::encodeULEB128(Br.Nesting, OS);
 }
 
 void BinaryWriter::writeTypes() {
@@ -147,7 +114,7 @@ void BinaryWriter::writeCode() {
       CodeOS << static_cast<uint8_t>(Ty);
     }
     CodeWriter CW{CodeOS, CodeRelocation, LocalMapping};
-    F->visit(CW);
+    CW.visit(F->Body);
     Opcode(Opcode::Enum::End).writeBytes(CodeOS);
 
     // Write this functions code size to content stream

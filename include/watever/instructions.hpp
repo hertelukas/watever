@@ -2,13 +2,19 @@
 
 #include "watever/linking.hpp"
 #include "watever/opcode.hpp"
-#include "watever/symbol.hpp"
+#include "watever/type.hpp"
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/LEB128.h>
 #include <llvm/Support/raw_ostream.h>
 #include <memory>
 
 namespace watever {
+struct Global;
+struct ImportedGlobal;
+struct Function;
+struct Data;
+struct Table;
+
 class InstArgument {
 public:
   enum class InstArgKind : uint8_t {
@@ -21,6 +27,7 @@ public:
     RelocatableIndirectCall,
     RelocatableTableIndex,
     MemCpy,
+    BlockType,
   };
 
 private:
@@ -129,18 +136,10 @@ public:
   Function *Func;
   explicit RelocatableFuncArg(Function *F)
       : InstArgument(InstArgKind::RelocatableFunc), Func(F) {}
-  [[nodiscard]] std::string getString() const override {
-    return llvm::formatv("{}", Func->FunctionIndex);
-  }
-  void encode(llvm::raw_ostream &OS) const override {
-    // Must be padded to 5 bytes, so it can be patched by the linker
-    llvm::encodeULEB128(Func->FunctionIndex, OS, 5);
-  }
 
-  void addRelocation(llvm::raw_ostream &OS, Relocation &Reloc) override {
-    Reloc.Entries.emplace_back(RelocationType::R_WASM_FUNCTION_INDEX_LEB,
-                               OS.tell(), Func->SymbolIndex);
-  }
+  [[nodiscard]] std::string getString() const override;
+  void encode(llvm::raw_ostream &OS) const override;
+  void addRelocation(llvm::raw_ostream &OS, Relocation &Reloc) override;
 
   static bool classof(const InstArgument *IA) {
     return IA->getKind() == InstArgKind::RelocatableFunc;
@@ -153,17 +152,10 @@ class RelocatableGlobalArg final : public InstArgument {
 public:
   explicit RelocatableGlobalArg(Global *G)
       : InstArgument(InstArgKind::RelocatableGlobal), Gl(G) {}
-  [[nodiscard]] std::string getString() const override {
-    return llvm::formatv("{}", Gl->GlobalIdx);
-  }
-  void encode(llvm::raw_ostream &OS) const override {
-    llvm::encodeULEB128(Gl->GlobalIdx, OS, 5);
-  }
 
-  void addRelocation(llvm::raw_ostream &OS, Relocation &Reloc) override {
-    Reloc.Entries.emplace_back(RelocationType::R_WASM_GLOBAL_INDEX_LEB,
-                               OS.tell(), Gl->SymbolIndex);
-  }
+  [[nodiscard]] std::string getString() const override;
+  void encode(llvm::raw_ostream &OS) const override;
+  void addRelocation(llvm::raw_ostream &OS, Relocation &Reloc) override;
 
   static bool classof(const InstArgument *IA) {
     return IA->getKind() == InstArgKind::RelocatableFunc;
@@ -176,17 +168,9 @@ class RelocatablePointerArg final : public InstArgument {
 public:
   explicit RelocatablePointerArg(Data *D)
       : InstArgument(InstArgKind::RelocatablePointer), DT(D) {}
-  [[nodiscard]] std::string getString() const override {
-    return llvm::formatv("{}", DT->Name);
-  }
-  void encode(llvm::raw_ostream &OS) const override {
-    llvm::encodeSLEB128(0, OS, 5);
-  }
-
-  void addRelocation(llvm::raw_ostream &OS, Relocation &Reloc) override {
-    Reloc.Entries.emplace_back(RelocationType::R_WASM_MEMORY_ADDR_SLEB,
-                               OS.tell(), DT->SymbolIndex);
-  }
+  [[nodiscard]] std::string getString() const override;
+  void encode(llvm::raw_ostream &OS) const override;
+  void addRelocation(llvm::raw_ostream &OS, Relocation &Reloc) override;
 
   static bool classof(const InstArgument *IA) {
     return IA->getKind() == InstArgKind::RelocatablePointer;
@@ -203,20 +187,9 @@ public:
       : InstArgument(InstArgKind::RelocatableIndirectCall), TypeIndex(TypeIdx),
         Tab(IndirectFunctionTable) {}
 
-  [[nodiscard]] std::string getString() const override {
-    return llvm::formatv("{} {}", TypeIndex, Tab->TableIndex).str();
-  }
-  void encode(llvm::raw_ostream &OS) const override {
-    llvm::encodeULEB128(TypeIndex, OS, 5);
-    llvm::encodeULEB128(Tab->TableIndex, OS, 5);
-  }
-
-  void addRelocation(llvm::raw_ostream &OS, Relocation &Reloc) override {
-    Reloc.Entries.emplace_back(RelocationType::R_WASM_TYPE_INDEX_LEB, OS.tell(),
-                               TypeIndex);
-    Reloc.Entries.emplace_back(RelocationType::R_WASM_TABLE_NUMBER_LEB,
-                               OS.tell() + 5, Tab->SymbolIndex);
-  }
+  [[nodiscard]] std::string getString() const override;
+  void encode(llvm::raw_ostream &OS) const override;
+  void addRelocation(llvm::raw_ostream &OS, Relocation &Reloc) override;
 
   static bool classof(const InstArgument *IA) {
     return IA->getKind() == InstArgKind::RelocatableIndirectCall;
@@ -230,17 +203,9 @@ public:
   explicit RelocatableTableIndexArg(Function *F)
       : InstArgument(InstArgKind::RelocatableTableIndex), F(F) {}
 
-  [[nodiscard]] std::string getString() const override {
-    return llvm::formatv("table index for {}", F->Name).str();
-  }
-  void encode(llvm::raw_ostream &OS) const override {
-    llvm::encodeSLEB128(0, OS, 5);
-  }
-
-  void addRelocation(llvm::raw_ostream &OS, Relocation &Reloc) override {
-    Reloc.Entries.emplace_back(RelocationType::R_WASM_TABLE_INDEX_SLEB,
-                               OS.tell(), F->SymbolIndex);
-  }
+  [[nodiscard]] std::string getString() const override;
+  void encode(llvm::raw_ostream &OS) const override;
+  void addRelocation(llvm::raw_ostream &OS, Relocation &Reloc) override;
 
   static bool classof(const InstArgument *IA) {
     return IA->getKind() == InstArgKind::RelocatableTableIndex;
@@ -269,8 +234,27 @@ public:
   }
 };
 
+class BlockTypeArg final : public InstArgument {
+public:
+  ValType Type;
+  explicit BlockTypeArg(ValType Ty)
+      : InstArgument(InstArgKind::BlockType), Type(Ty) {}
+
+  [[nodiscard]] std::string getString() const override {
+    return llvm::formatv("{}", static_cast<char>(Type));
+  }
+
+  void encode(llvm::raw_ostream &OS) const override {
+    OS << static_cast<uint8_t>(Type);
+  }
+
+  static bool classof(const InstArgument *IA) {
+    return IA->getKind() == InstArgKind::BlockType;
+  }
+};
+
 class WasmInst {
-  using Storage = std::variant<std::monostate, int64_t, float, double,
+  using Storage = std::variant<std::monostate, int64_t, uint64_t, float, double,
                                std::unique_ptr<InstArgument>>;
   Storage Arg;
 
@@ -285,13 +269,16 @@ public:
 
   WasmInst(Opcode::Enum O) : Arg(std::monostate{}), Op(O) {}
   WasmInst(Opcode::Enum O, int64_t Imm) : Arg(Imm), Op(O) {}
+  WasmInst(Opcode::Enum O, uint64_t Imm) : Arg(Imm), Op(O) {}
+  WasmInst(Opcode::Enum O, uint32_t Imm)
+      : Arg(static_cast<uint64_t>(Imm)), Op(O) {}
   WasmInst(Opcode::Enum O, float Imm) : Arg(Imm), Op(O) {}
   WasmInst(Opcode::Enum O, double Imm) : Arg(Imm), Op(O) {}
   WasmInst(Opcode::Enum O, std::unique_ptr<InstArgument> Arg)
       : Arg(std::move(Arg)), Op(O) {}
 
   // Convenience constructors
-  WasmInst(Opcode::Enum O, ImportedGlobal *IG)
+  WasmInst(Opcode::Enum O, Global *IG)
       : Arg(std::make_unique<RelocatableGlobalArg>(IG)), Op(O) {}
 
   WasmInst(Opcode::Enum O, Data *D)
@@ -306,6 +293,18 @@ public:
   WasmInst(WasmInst &&) = default;
   WasmInst &operator=(WasmInst &&) = default;
 
+  static WasmInst createBlock(ValType Ty) {
+    return {Opcode::Block, std::make_unique<BlockTypeArg>(Ty)};
+  }
+
+  static WasmInst createLoop(ValType Ty) {
+    return {Opcode::Loop, std::make_unique<BlockTypeArg>(Ty)};
+  }
+
+  static WasmInst createIfElse(ValType Ty) {
+    return {Opcode::If, std::make_unique<BlockTypeArg>(Ty)};
+  }
+
   WasmInst(const WasmInst &) = delete;
   WasmInst &operator=(const WasmInst &) = delete;
 
@@ -317,6 +316,9 @@ public:
         Overloaded{
             [&](std::monostate) { return std::string(Name); },
             [&](int64_t Imm) {
+              return llvm::formatv("{0} {1}", Name, Imm).str();
+            },
+            [&](uint64_t Imm) {
               return llvm::formatv("{0} {1}", Name, Imm).str();
             },
             [&](float Imm) {
@@ -342,6 +344,7 @@ public:
         Overloaded{
             [&](std::monostate) {},
             [&](int64_t Imm) { llvm::encodeSLEB128(Imm, OS); },
+            [&](uint64_t Imm) { llvm::encodeULEB128(Imm, OS); },
             [&](float Imm) {
               OS.write(reinterpret_cast<const char *>(&Imm), sizeof(Imm));
             },
@@ -357,4 +360,10 @@ public:
         Arg);
   }
 };
+
+class WasmActions {
+public:
+  llvm::SmallVector<WasmInst, 8> Insts;
+};
+
 } // namespace watever

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "watever/feature.hpp"
+#include "watever/instructions.hpp"
 #include "watever/linking.hpp"
 #include "watever/type.hpp"
 #include <cstdint>
@@ -14,10 +15,6 @@
 #include <llvm/IR/Instructions.h>
 
 namespace watever {
-
-class Wasm;
-class WasmVisitor;
-
 struct Symbol {
   enum class Kind : uint8_t {
     ImportedGlobal,
@@ -90,9 +87,9 @@ struct ImportedGlobal final : public Global {
 };
 
 struct DefinedGlobal final : public Global {
-  std::unique_ptr<Wasm> Expr;
+  WasmActions Expr;
   explicit DefinedGlobal(uint32_t SymbolIdx, uint32_t GlobalIdx, ValType Ty,
-                         bool Mut, std::unique_ptr<Wasm> Ex);
+                         bool Mut, WasmActions Ex);
   static bool classof(const Symbol *S) {
     return S->getClassKind() == Kind::DefinedGlobal;
   }
@@ -145,7 +142,7 @@ class DefinedFunc final : public Function {
 public:
   uint32_t TotalArgs{};
   Features FeatureSet;
-  std::unique_ptr<Wasm> Body{};
+  WasmActions Body;
   llvm::DenseMap<llvm::Value *, uint32_t> LocalMapping;
   // All locals, consisting of arguments and extra locals
   llvm::SmallVector<uint32_t> AllLocals{};
@@ -154,7 +151,8 @@ public:
   llvm::DenseMap<llvm::Instruction *, uint32_t> StackSlots{};
 
   llvm::DenseSet<llvm::AllocaInst *> PromotedAllocas{};
-  llvm::DenseMap<llvm::BasicBlock *, llvm::SmallVector<llvm::Instruction *>> Roots;
+  llvm::DenseMap<llvm::BasicBlock *, llvm::SmallVector<llvm::Instruction *>>
+      Roots;
 
   std::optional<uint32_t> FP{};
   int64_t FrameSize{};
@@ -182,7 +180,6 @@ public:
   }
 
   bool isImport() override { return false; }
-  void visit(WasmVisitor &V) const;
   static bool classof(const Symbol *S) {
     return S->getClassKind() == Kind::DefinedFunc;
   }

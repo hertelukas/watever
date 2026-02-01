@@ -1,69 +1,35 @@
 #include "watever/printer.hpp"
+#include "watever/opcode.hpp"
+#include "watever/utils.hpp"
+#include <llvm/Support/raw_ostream.h>
 
 namespace watever {
-#ifdef WATEVER_LOGGING
-class WasmPrinter final : public WasmVisitor {
-  unsigned int Depth = 0;
 
-  void print(llvm::StringRef Text) const {
-    std::string Indent;
+#ifdef WATEVER_LOGGING
+void dumpWasm(WasmActions &Body) {
+  std::string Buffer;
+  llvm::raw_string_ostream OS(Buffer);
+
+  size_t Depth = 0;
+
+  for (const auto &Inst : Body.Insts) {
+    if (Inst.Op == Opcode::End || Inst.Op == Opcode::Else) {
+      Depth--;
+    }
+
     for (size_t I = 0; I < Depth; ++I) {
-      Indent += "|  ";
+      OS << "|  ";
     }
 
-    WATEVER_LOG_DBG("{}{}", Indent, Text.str());
-  }
+    OS << Inst.getString() << "\n";
 
-public:
-  void visit(WasmBlock &Block) override {
-    print("block");
-    Depth++;
-    Block.InnerWasm->accept(*this);
-    print("end_block");
-    Depth--;
-  }
-
-  void visit(WasmLoop &Loop) override {
-    print("loop");
-    Depth++;
-    Loop.InnerWasm->accept(*this);
-    print("end_loop");
-    Depth--;
-  }
-
-  void visit(WasmIf &IfElse) override {
-    print("if");
-    Depth++;
-    IfElse.True->accept(*this);
-    Depth--;
-    print("else");
-    Depth++;
-    IfElse.False->accept(*this);
-    print("end_if");
-    Depth--;
-  }
-
-  void visit(WasmReturn &) override { print("ret"); }
-
-  void visit(WasmSeq &Seq) override {
-    Seq.Flow.first->accept(*this);
-    Seq.Flow.second->accept(*this);
-  }
-
-  void visit(WasmActions &Actions) override {
-    for (const auto &Inst : Actions.Insts) {
-      print(Inst.getString());
+    if (Inst.Op == Opcode::Block || Inst.Op == Opcode::Loop ||
+        Inst.Op == Opcode::If || Inst.Op == Opcode::Else) {
+      Depth++;
     }
   }
 
-  void visit(WasmBr &Br) override { print("br " + std::to_string(Br.Nesting)); }
-};
-#endif
-
-#ifdef WATEVER_LOGGING
-void dumpWasm(Wasm &W) {
-  WasmPrinter Printer{};
-  W.accept(Printer);
+  WATEVER_LOG_DBG("\n{}", OS.str());
 }
 #endif
 } // namespace watever

@@ -29,6 +29,16 @@ merge:
   ret void
 }
 
+define void @if(i1 %a) {
+entry:
+  br i1 %a, label %then, label %merge
+then:
+  call void @bar()
+  br label %merge
+merge:
+  ret void
+}
+
 define void @loop(i1 %a) {
 ; CHECK-LABEL:   (func $loop {{.*}} (param i32)
 ; CHECK: loop

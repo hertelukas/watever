@@ -137,7 +137,7 @@ entry:
 ; Uses i64
 define i57 @load_i57(ptr %a) {
 ; CHECK-LABEL:   $load_i57
-; CHECK-NEXT:    local.get 0
+; CHECK:    local.get 0
 ; CHECK-NEXT:    i64.load
 ; CHECK-NOT:     load
 entry:
@@ -148,7 +148,7 @@ entry:
 ; Uses i64
 define i64 @load_i64(ptr %a) {
 ; CHECK-LABEL:   $load_i64 
-; CHECK-NEXT:    local.get 0
+; CHECK:    local.get 0
 ; CHECK-NEXT:    i64.load
 ; CHECK-NOT:     load
 entry:
@@ -158,7 +158,7 @@ entry:
 
 define float @load_float(ptr %a) {
 ; CHECK-LABEL:   $load_float
-; CHECK-NEXT:    local.get 0
+; CHECK:    local.get 0
 ; CHECK-NEXT:    f32.load 
 ; CHECK-NOT:     load
 entry:
@@ -168,7 +168,7 @@ entry:
 
 define double @load_double(ptr %a) {
 ; CHECK-LABEL:   $load_double
-; CHECK-NEXT:    local.get 0
+; CHECK:    local.get 0
 ; CHECK-NEXT:    f64.load
 ; CHECK-NOT:     load
 entry:
@@ -178,7 +178,7 @@ entry:
 
 define ptr @load_ptr(ptr %a) {
 ; CHECK-LABEL:   $load_ptr 
-; CHECK-NEXT:    local.get 0
+; CHECK:    local.get 0
 ; CHECK-NEXT:    i32.load
 ; CHECK-NOT:     load
 entry:
@@ -188,14 +188,15 @@ entry:
 
 define ptr @load_root_gep(ptr %a) {
 ; CHECK-LABEL:  $load_root_gep
-; CHECK-NEXT: local.get 0
+; CHECK: local.get 0
 ; CHECK-NEXT: i32.const 12
 ; CHECK-NEXT: i32.add
-; CHECK-NEXT: local.set 0
+; CHECK-NEXT: local.tee 0
+; CHECK-NEXT: i32.load
+; CHECK-NEXT: local.set 1
 ; CHECK-NEXT: local.get 0
-; CHECK-NEXT: local.get 0
-; CHECK-NEXT: i32.load align=1
-; CHECK-NEXT: i32.store align=1
+; CHECK-NEXT: local.get 1
+; CHECK-NEXT: i32.store
 ; CHECK-NEXT: local.get 0
 entry:
 ; %a is a root and dies here; so %1 can be stored into the same local

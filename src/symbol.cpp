@@ -1,6 +1,5 @@
 #include "watever/symbol.hpp"
 #include "watever/feature.hpp"
-#include "watever/ir.hpp"
 #include "watever/type.hpp"
 #include <algorithm>
 #include <llvm/ADT/SmallVector.h>
@@ -10,11 +9,12 @@
 #include <llvm/Support/Casting.h>
 #include <llvm/Support/CodeGen.h>
 #include <llvm/Support/MathExtras.h>
+#include <utility>
 
 using namespace watever;
 
 DefinedGlobal::DefinedGlobal(uint32_t SymbolIdx, uint32_t GlobalIdx, ValType Ty,
-                             bool Mut, std::unique_ptr<Wasm> Ex)
+                             bool Mut, WasmActions Ex)
     : Global(Kind::DefinedGlobal, SymbolIdx, GlobalIdx, Ty, Mut),
       Expr(std::move(Ex)) {}
 
@@ -31,8 +31,6 @@ DefinedFunc::DefinedFunc(uint32_t SymbolIdx, uint32_t TypeIdx, uint32_t FuncIdx,
     LocalMapping[&Arg] = NewLocal;
   }
 }
-
-void DefinedFunc::visit(WasmVisitor &V) const { Body->accept(V); }
 
 bool DefinedFunc::hasExternalUser(llvm::Value *Val, llvm::BasicBlock *BB) {
   // If this instruction is a promoted alloca, it alrady has a local and does

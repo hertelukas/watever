@@ -13,7 +13,7 @@ namespace watever {
 static constexpr uint32_t WateverBinaryMagic = 0x6d736100;
 static constexpr uint32_t Version = 0x1;
 
-class CodeWriter final : public WasmVisitor {
+class CodeWriter {
   Relocation &Reloc;
   llvm::raw_ostream &OS;
   llvm::SmallVector<uint32_t> &LocalMap;
@@ -22,13 +22,7 @@ public:
   CodeWriter(llvm::raw_ostream &OS, Relocation &Reloc,
              llvm::SmallVector<uint32_t> &LocalMap)
       : Reloc(Reloc), OS(OS), LocalMap(LocalMap) {}
-  void visit(WasmBlock &Block) override;
-  void visit(WasmLoop &Loop) override;
-  void visit(WasmIf &IfElse) override;
-  void visit(WasmReturn &) override;
-  void visit(WasmSeq &Seq) override;
-  void visit(WasmActions &Actions) override;
-  void visit(WasmBr &Br) override;
+  void visit(WasmActions &Actions);
 };
 
 enum class Section : uint8_t {

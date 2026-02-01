@@ -3,6 +3,5 @@
 #include "watever/ir.hpp"
 
 namespace watever {
-void dumpWasm(Wasm &W);
+void dumpWasm(WasmActions &Body);
 } // namespace watever
-
