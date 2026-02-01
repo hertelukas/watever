@@ -73,8 +73,8 @@ int main(int argc, char *argv[]) {
 #include "watever/feature.def"
 #undef WATEVER_FEATURE
 
-  args::Positional<std::string> IRPath(
-      Parser, "IRPath", "Path to the input IR file", args::Options::Required);
+  args::Positional<std::string> IRPath(Parser, "IRPath",
+                                       "Path to the input IR file");
 
   Parser.ParseCLI(argc, argv);
   if (Parser.GetError() == args::Error::Help) {
@@ -152,7 +152,8 @@ int main(int argc, char *argv[]) {
 
   auto Context = std::make_unique<llvm::LLVMContext>();
   llvm::SMDiagnostic Diag{};
-  auto Mod = llvm::parseIRFile(IRPath.Get(), Diag, *Context);
+  std::string InputFile = IRPath ? IRPath.Get() : "-";
+  auto Mod = llvm::parseIRFile(InputFile, Diag, *Context);
   if (!Mod) {
     Diag.print(argv[0], llvm::errs());
     return 1;
