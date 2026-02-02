@@ -44,7 +44,8 @@ struct Symbol {
     if (GV.hasLocalLinkage()) {
       setFlag(SymbolFlag::WASM_SYM_BINDING_LOCAL);
     }
-    if (GV.hasWeakLinkage() || GV.hasLinkOnceLinkage()) {
+    if (GV.hasWeakLinkage() || GV.hasLinkOnceLinkage() ||
+        GV.hasExternalWeakLinkage()) {
       setFlag(SymbolFlag::WASM_SYM_BINDING_WEAK);
     }
     if (GV.hasHiddenVisibility()) {

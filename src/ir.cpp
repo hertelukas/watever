@@ -1817,6 +1817,7 @@ Module ModuleLowering::convert(llvm::Module &Mod,
         Res.Symbols.size(), FuncTypeIndex, FunctionIndexCounter++,
         F.getName().str());
     Import->setFlag(SymbolFlag::WASM_SYM_UNDEFINED);
+    Import->setFlags(F);
     Res.FunctionMap[&F] = Import.get();
     Res.Imports.push_back(Import.get());
     Res.Symbols.push_back(std::move(Import));
