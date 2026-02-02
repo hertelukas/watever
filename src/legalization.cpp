@@ -394,8 +394,9 @@ void FunctionLegalizer::visitSwitchInst(llvm::SwitchInst &SI) {
 
   // Build binary search tree
   // Emits a tree for the partitions between Begin and End
-  auto EmitTree = [&](auto &&Self, size_t Begin, size_t End) {
-    // Leave node (one partition)
+  auto EmitTree = [&](auto &&Self, size_t Begin, size_t End, int64_t LowerBound,
+                      int64_t UpperBound) {
+    // Leaf node (one partition)
     if (Begin == End) {
       const auto &C = PL[Begin];
       // If only one case, conditional branch
@@ -417,10 +418,23 @@ void FunctionLegalizer::visitSwitchInst(llvm::SwitchInst &SI) {
         SwitchCond = Builder.CreateSub(CondVal, MinConst);
       }
       // Branch tables have a max. size of 256 and are 0 normalized, so the
-      // condition will always fit into 32-bit here
+      // condition will always fit into 32-bit here. However, in a 64-bit
+      // condition, the value might overflow
       if (SwitchCond->getType()->getIntegerBitWidth() != 32) {
         assert(SwitchCond->getType()->getIntegerBitWidth() == 64 &&
                "bit width must be 32-bit or 64");
+        // If the possible values with which we reach this leaf are > 2^32 apart
+        // form each other, we need to manually branch to default, as a
+        // truncation will wrap around
+        if ((uint64_t)(UpperBound - LowerBound) > 0xFF'FF'FF'FFULL) {
+          uint64_t Range = C.Max - C.Min;
+          auto *InBounds = Builder.CreateICmpULE(
+              SwitchCond, llvm::ConstantInt::get(SwitchCond->getType(), Range));
+          auto *SwitchBB = llvm::BasicBlock::Create(NewFunc->getContext(),
+                                                    "sw.cluster", NewFunc);
+          Builder.CreateCondBr(InBounds, SwitchBB, DefaultDest);
+          Builder.SetInsertPoint(SwitchBB);
+        }
         SwitchCond = Builder.CreateTrunc(SwitchCond, Int32Ty);
       }
       auto *SubSwitch =
@@ -449,13 +463,13 @@ void FunctionLegalizer::visitSwitchInst(llvm::SwitchInst &SI) {
     Builder.CreateCondBr(Cmp, LeftBB, RightBB);
 
     Builder.SetInsertPoint(LeftBB);
-    Self(Self, Begin, Mid);
+    Self(Self, Begin, Mid, LowerBound, PivotVal);
 
     Builder.SetInsertPoint(RightBB);
-    Self(Self, Mid + 1, End);
+    Self(Self, Mid + 1, End, PivotVal + 1, UpperBound);
   };
 
-  EmitTree(EmitTree, 0, PL.size() - 1);
+  EmitTree(EmitTree, 0, PL.size() - 1, INT64_MIN, INT64_MAX);
 }
 //===----------------------------------------------------------------------===//
 // Unary Operations
