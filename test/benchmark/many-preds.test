@@ -19,4 +19,5 @@ print('merge:')
 print(f'  %r = phi i32 [0,%b{n}]', "".join(f",[%l{i},%b{i}]" for i in range(n)))
 print('  ret i32 %r')
 print('}')
-# CHECK: <f>:
+
+# CHECK: func $f

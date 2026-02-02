@@ -268,19 +268,20 @@ class FunctionLowering {
     llvm::BasicBlock *Fallthrough = nullptr;
   };
 
+  Context Ctx;
   llvm::DominatorTree &DT;
   llvm::LoopInfo &LI;
   Module &M;
 
   void doBranch(const llvm::BasicBlock *SourceBlock,
-                llvm::BasicBlock *TargetBlock, const Context &Ctx, ValType FTy);
+                llvm::BasicBlock *TargetBlock, ValType FTy);
 
   // TODO MergeChildren needs better type
   void nodeWithin(llvm::BasicBlock *Parent,
                   llvm::SmallVector<llvm::BasicBlock *> MergeChildren,
-                  const Context &Ctx, ValType FTy, llvm::BasicBlock *Follow);
+                  ValType FTy, llvm::BasicBlock *Follow);
 
-  void doTree(llvm::BasicBlock *Root, Context Ctx, ValType FTy);
+  void doTree(llvm::BasicBlock *Root, ValType FTy);
 
   static uint32_t index(const llvm::BasicBlock *BB, const Context &Ctx);
 
@@ -322,10 +323,7 @@ public:
     }
   }
 
-  void lower(ValType RetTy) {
-    Context Ctx;
-    doTree(DT.getRoot(), Ctx, RetTy);
-  }
+  void lower(ValType RetTy) { doTree(DT.getRoot(), RetTy); }
 };
 
 class ModuleLowering {

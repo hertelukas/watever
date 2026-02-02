@@ -1464,8 +1464,7 @@ void BlockLowering::lower() {
 }
 
 void FunctionLowering::doBranch(const llvm::BasicBlock *Source,
-                                llvm::BasicBlock *Target, const Context &Ctx,
-                                ValType FTy) {
+                                llvm::BasicBlock *Target, ValType FTy) {
   // Actions to be executed on the edge
   llvm::SmallVector<uint32_t> Destinations;
 
@@ -1524,12 +1523,13 @@ void FunctionLowering::doBranch(const llvm::BasicBlock *Source,
 
     WATEVER_LOG_TRACE("no branch needed from {} to {}, fall through",
                       getBlockName(Source), getBlockName(Target));
-    doTree(Target, Ctx, FTy);
+    auto *OldFallthrough = Ctx.Fallthrough;
+    doTree(Target, FTy);
+    Ctx.Fallthrough = OldFallthrough;
   }
 }
 
-void FunctionLowering::doTree(llvm::BasicBlock *Root, Context Ctx,
-                              ValType FTy) {
+void FunctionLowering::doTree(llvm::BasicBlock *Root, ValType FTy) {
   WATEVER_LOG_TRACE("doTree with root {}", getBlockName(Root));
 
   llvm::SmallVector<llvm::BasicBlock *> MergeChildren;
@@ -1540,18 +1540,19 @@ void FunctionLowering::doTree(llvm::BasicBlock *Root, Context Ctx,
     WATEVER_LOG_TRACE("Generating loop for {}", getBlockName(Root));
     Ctx.Enclosing.push_back(ContainingSyntax::createLoop(Root));
     F.Body.Insts.push_back(WasmInst::createLoop(FTy));
-    nodeWithin(Root, MergeChildren, Ctx, FTy, nullptr);
+    nodeWithin(Root, MergeChildren, FTy, nullptr);
     F.Body.Insts.emplace_back(Opcode::End);
+    Ctx.Enclosing.pop_back();
     return;
   }
 
-  nodeWithin(Root, MergeChildren, Ctx, FTy, nullptr);
+  nodeWithin(Root, MergeChildren, FTy, nullptr);
 }
 
 void FunctionLowering::nodeWithin(
     llvm::BasicBlock *Parent,
-    llvm::SmallVector<llvm::BasicBlock *> MergeChildren, const Context &Ctx,
-    ValType FTy, llvm::BasicBlock *Follower) {
+    llvm::SmallVector<llvm::BasicBlock *> MergeChildren, ValType FTy,
+    llvm::BasicBlock *Follower) {
   // Base case
   if (MergeChildren.empty()) {
     auto *Term = Parent->getTerminator();
@@ -1562,11 +1563,11 @@ void FunctionLowering::nodeWithin(
 
     // Follower but without if - so block wrap is needed
     if (Follower && !GeneratesIf) {
-      auto NewContext = Ctx;
-      NewContext.Enclosing.push_back(ContainingSyntax::createBlock(Follower));
+      Ctx.Enclosing.push_back(ContainingSyntax::createBlock(Follower));
       F.Body.Insts.push_back(WasmInst::createBlock(FTy));
-      nodeWithin(Parent, MergeChildren, NewContext, FTy, nullptr);
+      nodeWithin(Parent, MergeChildren, FTy, nullptr);
       F.Body.Insts.emplace_back(Opcode::End);
+      Ctx.Enclosing.pop_back();
       return;
     }
 
@@ -1578,8 +1579,7 @@ void FunctionLowering::nodeWithin(
                           getBlockName(Br->getSuccessor(0)),
                           getBlockName(Br->getSuccessor(1)));
 
-        auto IfCtx = Ctx;
-        IfCtx.Enclosing.push_back(ContainingSyntax::createIf(Follower));
+        Ctx.Enclosing.push_back(ContainingSyntax::createIf(Follower));
 
         // TODO In the following case, a br_if might be prefered:
         //    A
@@ -1606,16 +1606,17 @@ void FunctionLowering::nodeWithin(
         // flow.
 
         F.Body.Insts.push_back(WasmInst::createIfElse(FTy));
-        doBranch(Parent, Br->getSuccessor(0), IfCtx, FTy);
+        doBranch(Parent, Br->getSuccessor(0), FTy);
         F.Body.Insts.emplace_back(Opcode::Else);
-        doBranch(Parent, Br->getSuccessor(1), IfCtx, FTy);
+        doBranch(Parent, Br->getSuccessor(1), FTy);
         F.Body.Insts.emplace_back(Opcode::End);
+        Ctx.Enclosing.pop_back();
         return;
       }
       WATEVER_LOG_TRACE("{} branches to {}", getBlockName(Parent),
                         getBlockName(Br->getSuccessor(0)));
 
-      doBranch(Parent, Br->getSuccessor(0), Ctx, FTy);
+      doBranch(Parent, Br->getSuccessor(0), FTy);
       return;
     }
     if (llvm::isa<llvm::ReturnInst>(Term)) {
@@ -1659,11 +1660,11 @@ void FunctionLowering::nodeWithin(
   }
 
   if (Follower) {
-    auto NewContext = Ctx;
-    NewContext.Enclosing.push_back(ContainingSyntax::createBlock(Follower));
+    Ctx.Enclosing.push_back(ContainingSyntax::createBlock(Follower));
     F.Body.Insts.push_back(WasmInst::createBlock(FTy));
-    nodeWithin(Parent, MergeChildren, NewContext, FTy, nullptr);
+    nodeWithin(Parent, MergeChildren, FTy, nullptr);
     F.Body.Insts.emplace_back(Opcode::End);
+    Ctx.Enclosing.pop_back();
     return;
   }
 
@@ -1672,12 +1673,13 @@ void FunctionLowering::nodeWithin(
   WATEVER_LOG_TRACE("{} is followed by {}", getBlockName(Parent),
                     getBlockName(NextFollower));
 
-  auto FirstContext = Ctx;
-  FirstContext.Fallthrough = NextFollower;
+  auto *OldFallthrough = Ctx.Fallthrough;
+  Ctx.Fallthrough = NextFollower;
 
-  nodeWithin(Parent, MergeChildren, FirstContext, ValType::Void, NextFollower);
+  nodeWithin(Parent, MergeChildren, ValType::Void, NextFollower);
 
-  doTree(NextFollower, Ctx, FTy);
+  Ctx.Fallthrough = OldFallthrough;
+  doTree(NextFollower, FTy);
 }
 
 uint32_t FunctionLowering::index(const llvm::BasicBlock *BB,
