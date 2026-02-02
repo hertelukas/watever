@@ -1,0 +1,29 @@
+# NOTE: Do not autogenerate
+# SPDX-FileCopyrightText: 2025 Contributors to TPDE <https://tpde.org>
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+# RUN: python3 %s 2000 | watever -l 0 | wasm2wat - | FileCheck %s
+
+# CFG: entry -> {a0, b0} -> {a1, b1} -> ...
+
+# CHECK: func $f
+
+import sys
+
+n = int(sys.argv[1])
+print("define ptr @f(ptr %p, ptr %q) {")
+print('entry:')
+print('  %ce = load volatile i1, ptr %p')
+print('  br i1 %ce, label %a0, label %b0')
+for i in range(n):
+    print(f'a{i}:')
+    print(f'  %ca{i} = load volatile i1, ptr %p')
+    print(f'  br i1 %ca{i}, label %a{i+1}, label %b{i+1}')
+    print(f'b{i}:')
+    print(f'  %cb{i} = load volatile i1, ptr %q')
+    print(f'  br i1 %cb{i}, label %a{i+1}, label %b{i+1}')
+print(f'a{n}:')
+print(f'  ret ptr %p')
+print(f'b{n}:')
+print(f'  ret ptr %q')
+print('}')

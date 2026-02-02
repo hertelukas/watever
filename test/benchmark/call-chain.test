@@ -1,0 +1,20 @@
+# NOTE: Do not autogenerate
+# SPDX-FileCopyrightText: 2025 Contributors to TPDE <https://tpde.org>
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+# RUN: python3 %s 2000 | watever -l 0 | wasm2wat - | FileCheck %s
+
+# Test for a long dependency chain with a merge block.
+
+# CHECK: func $f
+
+import sys
+
+n = int(sys.argv[1])
+print("declare i32 @g(i32)")
+print("define i32 @f(i32 %v, i32 %v0) {")
+for i in range(n):
+    print(f'  %c{i} = call i32 @g(i32 %v{i})')
+    print(f'  %v{i+1} = add i32 %c{i}, %v')
+print(f'  ret i32 %v{n}')
+print('}')

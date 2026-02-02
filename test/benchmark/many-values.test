@@ -1,0 +1,24 @@
+# NOTE: Do not autogenerate
+# SPDX-FileCopyrightText: 2025 Contributors to TPDE <https://tpde.org>
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+# RUN: python3 %s 2000 | watever -l 0 | wasm2wat - | FileCheck %s
+
+# Test for a function with many values that are live at the same time.
+
+# CHECK: func $f
+
+import sys
+
+print('target datalayout = "e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-i128:128-n32:64-S128-ni:1:10:20"')
+print('target triple = "wasm32-unknown-unknown"')
+
+n = int(sys.argv[1])
+print("define void @f(ptr %p) {")
+for j in range(2):
+    for i in range(n):
+        print(f'  %a{j}_{i} = load volatile i32, ptr %p')
+    for i in range(n):
+        print(f'  store volatile i32 %a{j}_{i}, ptr %p')
+print('  ret void')
+print('}')

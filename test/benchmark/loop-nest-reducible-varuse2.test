@@ -1,0 +1,36 @@
+# NOTE: Do not autogenerate
+# SPDX-FileCopyrightText: 2025 Contributors to TPDE <https://tpde.org>
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+# RUN: python3 %s 1000 | watever -l 0 | wasm2wat - | FileCheck %s
+
+# CHECK: func $f
+
+import sys
+
+print('target datalayout = "e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-i128:128-n32:64-S128-ni:1:10:20"')
+print('target triple = "wasm32-unknown-unknown"')
+
+n = int(sys.argv[1])
+print("declare void @g(i64)")
+print("define void @f(i64 %i0, ptr %v) {")
+print("hx:")
+print("  br label %h0")
+for i in range(n):
+    print(f'h{i}:')
+    print(f'  %i{i+1} = phi i64 [0, %h{i-1 if i else "x"}], [%a{i+1}, %l{i+1}]')
+    print(f'  %w{i} = load volatile i64, ptr %v')
+    print(f'  %c{i} = icmp ult i64 %i{i+1}, %i{i}')
+    print(f'  br i1 %c{i}, label %h{i+1}, label %l{i}')
+print(f'h{n}:')
+for i in range(n):
+    print(f'  %x{i} = add i64 %w{i},', f'%x{i-1}' if i else '0')
+print(f'  call void @g(i64 %x{n-1})')
+print(f'  br label %l{n}')
+for i in range(n-1, -1, -1):
+    print(f'l{i+1}:')
+    print(f'  %a{i+1} = add i64 %i{i+1}, 1')
+    print(f'  br label %h{i}')
+print('l0:')
+print('  ret void')
+print('}')

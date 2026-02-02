@@ -1,0 +1,15 @@
+# NOTE: Do not autogenerate
+# SPDX-FileCopyrightText: 2025 Contributors to TPDE <https://tpde.org>
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+# RUN: python3 %s 2000 | watever -l 0 | wasm2wat - | FileCheck %s
+
+# Test for a module with many functions.
+
+# CHECK: func $f0
+
+import sys
+
+n = int(sys.argv[1])
+for i in range(n):
+    print(f'define void @f{i}() {{ ret void }}')

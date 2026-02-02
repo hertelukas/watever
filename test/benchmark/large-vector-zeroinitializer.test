@@ -1,0 +1,20 @@
+# NOTE: Do not autogenerate
+# SPDX-FileCopyrightText: 2025 Contributors to TPDE <https://tpde.org>
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+# RUN: python3 %s 200 | watever -l 0 | wasm2wat - | FileCheck %s
+
+# Test for storing a large vector constant
+
+# CHECK: func $f
+
+import sys
+
+print('target datalayout = "e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-i128:128-n32:64-S128-ni:1:10:20"')
+print('target triple = "wasm32-unknown-unknown"')
+
+n = int(sys.argv[1])
+print("define void @f(ptr %p, ptr %q) {")
+print(f'  store <{n} x i32> zeroinitializer, ptr %q')
+print('  ret void')
+print('}')

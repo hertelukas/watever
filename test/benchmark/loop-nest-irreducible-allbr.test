@@ -1,0 +1,31 @@
+# NOTE: Do not autogenerate
+# SPDX-FileCopyrightText: 2025 Contributors to TPDE <https://tpde.org>
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+# RUN: python3 %s 2000 | watever -l 0 | wasm2wat - | FileCheck %s
+
+# CHECK: func $f
+
+import sys
+
+print('target datalayout = "e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-i128:128-n32:64-S128-ni:1:10:20"')
+print('target triple = "wasm32-unknown-unknown"')
+
+n = int(sys.argv[1])
+print("declare void @g()")
+print("define void @f(i64 %c, ptr %p) {")
+print("hx:")
+print("  switch i64 %c, label %h0 [")
+for i in range(n):
+    print(f"    i64 {i}, label %h{i+1}")
+print(f"  ]")
+for i in range(n):
+    print(f'h{i+1}:')
+    print(f'  %c{i} = load volatile i1, ptr %p')
+    print(f'  br i1 %c{i}, label %h{i+2}, label %h{i}')
+print(f'h{n+1}:')
+print(f'  call void @g()')
+print(f'  br label %h{n}')
+print('h0:')
+print('  ret void')
+print('}')
