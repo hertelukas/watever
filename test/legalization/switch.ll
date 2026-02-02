@@ -89,3 +89,27 @@ b:
 merge:
   ret void
 }
+
+define void @sparse_i64(i64 %target) {
+; CHECK-LABEL: define void @sparse_i64
+  switch i64 %target, label %merge [ i64 1, label %a
+                                     i64 2, label %b
+				     i64 118750744033187, label %c
+				     i64 118750744033188, label %c
+				     i64 -18237912, label %a
+				     i64 -18237913, label %b ]
+a:
+  call void @a()
+  br label %merge
+
+b:
+  call void @b()
+  br label %merge
+
+c:
+  call void @c()
+  br label %merge
+
+merge:
+  ret void
+}

@@ -375,8 +375,6 @@ void FunctionLegalizer::visitSwitchInst(llvm::SwitchInst &SI) {
     WATEVER_UNIMPLEMENTED("switch on non-scalar value");
   }
 
-  // TODO Handle non i32 conditions
-  assert(Cond[0]->getType()->isIntegerTy(32) && "condition must be 32-bit");
   auto *CondVal = Cond[0];
   if (SI.getCondition()->getType() != CondVal->getType()) {
     CondVal = Builder.CreateAnd(
@@ -418,11 +416,18 @@ void FunctionLegalizer::visitSwitchInst(llvm::SwitchInst &SI) {
         auto *MinConst = llvm::ConstantInt::get(CondVal->getType(), C.Min);
         SwitchCond = Builder.CreateSub(CondVal, MinConst);
       }
+      // Branch tables have a max. size of 256 and are 0 normalized, so the
+      // condition will always fit into 32-bit here
+      if (SwitchCond->getType()->getIntegerBitWidth() != 32) {
+        assert(SwitchCond->getType()->getIntegerBitWidth() == 64 &&
+               "bit width must be 32-bit or 64");
+        SwitchCond = Builder.CreateTrunc(SwitchCond, Int32Ty);
+      }
       auto *SubSwitch =
           Builder.CreateSwitch(SwitchCond, DefaultDest, C.Cases.size());
       for (const auto &Case : C.Cases) {
         auto *Val = llvm::cast<llvm::ConstantInt>(llvm::ConstantInt::get(
-            CondVal->getType(), Case.getCaseValue()->getSExtValue() - C.Min));
+            Int32Ty, Case.getCaseValue()->getSExtValue() - C.Min));
         auto *Dest = llvm::dyn_cast<llvm::BasicBlock>(
             getMappedValue(Case.getCaseSuccessor())[0]);
         SubSwitch->addCase(Val, Dest);
