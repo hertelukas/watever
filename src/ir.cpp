@@ -1533,12 +1533,13 @@ void FunctionLowering::doTree(llvm::BasicBlock *Root, ValType FTy) {
   WATEVER_LOG_TRACE("doTree with root {}", getBlockName(Root));
 
   llvm::SmallVector<llvm::BasicBlock *> MergeChildren;
+  // All blocks dominated by Root, which
   getMergeChildren(Root, MergeChildren);
 
   // Emit loop block
   if (LI.isLoopHeader(Root)) {
     WATEVER_LOG_TRACE("Generating loop for {}", getBlockName(Root));
-    Ctx.Enclosing.push_back(ContainingSyntax::createLoop(Root));
+    Ctx.Enclosing.push_back(Root);
     F.Body.Insts.push_back(WasmInst::createLoop(FTy));
     nodeWithin(Root, MergeChildren, FTy, nullptr);
     F.Body.Insts.emplace_back(Opcode::End);
@@ -1549,11 +1550,19 @@ void FunctionLowering::doTree(llvm::BasicBlock *Root, ValType FTy) {
   nodeWithin(Root, MergeChildren, FTy, nullptr);
 }
 
+// Translates Parent as an innermost node, and all merge children, which are
+// directly dominated (and therefore must be reachable by a branch) by
+// Parent.
+// The Follower points to the block coming right after Parent. It is no longer
+// in the merge nodes, but was originally: it already has been "peeled" away.
+// This allows to put only blocks when needed, an if-else can by itself jump to
+// Follower, without needing an ecnlosing block.
 void FunctionLowering::nodeWithin(
     llvm::BasicBlock *Parent,
-    llvm::SmallVector<llvm::BasicBlock *> MergeChildren, ValType FTy,
+    llvm::SmallVector<llvm::BasicBlock *> &MergeChildren, ValType FTy,
     llvm::BasicBlock *Follower) {
-  // Base case
+  // Base case: There exists no (not-yet-translated, previous) block which
+  // targets parent, and all nodes parent needs to reach are in the context
   if (MergeChildren.empty()) {
     auto *Term = Parent->getTerminator();
     bool GeneratesIf = false;
@@ -1563,7 +1572,7 @@ void FunctionLowering::nodeWithin(
 
     // Follower but without if - so block wrap is needed
     if (Follower && !GeneratesIf) {
-      Ctx.Enclosing.push_back(ContainingSyntax::createBlock(Follower));
+      Ctx.Enclosing.push_back(Follower);
       F.Body.Insts.push_back(WasmInst::createBlock(FTy));
       nodeWithin(Parent, MergeChildren, FTy, nullptr);
       F.Body.Insts.emplace_back(Opcode::End);
@@ -1579,7 +1588,7 @@ void FunctionLowering::nodeWithin(
                           getBlockName(Br->getSuccessor(0)),
                           getBlockName(Br->getSuccessor(1)));
 
-        Ctx.Enclosing.push_back(ContainingSyntax::createIf(Follower));
+        Ctx.Enclosing.push_back(Follower);
 
         // TODO In the following case, a br_if might be prefered:
         //    A
@@ -1595,15 +1604,15 @@ void FunctionLowering::nodeWithin(
         // end            end
         // C              C
         //
-        // In theory one could check, if one of the successors is follower: we
-        // could satisfy the branch with a br_if.
-        // However, this will never be the case, as the edge from A to C is
-        // critical and therefore always split (what ends up in the empty
-        // if-case). And at this point, it cannot be decided, whether the PHI
-        // nodes in C needs a move in the critical-edge-block or not.
+        // In theory one could check, if one of the successors is follower:
+        // we could satisfy the branch with a br_if. However, this will
+        // never be the case, as the edge from A to C is critical and
+        // therefore always split (what ends up in the empty if-case). And
+        // at this point, it cannot be decided, whether the PHI nodes in C
+        // needs a move in the critical-edge-block or not.
         //
-        // if-else statements are basically always shorter, but nest the control
-        // flow.
+        // if-else statements are basically always shorter, but nest the
+        // control flow.
 
         F.Body.Insts.push_back(WasmInst::createIfElse(FTy));
         doBranch(Parent, Br->getSuccessor(0), FTy);
@@ -1660,7 +1669,12 @@ void FunctionLowering::nodeWithin(
   }
 
   if (Follower) {
-    Ctx.Enclosing.push_back(ContainingSyntax::createBlock(Follower));
+    // 1. Parent needs to be able to break to Follower
+    // 2. Parent needs to be able to break to merge children
+    // Therefore, we need a block: so we can clearly break to follower
+    // (outermost) and differentiate that from all other merge children: Create
+    // a new scope
+    Ctx.Enclosing.push_back(Follower);
     F.Body.Insts.push_back(WasmInst::createBlock(FTy));
     nodeWithin(Parent, MergeChildren, FTy, nullptr);
     F.Body.Insts.emplace_back(Opcode::End);
@@ -1668,12 +1682,23 @@ void FunctionLowering::nodeWithin(
     return;
   }
 
+  // Next follower is a merge node: multiple nodes need to reach it.
+  // Furthermore, it has also the highest RPO number, meaning that it does
+  // not need to reach any other merge node. We can "peel" it away we are
+  // sure that the structure is: block
+  //   (block, for all the rest of the merge children)
+  //     Parent (can now reach all its merge children)
+  //   <some amount of children needing to reach next_follower>
+  // end
+  // next_follower
   auto *NextFollower = MergeChildren.pop_back_val();
 
   WATEVER_LOG_TRACE("{} is followed by {}", getBlockName(Parent),
                     getBlockName(NextFollower));
 
   auto *OldFallthrough = Ctx.Fallthrough;
+  // As we have put a block around all the other merge children, they would
+  // currently reach exactly next_follower by just falling through.
   Ctx.Fallthrough = NextFollower;
 
   nodeWithin(Parent, MergeChildren, ValType::Void, NextFollower);
@@ -1688,7 +1713,7 @@ uint32_t FunctionLowering::index(const llvm::BasicBlock *BB,
   // Iterate in reverse to find the innermost matching label (relative index
   // 0)
   for (auto &It : std::ranges::reverse_view(Ctx.Enclosing)) {
-    if (It.Label == BB) {
+    if (It == BB) {
       return I;
     }
     ++I;
@@ -1715,6 +1740,9 @@ void FunctionLowering::getMergeChildren(
     }
   }
 
+  // Higher post-order-number comes last. This ensures that the first-popped
+  // child does not need to reach any other child and can safely be
+  // translated last
   std::ranges::sort(Result,
                     [&](const llvm::BasicBlock *A, const llvm::BasicBlock *B) {
                       return RPOOrdering.lookup(A) < RPOOrdering.lookup(B);
@@ -1795,8 +1823,8 @@ Module ModuleLowering::convert(llvm::Module &Mod,
 
   // Imported functions must be defined first
   for (auto &F : Mod) {
-    // Intrinsics will not get imported, nor called - but directly lowered in
-    // place
+    // Intrinsics will not get imported, nor called - but directly lowered
+    // in place
     if (!F.isDeclaration() || F.isIntrinsic()) {
       continue;
     }

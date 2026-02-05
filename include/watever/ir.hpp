@@ -235,35 +235,9 @@ public:
 };
 
 class FunctionLowering {
-  // TODO I currently don't see why we need to store blocktype
-  enum class BlockType : uint8_t {
-    IfThenElse,
-    Loop,
-    Block,
-  };
-  class ContainingSyntax {
-    [[maybe_unused]]
-    BlockType BT;
-
-    ContainingSyntax(BlockType BT, llvm::BasicBlock *Label)
-        : BT(BT), Label(Label) {}
-
-  public:
-    llvm::BasicBlock *Label;
-    static ContainingSyntax createIf(llvm::BasicBlock *Follow) {
-      return {BlockType::IfThenElse, Follow};
-    }
-    static ContainingSyntax createLoop(llvm::BasicBlock *Header) {
-      return {BlockType::Loop, Header};
-    }
-    static ContainingSyntax createBlock(llvm::BasicBlock *Follow) {
-      return {BlockType::Block, Follow};
-    }
-  };
-
   DefinedFunc &F;
   struct Context {
-    llvm::SmallVector<ContainingSyntax> Enclosing;
+    llvm::SmallVector<llvm::BasicBlock *> Enclosing;
     // The label that can be reached by just falling through
     llvm::BasicBlock *Fallthrough = nullptr;
   };
@@ -278,9 +252,11 @@ class FunctionLowering {
 
   // TODO MergeChildren needs better type
   void nodeWithin(llvm::BasicBlock *Parent,
-                  llvm::SmallVector<llvm::BasicBlock *> MergeChildren,
+                  llvm::SmallVector<llvm::BasicBlock *> &MergeChildren,
                   ValType FTy, llvm::BasicBlock *Follow);
 
+  /// Translate tree rooted at \p Root, including everything \p Root is
+  /// dominating
   void doTree(llvm::BasicBlock *Root, ValType FTy);
 
   static uint32_t index(const llvm::BasicBlock *BB, const Context &Ctx);
