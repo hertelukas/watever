@@ -8,6 +8,7 @@
 #include <llvm/IR/Type.h>
 #include <llvm/Support/LEB128.h>
 #include <llvm/Support/raw_ostream.h>
+#include <string_view>
 
 namespace watever {
 enum class ValType : uint8_t {
@@ -42,6 +43,48 @@ enum class ValType : uint8_t {
 constexpr bool isRef(ValType T) {
   return T >= ValType::Exn && T <= ValType::NoExn;
 };
+
+constexpr std::string_view toString(ValType T) {
+  switch (T) {
+  case ValType::I32:
+    return "i32";
+  case ValType::I64:
+    return "i64";
+  case ValType::F32:
+    return "f32";
+  case ValType::F64:
+    return "f64";
+  case ValType::V128:
+    return "v128";
+  case ValType::Exn:
+    return "exnref";
+  case ValType::Array:
+    return "arrayref";
+  case ValType::Struct:
+    return "structref";
+  case ValType::I31:
+    return "i31ref";
+  case ValType::Eq:
+    return "eqref";
+  case ValType::Any:
+    return "anyref";
+  case ValType::Extern:
+    return "externref";
+  case ValType::Func:
+    return "funcref";
+  case ValType::None:
+    return "nullref";
+  case ValType::NoExtern:
+    return "noextern";
+  case ValType::NoFunc:
+    return "nofunc";
+  case ValType::NoExn:
+    return "noexn";
+  case ValType::Void:
+    return "";
+  }
+  return "unknown";
+}
 
 inline ValType fromLLVMType(llvm::Type *T, const llvm::DataLayout &DL) {
   switch (T->getTypeID()) {

@@ -241,7 +241,7 @@ public:
       : InstArgument(InstArgKind::BlockType), Type(Ty) {}
 
   [[nodiscard]] std::string getString() const override {
-    return llvm::formatv("{}", static_cast<char>(Type));
+    return llvm::formatv("{}", toString(Type));
   }
 
   void encode(llvm::raw_ostream &OS) const override {

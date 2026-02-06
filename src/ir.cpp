@@ -1463,8 +1463,151 @@ void BlockLowering::lower() {
   }
 }
 
-void FunctionLowering::doBranch(const llvm::BasicBlock *Source,
-                                llvm::BasicBlock *Target, ValType FTy) {
+uint32_t FunctionLowering::index(const llvm::BasicBlock *BB,
+                                 const Context &Ctx) {
+  uint32_t I = 0;
+  // Iterate in reverse to find the innermost matching label (relative index
+  // 0)
+  for (auto &It : std::ranges::reverse_view(Ctx.Enclosing)) {
+    if (It == BB) {
+      return I;
+    }
+    ++I;
+  }
+  WATEVER_UNREACHABLE("unknown branch target");
+}
+
+void FunctionLowering::processTree(llvm::BasicBlock *Root, ValType FTy,
+                                   llvm::BasicBlock *Fallthrough) {
+  WATEVER_LOG_TRACE("Processing tree rooted at {}, producing {}",
+                    getBlockName(Root), toString(FTy));
+
+  llvm::SmallVector<llvm::BasicBlock *> MergeChildren;
+  getMergeChildren(Root, MergeChildren);
+
+  // If there is a fall through, this tree can just produce void. Otherwise, it
+  // produces the function result.
+  auto TreeTy = Fallthrough == nullptr ? FTy : ValType::Void;
+
+  if (LI.isLoopHeader(Root)) {
+    WATEVER_LOG_TRACE("Generating loop for {}", getBlockName(Root));
+    Ctx.Enclosing.push_back(Root);
+    F.Body.Insts.push_back(WasmInst::createLoop(TreeTy));
+    WorkStack.push_back(PopContext());
+    WorkStack.push_back(EmitOp{.Op = Opcode::End});
+  }
+
+  llvm::BasicBlock *NextFallthrough = Fallthrough;
+
+  // Remember to process all merge children: they need to be reachable from
+  // Root, so everyone gets a block. The first child is the outermost merge.
+  for (auto *Child : MergeChildren) {
+    F.Body.Insts.push_back(WasmInst::createBlock(ValType::Void));
+    Ctx.Enclosing.push_back(Child);
+
+    WorkStack.push_back(
+        ProcessTree{.Root = Child, .Ty = FTy, .Fallthrough = NextFallthrough});
+
+    WorkStack.push_back(EmitOp{.Op = Opcode::End});
+    WorkStack.push_back(PopContext());
+    NextFallthrough = Child;
+  }
+
+  translateBB(Root);
+
+  auto *Term = Root->getTerminator();
+  if (auto *Br = llvm::dyn_cast<llvm::BranchInst>(Term)) {
+    auto RootTy = MergeChildren.empty() ? TreeTy : ValType::Void;
+    if (Br->isConditional()) {
+      WATEVER_LOG_TRACE("{} branches to {} and {}", getBlockName(Root),
+                        getBlockName(Br->getSuccessor(0)),
+                        getBlockName(Br->getSuccessor(1)));
+
+      // TODO In the following case, a br_if might be prefered:
+      //    A
+      //   / \.
+      //  B-->C
+      //
+      //  Goal           Current
+      // ------         ---------
+      // block          A
+      //   A            if
+      //   br_if        else
+      //   B              B
+      // end            end
+      // C              C
+      //
+      // In theory one could check, if one of the successors is follower:
+      // we could satisfy the branch with a br_if. However, this will
+      // never be the case, as the edge from A to C is critical and
+      // therefore always split (what ends up in the empty if-case). And
+      // at this point, it cannot be decided, whether the PHI nodes in C
+      // needs a move in the critical-edge-block or not.
+      //
+      // if-else statements are basically always shorter, but nest the
+      // control flow.
+
+      // TODO implement block optimization
+      Ctx.Enclosing.push_back(nullptr);
+      F.Body.Insts.push_back(WasmInst::createIfElse(RootTy));
+      WorkStack.push_back(PopContext());
+      WorkStack.push_back(EmitOp{.Op = Opcode::End});
+      // Else path
+      WorkStack.push_back(HandleEdge{.Source = Root,
+                                     .Target = Br->getSuccessor(1),
+                                     .Ty = RootTy,
+                                     .Fallthrough = NextFallthrough});
+      WorkStack.push_back(EmitOp{.Op = Opcode::Else});
+      // If path
+      WorkStack.push_back(HandleEdge{.Source = Root,
+                                     .Target = Br->getSuccessor(0),
+                                     .Ty = RootTy,
+                                     .Fallthrough = NextFallthrough});
+    } else {
+      WATEVER_LOG_TRACE("{} branches to {}", getBlockName(Root),
+                        getBlockName(Br->getSuccessor(0)));
+      WorkStack.push_back(HandleEdge{.Source = Root,
+                                     .Target = Br->getSuccessor(0),
+                                     .Ty = RootTy,
+                                     .Fallthrough = NextFallthrough});
+    }
+  } else if (llvm::isa<llvm::ReturnInst>(Term)) {
+    F.Body.Insts.emplace_back(Opcode::Return);
+  } else if (llvm::isa<llvm::UnreachableInst>(Term)) {
+    F.Body.Insts.emplace_back(Opcode::Unreachable);
+  } else if (auto *SI = llvm::dyn_cast<llvm::SwitchInst>(Term)) {
+    WATEVER_LOG_TRACE("{} ends with a switch", getBlockName(Root));
+    auto *DefaultTarget = SI->getDefaultDest();
+    auto DefaultIdx = index(DefaultTarget, Ctx);
+
+    // Map each case to the target block index
+    // These have been ordered during legalization
+    llvm::SmallVector<uint32_t> Targets;
+    [[maybe_unused]] uint32_t LastCase = 0;
+    for (auto &Case : SI->cases()) {
+      auto *Target = Case.getCaseSuccessor();
+      auto BlockIdx = index(Target, Ctx);
+      auto CaseValue = Case.getCaseValue()->getZExtValue();
+
+      // Fill gaps
+      while (Targets.size() < CaseValue) {
+        Targets.push_back(DefaultIdx);
+      }
+      assert(LastCase <= CaseValue && "cases have not been ordered correctly");
+      LastCase = CaseValue;
+      Targets.push_back(BlockIdx);
+    }
+    BranchTableArg Argument{std::move(Targets), DefaultIdx};
+    F.Body.Insts.emplace_back(Opcode::BrTable,
+                              std::make_unique<BranchTableArg>(Argument));
+  } else {
+    WATEVER_UNREACHABLE("unsupported terminator: {}", Term->getOpcodeName());
+  }
+}
+
+void FunctionLowering::handleEdge(llvm::BasicBlock *Source,
+                                  llvm::BasicBlock *Target, ValType Ty,
+                                  llvm::BasicBlock *Fallthrough) {
   // Actions to be executed on the edge
   llvm::SmallVector<uint32_t> Destinations;
 
@@ -1505,7 +1648,7 @@ void FunctionLowering::doBranch(const llvm::BasicBlock *Source,
   }
 
   // Backward branch (continue) or forward branch (exit)
-  if (Target == Ctx.Fallthrough) {
+  if (Target == Fallthrough) {
     WATEVER_LOG_TRACE("Target {} is fallthrough for {}", getBlockName(Target),
                       getBlockName(Source));
   } else if (DT.dominates(Target, Source) || isMergeNode(Target)) {
@@ -1520,205 +1663,11 @@ void FunctionLowering::doBranch(const llvm::BasicBlock *Source,
 #endif
     F.Body.Insts.emplace_back(Opcode::Br, index(Target, Ctx));
   } else {
-
     WATEVER_LOG_TRACE("no branch needed from {} to {}, fall through",
                       getBlockName(Source), getBlockName(Target));
-    auto *OldFallthrough = Ctx.Fallthrough;
-    doTree(Target, FTy);
-    Ctx.Fallthrough = OldFallthrough;
+    WorkStack.push_back(
+        ProcessTree{.Root = Target, .Ty = Ty, .Fallthrough = Fallthrough});
   }
-}
-
-void FunctionLowering::doTree(llvm::BasicBlock *Root, ValType FTy) {
-  WATEVER_LOG_TRACE("doTree with root {}", getBlockName(Root));
-
-  llvm::SmallVector<llvm::BasicBlock *> MergeChildren;
-  // All blocks dominated by Root, which
-  getMergeChildren(Root, MergeChildren);
-
-  // Emit loop block
-  if (LI.isLoopHeader(Root)) {
-    WATEVER_LOG_TRACE("Generating loop for {}", getBlockName(Root));
-    Ctx.Enclosing.push_back(Root);
-    F.Body.Insts.push_back(WasmInst::createLoop(FTy));
-    nodeWithin(Root, MergeChildren, FTy, nullptr);
-    F.Body.Insts.emplace_back(Opcode::End);
-    Ctx.Enclosing.pop_back();
-    return;
-  }
-
-  nodeWithin(Root, MergeChildren, FTy, nullptr);
-}
-
-// Translates Parent as an innermost node, and all merge children, which are
-// directly dominated (and therefore must be reachable by a branch) by
-// Parent.
-// The Follower points to the block coming right after Parent. It is no longer
-// in the merge nodes, but was originally: it already has been "peeled" away.
-// This allows to put only blocks when needed, an if-else can by itself jump to
-// Follower, without needing an ecnlosing block.
-void FunctionLowering::nodeWithin(
-    llvm::BasicBlock *Parent,
-    llvm::SmallVector<llvm::BasicBlock *> &MergeChildren, ValType FTy,
-    llvm::BasicBlock *Follower) {
-  // Base case: There exists no (not-yet-translated, previous) block which
-  // targets parent, and all nodes parent needs to reach are in the context
-  if (MergeChildren.empty()) {
-    auto *Term = Parent->getTerminator();
-    bool GeneratesIf = false;
-    if (auto *Br = llvm::dyn_cast<llvm::BranchInst>(Term)) {
-      GeneratesIf = Br->isConditional();
-    }
-
-    // Follower but without if - so block wrap is needed
-    if (Follower && !GeneratesIf) {
-      Ctx.Enclosing.push_back(Follower);
-      F.Body.Insts.push_back(WasmInst::createBlock(FTy));
-      nodeWithin(Parent, MergeChildren, FTy, nullptr);
-      F.Body.Insts.emplace_back(Opcode::End);
-      Ctx.Enclosing.pop_back();
-      return;
-    }
-
-    translateBB(Parent);
-
-    if (auto *Br = llvm::dyn_cast<llvm::BranchInst>(Term)) {
-      if (Br->isConditional()) {
-        WATEVER_LOG_TRACE("{} branches to {} and {}", getBlockName(Parent),
-                          getBlockName(Br->getSuccessor(0)),
-                          getBlockName(Br->getSuccessor(1)));
-
-        Ctx.Enclosing.push_back(Follower);
-
-        // TODO In the following case, a br_if might be prefered:
-        //    A
-        //   / \.
-        //  B-->C
-        //
-        //  Goal           Current
-        // ------         ---------
-        // block          A
-        //   A            if
-        //   br_if        else
-        //   B              B
-        // end            end
-        // C              C
-        //
-        // In theory one could check, if one of the successors is follower:
-        // we could satisfy the branch with a br_if. However, this will
-        // never be the case, as the edge from A to C is critical and
-        // therefore always split (what ends up in the empty if-case). And
-        // at this point, it cannot be decided, whether the PHI nodes in C
-        // needs a move in the critical-edge-block or not.
-        //
-        // if-else statements are basically always shorter, but nest the
-        // control flow.
-
-        F.Body.Insts.push_back(WasmInst::createIfElse(FTy));
-        doBranch(Parent, Br->getSuccessor(0), FTy);
-        F.Body.Insts.emplace_back(Opcode::Else);
-        doBranch(Parent, Br->getSuccessor(1), FTy);
-        F.Body.Insts.emplace_back(Opcode::End);
-        Ctx.Enclosing.pop_back();
-        return;
-      }
-      WATEVER_LOG_TRACE("{} branches to {}", getBlockName(Parent),
-                        getBlockName(Br->getSuccessor(0)));
-
-      doBranch(Parent, Br->getSuccessor(0), FTy);
-      return;
-    }
-    if (llvm::isa<llvm::ReturnInst>(Term)) {
-      F.Body.Insts.emplace_back(Opcode::Return);
-      return;
-    }
-    if (llvm::isa<llvm::UnreachableInst>(Term)) {
-      F.Body.Insts.emplace_back(Opcode::Unreachable);
-      return;
-    }
-    if (auto *SI = llvm::dyn_cast<llvm::SwitchInst>(Term)) {
-      WATEVER_LOG_TRACE("{} ends with a switch", getBlockName(Parent));
-      auto *DefaultTarget = SI->getDefaultDest();
-      auto DefaultIdx = index(DefaultTarget, Ctx);
-
-      // Map each case to the target block index
-      // These have been ordered during legalization
-      llvm::SmallVector<uint32_t> Targets;
-      [[maybe_unused]] uint32_t LastCase = 0;
-      for (auto &Case : SI->cases()) {
-        auto *Target = Case.getCaseSuccessor();
-        auto BlockIdx = index(Target, Ctx);
-        auto CaseValue = Case.getCaseValue()->getZExtValue();
-
-        // Fill gaps
-        while (Targets.size() < CaseValue) {
-          Targets.push_back(DefaultIdx);
-        }
-        assert(LastCase <= CaseValue &&
-               "cases have not been ordered correctly");
-        LastCase = CaseValue;
-        Targets.push_back(BlockIdx);
-      }
-      BranchTableArg Argument{std::move(Targets), DefaultIdx};
-      F.Body.Insts.emplace_back(Opcode::BrTable,
-                                std::make_unique<BranchTableArg>(Argument));
-      return;
-    }
-    WATEVER_UNREACHABLE("unsupported terminator: {}",
-                        Parent->getTerminator()->getOpcodeName());
-  }
-
-  if (Follower) {
-    // 1. Parent needs to be able to break to Follower
-    // 2. Parent needs to be able to break to merge children
-    // Therefore, we need a block: so we can clearly break to follower
-    // (outermost) and differentiate that from all other merge children: Create
-    // a new scope
-    Ctx.Enclosing.push_back(Follower);
-    F.Body.Insts.push_back(WasmInst::createBlock(FTy));
-    nodeWithin(Parent, MergeChildren, FTy, nullptr);
-    F.Body.Insts.emplace_back(Opcode::End);
-    Ctx.Enclosing.pop_back();
-    return;
-  }
-
-  // Next follower is a merge node: multiple nodes need to reach it.
-  // Furthermore, it has also the highest RPO number, meaning that it does
-  // not need to reach any other merge node. We can "peel" it away we are
-  // sure that the structure is: block
-  //   (block, for all the rest of the merge children)
-  //     Parent (can now reach all its merge children)
-  //   <some amount of children needing to reach next_follower>
-  // end
-  // next_follower
-  auto *NextFollower = MergeChildren.pop_back_val();
-
-  WATEVER_LOG_TRACE("{} is followed by {}", getBlockName(Parent),
-                    getBlockName(NextFollower));
-
-  auto *OldFallthrough = Ctx.Fallthrough;
-  // As we have put a block around all the other merge children, they would
-  // currently reach exactly next_follower by just falling through.
-  Ctx.Fallthrough = NextFollower;
-
-  nodeWithin(Parent, MergeChildren, ValType::Void, NextFollower);
-
-  Ctx.Fallthrough = OldFallthrough;
-  doTree(NextFollower, FTy);
-}
-
-uint32_t FunctionLowering::index(const llvm::BasicBlock *BB,
-                                 const Context &Ctx) {
-  uint32_t I = 0;
-  // Iterate in reverse to find the innermost matching label (relative index
-  // 0)
-  for (auto &It : std::ranges::reverse_view(Ctx.Enclosing)) {
-    if (It == BB) {
-      return I;
-    }
-    ++I;
-  }
-  WATEVER_UNREACHABLE("unknown branch target");
 }
 
 void FunctionLowering::translateBB(llvm::BasicBlock *BB) const {
@@ -1740,13 +1689,30 @@ void FunctionLowering::getMergeChildren(
     }
   }
 
-  // Higher post-order-number comes last. This ensures that the first-popped
-  // child does not need to reach any other child and can safely be
-  // translated last
+  // Higher post-order-number comes first. This ensures that the first-popped
+  // child can reach any other child and can safely be translated first
   std::ranges::sort(Result,
                     [&](const llvm::BasicBlock *A, const llvm::BasicBlock *B) {
-                      return RPOOrdering.lookup(A) < RPOOrdering.lookup(B);
+                      return RPOOrdering.lookup(A) > RPOOrdering.lookup(B);
                     });
+}
+
+void FunctionLowering::lower(ValType RetTy) {
+  WorkStack.push_back(
+      ProcessTree{.Root = DT.getRoot(), .Ty = RetTy, .Fallthrough = nullptr});
+
+  while (!WorkStack.empty()) {
+    Task CurrentTask = WorkStack.pop_back_val();
+    std::visit(Overloaded{[&](ProcessTree &T) {
+                            processTree(T.Root, T.Ty, T.Fallthrough);
+                          },
+                          [&](HandleEdge &T) {
+                            handleEdge(T.Source, T.Target, T.Ty, T.Fallthrough);
+                          },
+                          [&](EmitOp &T) { F.Body.Insts.emplace_back(T.Op); },
+                          [&](PopContext &) { Ctx.Enclosing.pop_back(); }},
+               CurrentTask);
+  }
 }
 
 static void applyFeatures(DefinedFunc *Fn, llvm::StringRef FeatureString) {

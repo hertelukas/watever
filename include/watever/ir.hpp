@@ -32,6 +32,7 @@
 #include <llvm/Support/raw_ostream.h>
 #include <map>
 #include <memory>
+#include <variant>
 
 namespace watever {
 class Module {
@@ -238,8 +239,6 @@ class FunctionLowering {
   DefinedFunc &F;
   struct Context {
     llvm::SmallVector<llvm::BasicBlock *> Enclosing;
-    // The label that can be reached by just falling through
-    llvm::BasicBlock *Fallthrough = nullptr;
   };
 
   Context Ctx;
@@ -247,17 +246,33 @@ class FunctionLowering {
   llvm::LoopInfo &LI;
   Module &M;
 
-  void doBranch(const llvm::BasicBlock *SourceBlock,
-                llvm::BasicBlock *TargetBlock, ValType FTy);
+  struct ProcessTree {
+    llvm::BasicBlock *Root;
+    ValType Ty;
+    // Label, that can be reached when falling through that tree
+    llvm::BasicBlock *Fallthrough;
+  };
 
-  // TODO MergeChildren needs better type
-  void nodeWithin(llvm::BasicBlock *Parent,
-                  llvm::SmallVector<llvm::BasicBlock *> &MergeChildren,
-                  ValType FTy, llvm::BasicBlock *Follow);
+  struct HandleEdge {
+    llvm::BasicBlock *Source;
+    llvm::BasicBlock *Target;
+    ValType Ty;
+    llvm::BasicBlock *Fallthrough;
+  };
 
-  /// Translate tree rooted at \p Root, including everything \p Root is
-  /// dominating
-  void doTree(llvm::BasicBlock *Root, ValType FTy);
+  struct EmitOp {
+    Opcode::Enum Op;
+  };
+
+  struct PopContext {};
+
+  using Task = std::variant<ProcessTree, HandleEdge, EmitOp, PopContext>;
+  llvm::SmallVector<Task> WorkStack;
+
+  void processTree(llvm::BasicBlock *BB, ValType FTy,
+                   llvm::BasicBlock *Fallthrough);
+  void handleEdge(llvm::BasicBlock *Source, llvm::BasicBlock *Target,
+                  ValType Ty, llvm::BasicBlock *Fallthrough);
 
   static uint32_t index(const llvm::BasicBlock *BB, const Context &Ctx);
 
@@ -299,7 +314,7 @@ public:
     }
   }
 
-  void lower(ValType RetTy) { doTree(DT.getRoot(), RetTy); }
+  void lower(ValType RetTy);
 };
 
 class ModuleLowering {
