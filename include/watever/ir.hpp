@@ -251,6 +251,9 @@ class FunctionLowering {
     ValType Ty;
     // Label, that can be reached when falling through that tree
     llvm::BasicBlock *Fallthrough;
+    explicit ProcessTree(llvm::BasicBlock *Root, ValType Ty,
+                         llvm::BasicBlock *FT)
+        : Root(Root), Ty(Ty), Fallthrough(FT) {}
   };
 
   struct HandleEdge {
@@ -258,6 +261,10 @@ class FunctionLowering {
     llvm::BasicBlock *Target;
     ValType Ty;
     llvm::BasicBlock *Fallthrough;
+
+    explicit HandleEdge(llvm::BasicBlock *Source, llvm::BasicBlock *Target,
+                        ValType Ty, llvm::BasicBlock *Fallthrough)
+        : Source(Source), Target(Target), Ty(Ty), Fallthrough(Fallthrough) {}
   };
 
   struct EmitOp {

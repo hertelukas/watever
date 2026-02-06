@@ -1499,23 +1499,42 @@ void FunctionLowering::processTree(llvm::BasicBlock *Root, ValType FTy,
 
   llvm::BasicBlock *NextFallthrough = Fallthrough;
 
+  bool GeneratesIf = false;
+  if (auto *Br = llvm::dyn_cast<llvm::BranchInst>(Root->getTerminator())) {
+    GeneratesIf = Br->isConditional();
+  }
+
   // Remember to process all merge children: they need to be reachable from
   // Root, so everyone gets a block. The first child is the outermost merge.
   for (auto *Child : MergeChildren) {
-    F.Body.Insts.push_back(WasmInst::createBlock(ValType::Void));
-    Ctx.Enclosing.push_back(Child);
+    // If the child is the current follower, no block is needed. The caller (or
+    // the previous loop iteration) has already provided the scope that targets
+    // this child.
+    bool IsFollower = Child == NextFallthrough;
+    bool IsInnermost = (Child == MergeChildren.back());
 
-    WorkStack.push_back(
-        ProcessTree{.Root = Child, .Ty = FTy, .Fallthrough = NextFallthrough});
+    bool SkipBlock = IsFollower || (IsInnermost && GeneratesIf);
 
-    WorkStack.push_back(EmitOp{.Op = Opcode::End});
-    WorkStack.push_back(PopContext());
+    if (!SkipBlock) {
+      F.Body.Insts.push_back(WasmInst::createBlock(ValType::Void));
+      Ctx.Enclosing.push_back(Child);
+    }
+
+    // Schedule the child
+    WorkStack.push_back(ProcessTree(Child, FTy, NextFallthrough));
+
+    if (!SkipBlock) {
+      WorkStack.push_back(EmitOp{.Op = Opcode::End});
+      WorkStack.push_back(PopContext());
+    }
+
     NextFallthrough = Child;
   }
 
   translateBB(Root);
 
   auto *Term = Root->getTerminator();
+
   if (auto *Br = llvm::dyn_cast<llvm::BranchInst>(Term)) {
     auto RootTy = MergeChildren.empty() ? TreeTy : ValType::Void;
     if (Br->isConditional()) {
@@ -1547,29 +1566,22 @@ void FunctionLowering::processTree(llvm::BasicBlock *Root, ValType FTy,
       // if-else statements are basically always shorter, but nest the
       // control flow.
 
-      // TODO implement block optimization
-      Ctx.Enclosing.push_back(nullptr);
+      Ctx.Enclosing.push_back(NextFallthrough);
       F.Body.Insts.push_back(WasmInst::createIfElse(RootTy));
       WorkStack.push_back(PopContext());
       WorkStack.push_back(EmitOp{.Op = Opcode::End});
       // Else path
-      WorkStack.push_back(HandleEdge{.Source = Root,
-                                     .Target = Br->getSuccessor(1),
-                                     .Ty = RootTy,
-                                     .Fallthrough = NextFallthrough});
+      WorkStack.push_back(
+          HandleEdge(Root, Br->getSuccessor(1), RootTy, NextFallthrough));
       WorkStack.push_back(EmitOp{.Op = Opcode::Else});
       // If path
-      WorkStack.push_back(HandleEdge{.Source = Root,
-                                     .Target = Br->getSuccessor(0),
-                                     .Ty = RootTy,
-                                     .Fallthrough = NextFallthrough});
+      WorkStack.push_back(
+          HandleEdge(Root, Br->getSuccessor(0), RootTy, NextFallthrough));
     } else {
       WATEVER_LOG_TRACE("{} branches to {}", getBlockName(Root),
                         getBlockName(Br->getSuccessor(0)));
-      WorkStack.push_back(HandleEdge{.Source = Root,
-                                     .Target = Br->getSuccessor(0),
-                                     .Ty = RootTy,
-                                     .Fallthrough = NextFallthrough});
+      WorkStack.push_back(
+          HandleEdge(Root, Br->getSuccessor(0), RootTy, NextFallthrough));
     }
   } else if (llvm::isa<llvm::ReturnInst>(Term)) {
     F.Body.Insts.emplace_back(Opcode::Return);
@@ -1665,8 +1677,7 @@ void FunctionLowering::handleEdge(llvm::BasicBlock *Source,
   } else {
     WATEVER_LOG_TRACE("no branch needed from {} to {}, fall through",
                       getBlockName(Source), getBlockName(Target));
-    WorkStack.push_back(
-        ProcessTree{.Root = Target, .Ty = Ty, .Fallthrough = Fallthrough});
+    WorkStack.push_back(ProcessTree(Target, Ty, Fallthrough));
   }
 }
 
@@ -1698,8 +1709,7 @@ void FunctionLowering::getMergeChildren(
 }
 
 void FunctionLowering::lower(ValType RetTy) {
-  WorkStack.push_back(
-      ProcessTree{.Root = DT.getRoot(), .Ty = RetTy, .Fallthrough = nullptr});
+  WorkStack.push_back(ProcessTree(DT.getRoot(), RetTy, nullptr));
 
   while (!WorkStack.empty()) {
     Task CurrentTask = WorkStack.pop_back_val();
