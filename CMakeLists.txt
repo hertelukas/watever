@@ -15,7 +15,8 @@ else ()
     add_compile_options(-Wall -Wextra -Wpedantic)
     # disable RTTI and exceptions
     add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:-fno-rtti;-fno-exceptions>")
-
+    # needed for profiling
+    add_compile_options(-fno-omit-frame-pointer)
     # this is annoying
     add_compile_options(-Wno-missing-field-initializers)
 

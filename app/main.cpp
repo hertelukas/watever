@@ -9,6 +9,7 @@
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/SourceMgr.h>
+#include <llvm/Support/TimeProfiler.h>
 #include <llvm/Transforms/Scalar/ADCE.h>
 #include <llvm/Transforms/Utils/BreakCriticalEdges.h>
 #include <llvm/Transforms/Utils/FixIrreducible.h>
@@ -73,8 +74,13 @@ int main(int argc, char *argv[]) {
 #include "watever/feature.def"
 #undef WATEVER_FEATURE
 
+  args::ImplicitValueFlag<std::string> TimeTrace(
+      Parser, "time_trace",
+      "Enable time tracing and write output to specified file", {"time-trace"},
+      args::Options::None);
+
   args::Positional<std::string> IRPath(Parser, "IRPath",
-                                       "Path to the input IR file");
+                                       "Path to the input IR file", "-");
 
   Parser.ParseCLI(argc, argv);
   if (Parser.GetError() == args::Error::Help) {
@@ -150,73 +156,104 @@ int main(int argc, char *argv[]) {
     OS = FileOS.get();
   }
 
+  if (TimeTrace) {
+    llvm::timeTraceProfilerInitialize(0, argv[0]);
+  }
+
   auto Context = std::make_unique<llvm::LLVMContext>();
   llvm::SMDiagnostic Diag{};
-  std::string InputFile = IRPath ? IRPath.Get() : "-";
-  auto Mod = llvm::parseIRFile(InputFile, Diag, *Context);
-  if (!Mod) {
-    Diag.print(argv[0], llvm::errs());
-    return 1;
+  std::unique_ptr<llvm::Module> Mod;
+  {
+    llvm::TimeTraceScope TimeScope("Parse IR");
+    Mod = llvm::parseIRFile(IRPath.Get(), Diag, *Context);
+    if (!Mod) {
+      Diag.print(argv[0], llvm::errs());
+      return 1;
+    }
   }
 
   WATEVER_LOG_DBG("File name: {}", Mod->getSourceFileName());
   WATEVER_LOG_DBG("Bit width: {}", Mod->getDataLayout().getPointerSizeInBits());
 
-  // Analysis Managers
-  // See https://llvm.org/docs/NewPassManager.html
-  llvm::LoopAnalysisManager LAM;
-  llvm::FunctionAnalysisManager FAM;
-  llvm::CGSCCAnalysisManager CGAM;
-  llvm::ModuleAnalysisManager MAM;
+  {
+    llvm::TimeTraceScope CompileScope("Compile");
+    // Analysis Managers
+    // See https://llvm.org/docs/NewPassManager.html
+    llvm::LoopAnalysisManager LAM;
+    llvm::FunctionAnalysisManager FAM;
+    llvm::CGSCCAnalysisManager CGAM;
+    llvm::ModuleAnalysisManager MAM;
 
-  llvm::PassBuilder PB;
-  PB.registerModuleAnalyses(MAM);
-  PB.registerCGSCCAnalyses(CGAM);
-  PB.registerFunctionAnalyses(FAM);
-  PB.registerLoopAnalyses(LAM);
-  PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
+    llvm::PassBuilder PB;
+    PB.registerModuleAnalyses(MAM);
+    PB.registerCGSCCAnalyses(CGAM);
+    PB.registerFunctionAnalyses(FAM);
+    PB.registerLoopAnalyses(LAM);
+    PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
 
-  llvm::ModulePassManager LegalizeMPM;
-  llvm::FunctionPassManager LegalizeFPM;
+    llvm::ModulePassManager LegalizeMPM;
+    llvm::FunctionPassManager LegalizeFPM;
 
-  LegalizeFPM.addPass(llvm::FixIrreduciblePass());
+    LegalizeFPM.addPass(llvm::FixIrreduciblePass());
 
-  LegalizeMPM.addPass(
-      llvm::createModuleToFunctionPassAdaptor(std::move(LegalizeFPM)));
-  LegalizeMPM.addPass(watever::FixFunctionBitcastsPass());
-  LegalizeMPM.addPass(watever::LegalizationPass(Config));
+    LegalizeMPM.addPass(
+        llvm::createModuleToFunctionPassAdaptor(std::move(LegalizeFPM)));
+    LegalizeMPM.addPass(watever::FixFunctionBitcastsPass());
+    LegalizeMPM.addPass(watever::LegalizationPass(Config));
 
-  LegalizeMPM.run(*Mod, MAM);
+    {
+      llvm::TimeTraceScope TimeScope("Legalize");
+      LegalizeMPM.run(*Mod, MAM);
+    }
 
 #ifdef WATEVER_LOGGING
-  if (llvm::verifyModule(*Mod, &llvm::errs())) {
-    WATEVER_LOG_ERR("Legalization left the module in an inconsistent state!");
-    return 1;
-  }
-  WATEVER_LOG_INFO("Legalization returned a legal module.");
+    if (llvm::verifyModule(*Mod, &llvm::errs())) {
+      WATEVER_LOG_ERR("Legalization left the module in an inconsistent state!");
+      return 1;
+    }
+    WATEVER_LOG_INFO("Legalization returned a legal module.");
 #endif
-  if (LegalOnly) {
-    Mod->print(*OS, nullptr);
-    return 0;
+    if (LegalOnly) {
+      Mod->print(*OS, nullptr);
+      return 0;
+    }
+
+    llvm::ModulePassManager OptimizePM;
+    llvm::FunctionPassManager FPM;
+    FPM.addPass(llvm::ADCEPass());
+    FPM.addPass(llvm::BreakCriticalEdgesPass());
+
+    OptimizePM.addPass(llvm::createModuleToFunctionPassAdaptor(std::move(FPM)));
+    OptimizePM.run(*Mod, MAM);
+
+    if (LegalAndOpt) {
+      Mod->print(*OS, nullptr);
+      return 0;
+    }
+
+    watever::ModuleLowering LoweringContext{};
+    watever::Module LoweredModule;
+    {
+      llvm::TimeTraceScope TimeScope("Lower");
+      LoweredModule = LoweringContext.convert(*Mod, FAM, Config);
+    }
+
+    {
+      llvm::TimeTraceScope TimeScope("Write");
+      watever::BinaryWriter Writer{*OS, LoweredModule};
+      Writer.write();
+    }
   }
 
-  llvm::ModulePassManager OptimizePM;
-  llvm::FunctionPassManager FPM;
-  FPM.addPass(llvm::ADCEPass());
-  FPM.addPass(llvm::BreakCriticalEdgesPass());
-
-  OptimizePM.addPass(llvm::createModuleToFunctionPassAdaptor(std::move(FPM)));
-  OptimizePM.run(*Mod, MAM);
-
-  if (LegalAndOpt) {
-    Mod->print(*OS, nullptr);
-    return 0;
+  if (TimeTrace) {
+    if (auto err =
+            llvm::timeTraceProfilerWrite(TimeTrace.Get(), OutputPath.Get())) {
+      llvm::handleAllErrors(std::move(err), [&](const llvm::StringError &serr) {
+        llvm::errs() << serr.getMessage() << "\n";
+      });
+    } else {
+      llvm::timeTraceProfilerCleanup();
+    }
   }
-
-  watever::ModuleLowering LoweringContext{};
-  auto LoweredModule = LoweringContext.convert(*Mod, FAM, Config);
-
-  watever::BinaryWriter Writer{*OS, LoweredModule};
-  Writer.write();
   return 0;
 }
