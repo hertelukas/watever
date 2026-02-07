@@ -289,8 +289,6 @@ void FunctionColorer::computeBlockSchedule(llvm::BasicBlock *BB) {
   // what must die
   llvm::DenseSet<llvm::Value *> VisitedInCurrentTree;
 
-  llvm::DenseSet<llvm::Value *> Roots;
-
   for (auto &Inst : *BB) {
     if (isRoot(Inst)) {
       VisitedInCurrentTree.clear();
@@ -306,8 +304,11 @@ void FunctionColorer::computeBlockSchedule(llvm::BasicBlock *BB) {
           DyingAt[BB][Next] = &Inst;
         }
 
-        if (Roots.contains(Next))
-          continue;
+        if (auto *NextInst = llvm::dyn_cast<llvm::Instruction>(Next)) {
+          if (Target->Roots[BB].contains(NextInst)) {
+            continue;
+          }
+        }
 
         if (auto *I = llvm::dyn_cast<llvm::Instruction>(Next)) {
           if (I->getParent() == BB) {
@@ -317,8 +318,7 @@ void FunctionColorer::computeBlockSchedule(llvm::BasicBlock *BB) {
           }
         }
       }
-      Roots.insert(&Inst);
-      Target->Roots[BB].push_back(&Inst);
+      Target->Roots[BB].insert(&Inst);
     }
   }
 

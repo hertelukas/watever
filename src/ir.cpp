@@ -264,12 +264,16 @@ BlockLowering::getDependencyTreeUserCount(llvm::Instruction *Root) const {
   WorkList.push_back(Root);
   ASTNodes.insert(Root);
 
-  size_t Idx = 0;
   // Store all nodes in the AST
-  while (Idx < WorkList.size()) {
-    auto *Val = WorkList[Idx++];
+  while (!WorkList.empty()) {
+    auto *Val = WorkList.pop_back_val();
     if (auto *Inst = llvm::dyn_cast<llvm::Instruction>(Val)) {
       if (llvm::isa<llvm::PHINode>(Inst)) {
+        continue;
+      }
+      // Stop at the AST leaf
+      if (Root != Inst &&
+          Parent.Roots.lookup(Root->getParent()).contains(Inst)) {
         continue;
       }
       for (llvm::Value *Op : Inst->operands()) {

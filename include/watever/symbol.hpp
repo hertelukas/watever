@@ -6,6 +6,7 @@
 #include "watever/type.hpp"
 #include <cstdint>
 #include <llvm/ADT/DenseMap.h>
+#include <llvm/ADT/SetVector.h>
 #include <llvm/ADT/SmallPtrSet.h>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/IR/BasicBlock.h>
@@ -152,7 +153,8 @@ public:
   llvm::DenseMap<llvm::Instruction *, uint32_t> StackSlots{};
 
   llvm::DenseSet<llvm::AllocaInst *> PromotedAllocas{};
-  llvm::DenseMap<llvm::BasicBlock *, llvm::SmallVector<llvm::Instruction *>>
+  llvm::DenseMap<llvm::BasicBlock *,
+                 llvm::SmallSetVector<llvm::Instruction *, 8>>
       Roots;
 
   std::optional<uint32_t> FP{};
