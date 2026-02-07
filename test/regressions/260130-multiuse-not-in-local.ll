@@ -11,12 +11,13 @@ define void @foo(ptr %p) {
 ; users in WebAssembly, even though it does not in LLVM
 ; CHECK-NEXT: local.tee
 entry:
-  %a = load i32, ptr %p
+  %a = load ptr, ptr %p
 
 ; This is an offset and inlined twice - so %a has two users
 ; and needs a local.tee (for the first and second store), even though
 ; it has technically only one user
-  %add = add i32 %a, 42
+  %aint = ptrtoint ptr %a to i32
+  %add = add i32 %aint, 42
   %b = inttoptr i32 %add to ptr
   store i32 1, ptr %b
   store i32 2, ptr %b

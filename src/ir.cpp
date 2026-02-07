@@ -1416,40 +1416,46 @@ void BlockLowering::lower() {
         It != Parent.LocalMapping.end()) {
       // Mark the just-set value, so the next tree can reuse it if needed
       LastSetRoot = It->second;
+      // The local can only be omitted, if there is only one user. As pointers
+      // might have a single offset-calculating user, which is always inlined
+      // and then potentially used multiple times, it is generally not safe to
+      // omit locals with pointers.
+      // See regression 260130.
+      auto CanSkipLocal = [&]() {
+        // If there are multiple users, a local is needed, so every user
+        // can access it
+        if (Root->getNumUses() > 1) {
+          return false;
+        }
 
-      // TODO This might be a bit expensive and unnecessary. If there is no
-      // better way, use bounded loop
-      auto CanSkipLocal = [](auto &&Self, llvm::Instruction *I) -> bool {
-        if (I->getNumUses() > 1) {
-          // Not safe - the multiple uses might all have been inlined
-          if (llvm::isa<llvm::AllocaInst>(I) ||
-              llvm::isa<llvm::IntToPtrInst>(I)) {
-            return false;
+        // Only pointers might get inlined users, so if not a pointer, omit
+        // setting the local is safe
+        if (!Root->getType()->isPointerTy()) {
+          return true;
+        }
+        // If this is an offset-adding instruction, check if the final pointer
+        // generated with inttoptr has only a single use
+        if (llvm::User *User = llvm::dyn_cast<llvm::PtrToIntInst>(
+                Root->use_begin()->getUser())) {
+          // Only check the dependency tree 5 uses up
+          for (uint32_t I = 0; I < 10; ++I) {
+            if (User->getNumUses() > 1) {
+              // If there are multiple users, IntToPtr will not have a local, as
+              // it is always inlined, so this root needs to be
+              if (llvm::isa<llvm::IntToPtrInst>(User)) {
+                return false;
+              }
+              return true;
+            }
+            if (User->user_empty()) {
+              return true;
+            }
+            User = User->use_begin()->getUser();
           }
-          // Sure that this instruction will end up in a local
-          return true;
         }
-
-        // No uses do not need a local
-        if (I->use_empty()) {
-          return true;
-        }
-        if (auto *Next =
-                llvm::dyn_cast<llvm::Instruction>(I->use_begin()->getUser())) {
-          return Self(Self, Next);
-        }
-        WATEVER_LOG_WARN(
-            "{} is used by {} - not sure if only living on the stack is fine",
-            I->getNameOrAsOperand(), llvmToString(*I->use_begin()->getUser()));
         return true;
       };
-
-      RootOnlyOneUse = Root->getNumUses() <= 1;
-      // TODO this is very unclean, there might be a better solution. See
-      // regression 260130
-      if (RootOnlyOneUse) {
-        RootOnlyOneUse = CanSkipLocal(CanSkipLocal, Root);
-      }
+      RootOnlyOneUse = CanSkipLocal();
 
       Parent.Body.Insts.emplace_back(Opcode::LocalSet,
                                      std::make_unique<LocalArg>(It->second));
