@@ -1436,12 +1436,27 @@ void BlockLowering::lower() {
       if (const auto *Arg = llvm::dyn_cast_or_null<LocalArg>(
               Actions.Insts.back().getArgument())) {
         if (Arg->Index == LastSetRoot) {
+          WATEVER_LOG_TRACE("Optimizing local.set, local.get sequence for {}",
+                            LastSetRoot.value());
           Actions.Insts.pop_back(); // Remove get
           assert(Parent.Body.Insts.back().Op == Opcode::LocalSet &&
                  "old root did not set its root");
           Parent.Body.Insts.pop_back(); // Remove set
           // If others need this value, the local still has to be set
-          if (!RootOnlyOneUse) {
+          bool needsTee = !RootOnlyOneUse;
+          // The original root might have been a PHI node, and is just a get.
+          // In that case, the tee is not needed anyway.
+          if (!Parent.Body.Insts.empty() &&
+              Parent.Body.Insts.back().Op == Opcode::LocalGet) {
+            if (const auto *Arg = llvm::dyn_cast_or_null<LocalArg>(
+                    Parent.Body.Insts.back().getArgument())) {
+              if (Arg->Index == LastSetRoot) {
+                needsTee = false;
+              }
+            }
+          }
+
+          if (needsTee) {
             Parent.Body.Insts.emplace_back(
                 Opcode::LocalTee,
                 std::make_unique<LocalArg>(LastSetRoot.value()));
