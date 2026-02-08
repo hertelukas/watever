@@ -79,6 +79,9 @@ class FunctionLegalizer : public llvm::InstVisitor<FunctionLegalizer> {
   const llvm::DenseMap<llvm::Function *, llvm::Function *> &FuncMap;
   llvm::SmallVector<llvm::PHINode *> PHIsToFix;
 
+  // Used to resolve PHI predecessors after CFG changes
+  llvm::DenseMap<llvm::BasicBlock *, llvm::BasicBlock *> NewToOldBB;
+
   llvm::Type *Int1Ty;
   llvm::Type *Int8Ty;
   llvm::Type *Int16Ty;

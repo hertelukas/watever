@@ -43,7 +43,7 @@ exit:
 
 define i32 @phi_loop(i32 %a, i1 %cond) {
 ; CHECK-LABEL: @phi_loop
-; CHECK: phi i32 [ %a, %entry ], [ %1, %header ]
+; CHECK: phi i32 [ %1, %header ], [ %a, %entry ]
 entry:
     br label %header
 header:

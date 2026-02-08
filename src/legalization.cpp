@@ -9,6 +9,7 @@
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/IR/Attributes.h>
 #include <llvm/IR/BasicBlock.h>
+#include <llvm/IR/CFG.h>
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/DataLayout.h>
 #include <llvm/IR/DerivedTypes.h>
@@ -185,19 +186,33 @@ LegalValue FunctionLegalizer::legalizeConstant(llvm::Constant *C) {
 void FunctionLegalizer::fixupPHIs() {
   for (auto *OldPN : PHIsToFix) {
     LegalValue NewPNs = ValueMap[OldPN];
+    auto *NewParentBB =
+        llvm::cast<llvm::BasicBlock>(ValueMap[OldPN->getParent()][0]);
 
-    for (auto [value, block] :
-         llvm::zip_equal(OldPN->incoming_values(), OldPN->blocks())) {
-      LegalValue NewIncomingVal = getMappedValue(value);
-      auto *NewIncomingBB = llvm::cast<llvm::BasicBlock>(ValueMap[block][0]);
-      // Unreachable predecessors do not matter
-      if (llvm::isa<llvm::UnreachableInst>(NewIncomingBB->getTerminator())) {
-        continue;
-      }
-      for (auto [NewPHIValPart, NewIncomingValPart] :
-           llvm::zip_equal(NewPNs, NewIncomingVal)) {
-        auto *NewPHI = llvm::cast<llvm::PHINode>(NewPHIValPart);
-        NewPHI->addIncoming(NewIncomingValPart, NewIncomingBB);
+    // Iterate over predecessors
+    for (auto *NewPred : llvm::predecessors(NewParentBB)) {
+      if (auto It = NewToOldBB.find(NewPred); It != NewToOldBB.end()) {
+        // For each new predecessor (which might be more than originally due to
+        // split switches), check the corresponding's old predecessor's incoming
+        // value.
+        llvm::BasicBlock *OldPred = It->second;
+
+        auto Idx = OldPN->getBasicBlockIndex(OldPred);
+        if (Idx == -1) {
+          WATEVER_UNREACHABLE("New incoming edge from unknown old predecessor");
+        }
+        auto *OldVal = OldPN->getIncomingValue(Idx);
+        auto NewIncomingVal = getMappedValue(OldVal);
+
+        for (auto [NewPHIValPart, NewIncomingValPart] :
+             llvm::zip_equal(NewPNs, NewIncomingVal)) {
+          auto *NewPHI = llvm::cast<llvm::PHINode>(NewPHIValPart);
+          NewPHI->addIncoming(NewIncomingValPart, NewPred);
+        }
+
+      } else {
+        WATEVER_UNREACHABLE("Could not find old block for predecessor {}",
+                            getBlockName(NewPred));
       }
     }
   }
@@ -234,6 +249,7 @@ FunctionLegalizer::FunctionLegalizer(
     llvm::BasicBlock *NewBB = llvm::BasicBlock::Create(
         NewFunc->getContext(), OldBB.getName(), NewFunc);
     ValueMap[&OldBB] = NewBB;
+    NewToOldBB[NewBB] = &OldBB;
   }
 
   Int1Ty = llvm::Type::getInt1Ty(OldFunc->getContext());
@@ -474,6 +490,9 @@ void FunctionLegalizer::visitSwitchInst(llvm::SwitchInst &SI) {
         llvm::BasicBlock::Create(NewFunc->getContext(), "sw.left", NewFunc);
     auto *RightBB =
         llvm::BasicBlock::Create(NewFunc->getContext(), "sw.right", NewFunc);
+
+    NewToOldBB[LeftBB] = SI.getParent();
+    NewToOldBB[RightBB] = SI.getParent();
 
     auto *Pivot = llvm::ConstantInt::get(CondVal->getType(), PivotVal);
     auto *Cmp = Builder.CreateICmpSLE(CondVal, Pivot, "sw.pivot");
