@@ -178,6 +178,10 @@ void FunctionLegalizer::fixupPHIs() {
          llvm::zip_equal(OldPN->incoming_values(), OldPN->blocks())) {
       LegalValue NewIncomingVal = getMappedValue(value);
       auto *NewIncomingBB = llvm::cast<llvm::BasicBlock>(ValueMap[block][0]);
+      // Unreachable predecessors do not matter
+      if (llvm::isa<llvm::UnreachableInst>(NewIncomingBB->getTerminator())) {
+        continue;
+      }
       for (auto [NewPHIValPart, NewIncomingValPart] :
            llvm::zip_equal(NewPNs, NewIncomingVal)) {
         auto *NewPHI = llvm::cast<llvm::PHINode>(NewPHIValPart);
@@ -1885,7 +1889,16 @@ llvm::PreservedAnalyses LegalizationPass::run(llvm::Module &Mod,
     FunctionLegalizer FL{F, NewFunc, Builder, Config, FuncMap};
     llvm::ReversePostOrderTraversal<llvm::Function *> RPOT(F);
     for (auto *BB : RPOT) {
+      FL.visitBasicBlock(*BB);
       FL.visit(BB);
+    }
+    // Unreachable blocks have not been visited. They are still needed, as a
+    // reachable PHI node might try to read from an unreachable block.
+    for (auto &NewBB : *NewFunc) {
+      if (NewBB.getTerminator() == nullptr) {
+        llvm::IRBuilder<> B(&NewBB);
+        B.CreateUnreachable();
+      }
     }
     FL.fixupPHIs();
     WATEVER_LOG_DBG("Legalized Function:\n {}", llvmToString(*FL.NewFunc));
