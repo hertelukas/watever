@@ -99,49 +99,56 @@ bool FunctionColorer::isDefinedInBlock(llvm::Value *Val, llvm::BasicBlock *BB) {
 // If \p Val is used in \p BB, marks \p Val as live-in/live-out on all paths
 // from \p def(Val) to \p BB.
 void FunctionColorer::upAndMark(llvm::BasicBlock *BB, llvm::Value *Val) {
-  bool IsDefinedHere = isDefinedInBlock(Val, BB);
-  bool IsPromotedAlloca = false;
+  llvm::SmallVector<llvm::BasicBlock *> Worklist;
 
-  if (IsDefinedHere) {
-    if (auto *AI = llvm::dyn_cast<llvm::AllocaInst>(Val)) {
-      IsPromotedAlloca = PromotedAIStartBlocks.lookup(AI) == BB;
-    }
-  }
+  Worklist.push_back(BB);
 
-  // Stop if defined here, unless it's a promoted alloca (which might have
-  // backedges)
-  if (IsDefinedHere && !IsPromotedAlloca) {
-    return;
-  }
+  while (!Worklist.empty()) {
+    auto *BB = Worklist.pop_back_val();
+    bool IsDefinedHere = isDefinedInBlock(Val, BB);
+    bool IsPromotedAlloca = false;
 
-  // Propagation done, stop
-  if (!LiveIn[BB].empty() && LiveIn[BB].back() == Val) {
-    return;
-  }
-
-  if (!IsDefinedHere) {
-    LiveIn[BB].push_back(Val);
-  }
-
-  // Do not propagate phi definitions
-  if (auto *Phi = llvm::dyn_cast<llvm::PHINode>(Val)) {
-    if (Phi->getParent() == BB)
-      return;
-  }
-
-  for (auto *Pred : llvm::predecessors(BB)) {
-    // If it is defined here, only propagate to predecessors which are dominated
-    // by BB
-    if (IsDefinedHere && IsPromotedAlloca) {
-      if (!DT.dominates(BB, Pred)) {
-        continue;
+    if (IsDefinedHere) {
+      if (auto *AI = llvm::dyn_cast<llvm::AllocaInst>(Val)) {
+        IsPromotedAlloca = PromotedAIStartBlocks.lookup(AI) == BB;
       }
     }
 
-    if (LiveOut[Pred].empty() || LiveOut[Pred].back() != Val) {
-      LiveOut[Pred].push_back(Val);
+    // Stop if defined here, unless it's a promoted alloca (which might have
+    // backedges)
+    if (IsDefinedHere && !IsPromotedAlloca) {
+      continue;
     }
-    upAndMark(Pred, Val);
+
+    // Propagation done, stop
+    if (!LiveIn[BB].empty() && LiveIn[BB].back() == Val) {
+      continue;
+    }
+
+    if (!IsDefinedHere) {
+      LiveIn[BB].push_back(Val);
+    }
+
+    // Do not propagate phi definitions
+    if (auto *Phi = llvm::dyn_cast<llvm::PHINode>(Val)) {
+      if (Phi->getParent() == BB)
+        continue;
+    }
+
+    for (auto *Pred : llvm::predecessors(BB)) {
+      // If it is defined here, only propagate to predecessors which are
+      // dominated by BB
+      if (IsDefinedHere && IsPromotedAlloca) {
+        if (!DT.dominates(BB, Pred)) {
+          continue;
+        }
+      }
+
+      if (LiveOut[Pred].empty() || LiveOut[Pred].back() != Val) {
+        LiveOut[Pred].push_back(Val);
+      }
+      Worklist.push_back(Pred);
+    }
   }
 }
 
