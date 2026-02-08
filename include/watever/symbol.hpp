@@ -136,18 +136,17 @@ struct ImportedFunc final : public Function {
 
 class DefinedFunc final : public Function {
   friend class FunctionLowering;
-  // This is only used for debugging, to assign inideces to locals. The final
-  // index has to be ordered by local type, so cannot be arbitrary and will get
-  // replaced when writing out to the binary
-  uint32_t TotalLocals{};
 
 public:
   uint32_t TotalArgs{};
   Features FeatureSet;
   WasmActions Body;
   llvm::DenseMap<llvm::Value *, uint32_t> LocalMapping;
-  // All locals, consisting of arguments and extra locals
-  llvm::SmallVector<uint32_t> AllLocals{};
+  // All extra locals. This is needed in order to remove locals during
+  // optimization.
+  uint32_t TotalLocals{};
+  // When creating a new local, ensure that it is a new one
+  uint32_t LastLocal{};
   llvm::DenseMap<ValType, llvm::SmallVector<uint32_t>> Locals{};
   llvm::DenseMap<ValType, llvm::SmallVector<uint32_t>> Arguments{};
   llvm::DenseMap<llvm::Instruction *, uint32_t> StackSlots{};
@@ -163,8 +162,8 @@ public:
                        llvm::Function *F, Features Feat);
 
   uint32_t getNewLocal(ValType Ty) {
-    auto NewLocal = TotalLocals++;
-    AllLocals.push_back(NewLocal);
+    TotalLocals++;
+    auto NewLocal = LastLocal++;
     Locals[Ty].push_back(NewLocal);
     return NewLocal;
   }

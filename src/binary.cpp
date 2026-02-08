@@ -100,7 +100,7 @@ void BinaryWriter::writeCode() {
     llvm::encodeULEB128(F->Locals.size(), CodeOS);
     uint32_t CurrentLocal = F->TotalArgs;
     // Locals
-    llvm::SmallVector<uint32_t> LocalMapping(F->AllLocals.size());
+    llvm::SmallVector<uint32_t> LocalMapping(F->TotalLocals + F->TotalArgs);
     // Arguments are mapped onto themselves
     for (uint32_t I = 0; I < F->TotalArgs; ++I) {
       LocalMapping[I] = I;

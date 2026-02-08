@@ -25,8 +25,7 @@ DefinedFunc::DefinedFunc(uint32_t SymbolIdx, uint32_t TypeIdx, uint32_t FuncIdx,
       TotalArgs(F->arg_size()), FeatureSet(Feat) {
   for (auto &Arg : F->args()) {
     auto ArgType = fromLLVMType(Arg.getType(), F->getDataLayout());
-    auto NewLocal = TotalLocals++;
-    AllLocals.push_back(NewLocal);
+    auto NewLocal = LastLocal++;
     Arguments[ArgType].push_back(NewLocal);
     LocalMapping[&Arg] = NewLocal;
   }
