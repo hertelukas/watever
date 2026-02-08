@@ -278,6 +278,7 @@ public:
   void visitFCmpInst(llvm::FCmpInst &FCI);
   void visitPHINode(llvm::PHINode &PN);
   void visitSelectInst(llvm::SelectInst &SI);
+  void visitFreezeInst(llvm::FreezeInst &FI);
   void visitCallInst(llvm::CallInst &CI);
 
   // Intrinsics

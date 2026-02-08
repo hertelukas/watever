@@ -1393,6 +1393,10 @@ void FunctionLegalizer::visitSelectInst(llvm::SelectInst &SI) {
   ValueMap[&SI] = LegalValue(Vs);
 }
 
+void FunctionLegalizer::visitFreezeInst(llvm::FreezeInst &FI) {
+  ValueMap[&FI] = getMappedValue(FI.getOperand(0));
+}
+
 void FunctionLegalizer::visitCallInst(llvm::CallInst &CI) {
   auto *OldCalledFunc = CI.getCalledFunction();
 
