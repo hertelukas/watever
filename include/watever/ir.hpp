@@ -214,6 +214,7 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
   void visitIntToPtrInst(llvm::IntToPtrInst &I) {
     addOperandsToWorklist(I.operands());
   };
+  void visitBitCastInst(llvm::BitCastInst &BI);
 
   // Other Operations
   void visitICmpInst(llvm::ICmpInst &II);

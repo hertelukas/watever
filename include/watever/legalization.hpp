@@ -272,6 +272,7 @@ public:
     assert(Arg.isScalar() && "int pointer must be scalar");
     ValueMap[&I] = Builder.CreateIntToPtr(Arg[0], I.getDestTy());
   };
+  void visitBitCastInst(llvm::BitCastInst &BI);
 
   // Other Operations
   void visitICmpInst(llvm::ICmpInst &ICI);

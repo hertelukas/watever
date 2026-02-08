@@ -1145,6 +1145,48 @@ void BlockLowering::visitSIToFPInst(llvm::SIToFPInst &SI) {
   }
 }
 
+void BlockLowering::visitBitCastInst(llvm::BitCastInst &BI) {
+  auto *SrcTy = BI.getSrcTy();
+  auto *DestTy = BI.getDestTy();
+
+  addOperandsToWorklist(BI.operands());
+  // No-op
+  if (SrcTy == DestTy) {
+    return;
+  }
+
+  if (SrcTy->isFloatTy()) {
+    if (DestTy->isIntegerTy(32)) {
+      Actions.Insts.emplace_back(Opcode::I32ReinterpretF32);
+      return;
+    }
+  }
+
+  if (SrcTy->isIntegerTy(32)) {
+    if (DestTy->isFloatTy()) {
+      Actions.Insts.emplace_back(Opcode::F32ReinterpretI32);
+      return;
+    }
+  }
+
+  if (SrcTy->isDoubleTy()) {
+    if (DestTy->isIntegerTy(64)) {
+      Actions.Insts.emplace_back(Opcode::I64ReinterpretF64);
+      return;
+    }
+  }
+
+  if (SrcTy->isIntegerTy(64)) {
+    if (DestTy->isDoubleTy()) {
+      Actions.Insts.emplace_back(Opcode::F64ReinterpretI64);
+      return;
+    }
+  }
+
+  WATEVER_UNREACHABLE("Can not bitcast from {} to {}", llvmToString(*SrcTy),
+                      llvmToString(*DestTy));
+}
+
 //===----------------------------------------------------------------------===//
 // Other Operations
 //===----------------------------------------------------------------------===//

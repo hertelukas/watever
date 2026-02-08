@@ -1260,6 +1260,27 @@ void FunctionLegalizer::visitSIToFPInst(llvm::SIToFPInst &SI) {
                         llvmToString(*SI.getSrcTy()),
                         llvmToString(*SI.getDestTy()));
 }
+
+void FunctionLegalizer::visitBitCastInst(llvm::BitCastInst &BI) {
+  auto *SrcTy = BI.getSrcTy();
+  auto *DestTy = BI.getDestTy();
+
+  bool IsLegal = false;
+  if (SrcTy->isIntegerTy(32) || SrcTy->isFloatTy()) {
+    IsLegal = DestTy->isIntegerTy(32) || DestTy->isFloatTy();
+  }
+  if (SrcTy->isIntegerTy(64) || SrcTy->isDoubleTy()) {
+    IsLegal = DestTy->isIntegerTy(64) || DestTy->isDoubleTy();
+  }
+
+  if (!IsLegal) {
+    WATEVER_UNIMPLEMENTED("bitcast from {} to {}", llvmToString(*SrcTy),
+                          llvmToString(*DestTy));
+  }
+
+  ValueMap[&BI] =
+      Builder.CreateBitCast(getMappedValue(BI.getOperand(0))[0], DestTy);
+}
 //===----------------------------------------------------------------------===//
 // Other Operations
 //===----------------------------------------------------------------------===//
