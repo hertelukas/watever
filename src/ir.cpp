@@ -272,9 +272,13 @@ BlockLowering::getDependencyTreeUserCount(llvm::Instruction *Root) const {
         continue;
       }
       // Stop at the AST leaf
-      if (Root != Inst &&
-          Parent.Roots.lookup(Root->getParent()).contains(Inst)) {
-        continue;
+      if (Root != Inst) {
+        if (auto It = Parent.Roots.find(Root->getParent());
+            It != Parent.Roots.end()) {
+          if (It->second.contains(Inst)) {
+            continue;
+          }
+        }
       }
       for (llvm::Value *Op : Inst->operands()) {
         if (auto *OpInst = llvm::dyn_cast<llvm::Instruction>(Op)) {

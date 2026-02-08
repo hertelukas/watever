@@ -349,6 +349,10 @@ FunctionColorer::getFreeLocal(ValType Type,
 }
 
 bool FunctionColorer::needsColor(llvm::Instruction &I) {
+  if (I.getType()->isVoidTy()) {
+    return false;
+  }
+
   if (llvm::isa<llvm::PHINode>(I)) {
     return true;
   }
@@ -357,14 +361,6 @@ bool FunctionColorer::needsColor(llvm::Instruction &I) {
     if (PromotedAIStartBlocks.contains(AI)) {
       return false;
     }
-  }
-
-  if (I.getType()->isVoidTy()) {
-    return false;
-  }
-
-  if (I.mayHaveSideEffects() && I.getNumUses()) {
-    return true;
   }
 
   // If the instruction has multiple uses, it needs a local, except if the
@@ -377,8 +373,9 @@ bool FunctionColorer::needsColor(llvm::Instruction &I) {
     return true;
   }
 
-  for (auto *Root : Target->Roots.lookup(I.getParent())) {
-    if (Root == &I) {
+  // If a root is needed at least once, it needs a local
+  if (auto It = Target->Roots.find(I.getParent()); It != Target->Roots.end()) {
+    if (It->second.contains(&I)) {
       return I.getNumUses() > 0;
     }
   }
