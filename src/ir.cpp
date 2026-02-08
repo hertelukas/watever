@@ -385,6 +385,43 @@ void BlockLowering::handleIntrinsic(llvm::CallInst &CI) {
     WorkList.push_back(CI.getArgOperand(0));
     return;
   }
+  // Bit Manipulation Intrinsics
+  case llvm::Intrinsic::ctpop: {
+    auto BitWidth = CI.getArgOperand(0)->getType()->getIntegerBitWidth();
+    if (BitWidth == 32) {
+      Actions.Insts.emplace_back(Opcode::I32Popcnt);
+    } else if (BitWidth == 64) {
+      Actions.Insts.emplace_back(Opcode::I64Popcnt);
+    } else {
+      WATEVER_UNIMPLEMENTED("Unsupported bit width {} for popcnt", BitWidth);
+    }
+    WorkList.push_back(CI.getArgOperand(0));
+    return;
+  }
+  case llvm::Intrinsic::ctlz: {
+    auto BitWidth = CI.getArgOperand(0)->getType()->getIntegerBitWidth();
+    if (BitWidth == 32) {
+      Actions.Insts.emplace_back(Opcode::I32Clz);
+    } else if (BitWidth == 64) {
+      Actions.Insts.emplace_back(Opcode::I64Clz);
+    } else {
+      WATEVER_UNIMPLEMENTED("Unsupported bit width {} for ctlz", BitWidth);
+    }
+    WorkList.push_back(CI.getArgOperand(0));
+    return;
+  }
+  case llvm::Intrinsic::cttz: {
+    auto BitWidth = CI.getArgOperand(0)->getType()->getIntegerBitWidth();
+    if (BitWidth == 32) {
+      Actions.Insts.emplace_back(Opcode::I32Ctz);
+    } else if (BitWidth == 64) {
+      Actions.Insts.emplace_back(Opcode::I64Ctz);
+    } else {
+      WATEVER_UNIMPLEMENTED("Unsupported bit width {} for cttz", BitWidth);
+    }
+    WorkList.push_back(CI.getArgOperand(0));
+    return;
+  }
   // General Intrinsics
   case llvm::Intrinsic::is_constant: {
     if (auto *C = llvm::dyn_cast<llvm::Constant>(CI.getArgOperand(0))) {
