@@ -309,6 +309,12 @@ class FunctionLowering {
   // reverse post order
   llvm::DenseMap<llvm::BasicBlock *, uint64_t> RPOOrdering;
 
+  // This is necessary, as it is not known during coloring if a root-local is
+  // directly consumed by the next AST. It is also not possible during lowering
+  // to decide whether the local can be removed, as it might be used for other
+  // values as well.
+  void removeUnusedLocals();
+
 public:
   FunctionLowering(DefinedFunc &F, llvm::DominatorTree &DT, llvm::LoopInfo &LI,
                    Module &M)

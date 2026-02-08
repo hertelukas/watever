@@ -11,6 +11,8 @@
 #include <algorithm>
 #include <cstdint>
 #include <llvm/ADT/DenseMap.h>
+#include <llvm/ADT/DenseSet.h>
+#include <llvm/ADT/STLExtras.h>
 #include <llvm/ADT/StringRef.h>
 #include <llvm/Analysis/LoopNestAnalysis.h>
 #include <llvm/IR/Argument.h>
@@ -1759,6 +1761,20 @@ void FunctionLowering::getMergeChildren(
                     });
 }
 
+void FunctionLowering::removeUnusedLocals() {
+  llvm::DenseSet<uint32_t> UsedLocals;
+  for (const auto &Inst : F.Body.Insts) {
+    if (const auto *Arg =
+            llvm::dyn_cast_or_null<LocalArg>(Inst.getArgument())) {
+      UsedLocals.insert(Arg->Index);
+    }
+  }
+
+  for (auto &[_, LocalList] : F.Locals) {
+    llvm::erase_if(LocalList, [&](auto L) { return !UsedLocals.contains(L); });
+  }
+}
+
 void FunctionLowering::lower(ValType RetTy) {
   WorkStack.push_back(ProcessTree(DT.getRoot(), RetTy, nullptr));
 
@@ -1774,6 +1790,8 @@ void FunctionLowering::lower(ValType RetTy) {
                           [&](PopContext &) { Ctx.Enclosing.pop_back(); }},
                CurrentTask);
   }
+
+  removeUnusedLocals();
 }
 
 static void applyFeatures(DefinedFunc *Fn, llvm::StringRef FeatureString) {
