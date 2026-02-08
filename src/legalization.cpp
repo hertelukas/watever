@@ -1599,6 +1599,49 @@ void FunctionLegalizer::visitIntrinsicInst(llvm::IntrinsicInst &II) {
     return;
   }
     // C/C++ Library intrinsics
+  case llvm::Intrinsic::smax:
+  case llvm::Intrinsic::smin:
+  case llvm::Intrinsic::umax:
+  case llvm::Intrinsic::umin: {
+    auto ID = II.getIntrinsicID();
+    auto *LHS = getMappedValue(II.getArgOperand(0))[0];
+    auto *RHS = getMappedValue(II.getArgOperand(1))[0];
+
+    auto BitWidth = II.getArgOperand(0)->getType()->getIntegerBitWidth();
+    auto LegalWidth = LHS->getType()->getIntegerBitWidth();
+
+    if (BitWidth < LegalWidth) {
+      if (ID == llvm::Intrinsic::smax || ID == llvm::Intrinsic::smin) {
+        LHS = signExtend(LHS, BitWidth, LegalWidth);
+        RHS = signExtend(RHS, BitWidth, LegalWidth);
+      } else {
+        LHS = zeroExtend(LHS, BitWidth, LegalWidth);
+        RHS = zeroExtend(RHS, BitWidth, LegalWidth);
+      }
+    }
+
+    llvm::Value *Cmp;
+    switch (ID) {
+    case llvm::Intrinsic::smax: {
+      Cmp = Builder.CreateICmpSGT(LHS, RHS);
+      break;
+    }
+    case llvm::Intrinsic::smin: {
+      Cmp = Builder.CreateICmpSLT(LHS, RHS);
+      break;
+    }
+    case llvm::Intrinsic::umax: {
+      Cmp = Builder.CreateICmpUGT(LHS, RHS);
+      break;
+    }
+    case llvm::Intrinsic::umin: {
+      Cmp = Builder.CreateICmpULT(LHS, RHS);
+      break;
+    }
+    }
+    ValueMap[&II] = Builder.CreateSelect(Cmp, LHS, RHS);
+    return;
+  }
   case llvm::Intrinsic::memcpy:
   case llvm::Intrinsic::memmove:
   case llvm::Intrinsic::memset: {

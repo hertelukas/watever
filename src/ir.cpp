@@ -1222,7 +1222,7 @@ void BlockLowering::visitICmpInst(llvm::ICmpInst &II) {
     break;
   }
   case llvm::CmpInst::ICMP_UGT: {
-    Dispatch(Opcode::I32GtU, Opcode::I64GtS);
+    Dispatch(Opcode::I32GtU, Opcode::I64GtU);
     break;
   }
   case llvm::CmpInst::ICMP_UGE: {
