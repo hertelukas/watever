@@ -137,7 +137,19 @@ LegalValue FunctionLegalizer::legalizeConstant(llvm::Constant *C) {
   }
 
   if (llvm::isa<llvm::PoisonValue>(C) || llvm::isa<llvm::UndefValue>(C)) {
-    return C;
+    // Promote poison and undef to legal type, if needed
+    auto LegalTys = LegalizationPass::getLegalType(C->getType());
+    llvm::SmallVector<llvm::Value *> Res;
+
+    bool IsPoison = llvm::isa<llvm::PoisonValue>(C);
+    for (auto *Ty : LegalTys) {
+      if (IsPoison) {
+        Res.push_back(llvm::PoisonValue::get(Ty));
+      } else {
+        Res.push_back(llvm::UndefValue::get(Ty));
+      }
+    }
+    return LegalValue{Res};
   }
 
   if (auto *CA = llvm::dyn_cast<llvm::ConstantAggregate>(C)) {
