@@ -5,6 +5,8 @@ target triple = "wasm32-unknown-unknown"
 
 declare void @llvm.memmove.p0.p0.i32(ptr writeonly captures(none), ptr readonly captures(none), i32, i1 immarg)
 
+declare void @llvm.memmove.p0.p0.i64(ptr writeonly captures(none), ptr readonly captures(none), i64, i1 immarg)
+
 define void @memmove_i32(ptr %dest, ptr %src, i32 %len) {
 ; CHECK-LABEL: $memmove_i32
 ; CHECK: local.get 0
@@ -12,5 +14,16 @@ define void @memmove_i32(ptr %dest, ptr %src, i32 %len) {
 ; CHECK-NEXT: local.get 2
 ; CHECK-NEXT: memory.copy
   call void @llvm.memmove.p0.p0.i32(ptr %dest, ptr %src, i32 %len, i1 false)
+  ret void
+}
+
+define void @memmove_i64(ptr %dest, ptr %src, i64 %len) {
+; CHECK-LABEL: $memmove_i64
+; CHECK: local.get 0
+; CHECK-NEXT: local.get 1
+; CHECK-NEXT: local.get 2
+; CHECK-NEXT: i32.wrap_i64
+; CHECK-NEXT: memory.copy
+  call void @llvm.memmove.p0.p0.i64(ptr %dest, ptr %src, i64 %len, i1 false)
   ret void
 }

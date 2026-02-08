@@ -1523,7 +1523,65 @@ void FunctionLegalizer::visitIntrinsicInst(llvm::IntrinsicInst &II) {
     Builder.CreateStore(VarArgsPtr, VAListPtr);
     return;
   }
+  case llvm::Intrinsic::vaend: {
+    // No-op
+    return;
+  }
+  case llvm::Intrinsic::vacopy: {
+    auto DestListPtr = getMappedValue(II.getArgOperand(0));
+    auto SrcListPtr = getMappedValue(II.getArgOperand(1));
+    assert(DestListPtr.isScalar() && "va_copy dest operand must be scalar");
+    assert(SrcListPtr.isScalar() && "va_copy src operand must be scalar");
+
+    auto *CurrentState = Builder.CreateLoad(PtrTy, SrcListPtr[0]);
+    Builder.CreateStore(CurrentState, DestListPtr[0]);
+    return;
+  }
     // C/C++ Library intrinsics
+  case llvm::Intrinsic::memcpy:
+  case llvm::Intrinsic::memmove:
+  case llvm::Intrinsic::memset: {
+    auto *Len = getMappedValue(II.getArgOperand(2))[0];
+    if (Len->getType()->isIntegerTy(64)) {
+      // Replace p0.i64 intrinsic with the p0.i32 version
+      if (IntPtrTy->getIntegerBitWidth() == 32) {
+        auto ID = II.getIntrinsicID();
+        Len = Builder.CreateTrunc(Len, Int32Ty);
+        llvm::SmallVector<llvm::Value *, 4> NewArgs;
+        NewArgs.push_back(getMappedValue(II.getArgOperand(0))[0]);
+        // The argument has to be an i8 to fulfill the intrinsic signature
+        if (ID == llvm::Intrinsic::memset) {
+          auto *TruncInst = llvm::CastInst::Create(
+              llvm::Instruction::Trunc, getMappedValue(II.getArgOperand(1))[0],
+              Int8Ty);
+          Builder.Insert(TruncInst);
+          NewArgs.push_back(TruncInst);
+        } else {
+          NewArgs.push_back(getMappedValue(II.getArgOperand(1))[0]);
+        }
+        NewArgs.push_back(Len);
+        // volatile (always constant)
+        NewArgs.push_back(II.getArgOperand(3));
+
+        // Potentially declare new intrinsic
+        llvm::SmallVector<llvm::Type *, 3> Tys;
+        Tys.push_back(NewArgs[0]->getType());
+        if (ID != llvm::Intrinsic::memset) {
+          // for memcpy/memmove, src is overloaded (e.g. we need explicit p0)
+          Tys.push_back(NewArgs[1]->getType());
+        }
+        Tys.push_back(Len->getType());
+
+        llvm::Function *NewIntrinsic = llvm::Intrinsic::getOrInsertDeclaration(
+            NewFunc->getParent(), ID, Tys);
+
+        ValueMap[&II] = Builder.CreateCall(NewIntrinsic, NewArgs);
+        return;
+      }
+      WATEVER_UNIMPLEMENTED("64-bit length in memory intrinsic");
+    }
+    break;
+  }
     // clang-format off
   case llvm::Intrinsic::sin: FPtoFPFuncName = "sin"; break;
   case llvm::Intrinsic::cos: FPtoFPFuncName = "cos"; break;
