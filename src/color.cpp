@@ -390,97 +390,104 @@ bool FunctionColorer::needsColor(llvm::Instruction &I) {
   return false;
 }
 
-void FunctionColorer::color(llvm::BasicBlock *BB) {
-  WATEVER_LOG_TRACE("Coloring block {}", getBlockName(BB));
-  computeBlockSchedule(BB);
-  // TODO maybe it is cheaper to keep track of unassigned?
-  llvm::DenseSet<uint32_t> Assigned;
+void FunctionColorer::color(llvm::BasicBlock *Entry) {
+  llvm::SmallVector<llvm::BasicBlock *> Worklist;
+  Worklist.push_back(Entry);
 
-  for (auto *Val : LiveIn.lookup(BB)) {
-    // Phi nodes are technically live-in but ignored by Hack
-    if (auto *Phi = llvm::dyn_cast<llvm::PHINode>(Val)) {
-      if (Phi->getParent() == BB)
-        continue;
-    }
+  while (!Worklist.empty()) {
+    auto *BB = Worklist.pop_back_val();
+    WATEVER_LOG_TRACE("Coloring block {}", getBlockName(BB));
+    computeBlockSchedule(BB);
+    // TODO maybe it is cheaper to keep track of unassigned?
+    llvm::DenseSet<uint32_t> Assigned;
 
-    // There might be values live-in which do not have a local
-    if (Target->LocalMapping.contains(Val)) {
-      Assigned.insert(Target->LocalMapping[Val]);
-    } else {
-      // This is generally okay, however, it will force the lowering to use a
-      // completely new local and should therefore not be the default. Can be
-      // prevented by handling this kind of value in needsColor
-      WATEVER_LOG_INFO("{} is live-in but has no local assigned to it",
-                       Val->getNameOrAsOperand());
-    }
-  }
-
-  auto colorPromotedAlloca = [&](llvm::AllocaInst *AI) {
-    if (Target->LocalMapping.contains(AI)) {
-      return;
-    }
-    auto LocalType = fromLLVMType(AI->getAllocatedType(), BB->getDataLayout());
-    auto Local = getFreeLocal(LocalType, Assigned);
-
-    Target->LocalMapping[AI] = Local;
-    Assigned.insert(Local);
-
-    WATEVER_LOG_TRACE("Mapping promoted {} to local {}",
-                      AI->getNameOrAsOperand(), Local);
-  };
-
-  for (auto &Inst : *BB) {
-    // Remove last uses
-    for (auto *Val : LastUses.lookup(&Inst)) {
-      if (auto It = Target->LocalMapping.find(Val);
-          It != Target->LocalMapping.end()) {
-        if (Assigned.erase(It->second)) {
-          WATEVER_LOG_TRACE("Unmapping {}", Val->getNameOrAsOperand());
-        }
-      }
-    }
-    // This might be a load/store with a promoted alloca pointer, which has not
-    // been assigned a local yet.
-    if (auto *LI = llvm::dyn_cast<llvm::LoadInst>(&Inst)) {
-      if (auto *AI =
-              llvm::dyn_cast<llvm::AllocaInst>(LI->getPointerOperand())) {
-        if (PromotedAIStartBlocks.contains(AI)) {
-          colorPromotedAlloca(AI);
-        }
-      }
-    } else if (auto *SI = llvm::dyn_cast<llvm::StoreInst>(&Inst)) {
-      if (auto *AI =
-              llvm::dyn_cast<llvm::AllocaInst>(SI->getPointerOperand())) {
-        if (PromotedAIStartBlocks.contains(AI)) {
-          colorPromotedAlloca(AI);
+    for (auto *Val : LiveIn.lookup(BB)) {
+      // Phi nodes are technically live-in but ignored by Hack
+      if (auto *Phi = llvm::dyn_cast<llvm::PHINode>(Val)) {
+        if (Phi->getParent() == BB)
           continue;
-        }
+      }
+
+      // There might be values live-in which do not have a local
+      if (Target->LocalMapping.contains(Val)) {
+        Assigned.insert(Target->LocalMapping[Val]);
+      } else {
+        // This is generally okay, however, it will force the lowering to use a
+        // completely new local and should therefore not be the default. Can be
+        // prevented by handling this kind of value in needsColor
+        WATEVER_LOG_INFO("{} is live-in but has no local assigned to it",
+                         Val->getNameOrAsOperand());
       }
     }
-    // If not, check if we need a color for the result
-    if (needsColor(Inst)) {
-      auto LocalType = fromLLVMType(Inst.getType(), BB->getDataLayout());
 
+    auto colorPromotedAlloca = [&](llvm::AllocaInst *AI) {
+      if (Target->LocalMapping.contains(AI)) {
+        return;
+      }
+      auto LocalType =
+          fromLLVMType(AI->getAllocatedType(), BB->getDataLayout());
       auto Local = getFreeLocal(LocalType, Assigned);
-      Target->LocalMapping[&Inst] = Local;
+
+      Target->LocalMapping[AI] = Local;
       Assigned.insert(Local);
 
-      WATEVER_LOG_TRACE("Mapping {} to local {}", Inst.getNameOrAsOperand(),
-                        Target->LocalMapping[&Inst]);
-    }
-  }
+      WATEVER_LOG_TRACE("Mapping promoted {} to local {}",
+                        AI->getNameOrAsOperand(), Local);
+    };
 
-  // There might be alloca's who's lifetime start now, even though they are
-  // never used in this block, as this might be the NCD.
-  if (auto It = AllocsStartingAt.find(BB); It != AllocsStartingAt.end()) {
-    for (auto *AI : It->second) {
-      colorPromotedAlloca(AI);
-    }
-  }
+    for (auto &Inst : *BB) {
+      // Remove last uses
+      for (auto *Val : LastUses.lookup(&Inst)) {
+        if (auto It = Target->LocalMapping.find(Val);
+            It != Target->LocalMapping.end()) {
+          if (Assigned.erase(It->second)) {
+            WATEVER_LOG_TRACE("Unmapping {}", Val->getNameOrAsOperand());
+          }
+        }
+      }
+      // This might be a load/store with a promoted alloca pointer, which has
+      // not been assigned a local yet.
+      if (auto *LI = llvm::dyn_cast<llvm::LoadInst>(&Inst)) {
+        if (auto *AI =
+                llvm::dyn_cast<llvm::AllocaInst>(LI->getPointerOperand())) {
+          if (PromotedAIStartBlocks.contains(AI)) {
+            colorPromotedAlloca(AI);
+          }
+        }
+      } else if (auto *SI = llvm::dyn_cast<llvm::StoreInst>(&Inst)) {
+        if (auto *AI =
+                llvm::dyn_cast<llvm::AllocaInst>(SI->getPointerOperand())) {
+          if (PromotedAIStartBlocks.contains(AI)) {
+            colorPromotedAlloca(AI);
+            continue;
+          }
+        }
+      }
+      // If not, check if we need a color for the result
+      if (needsColor(Inst)) {
+        auto LocalType = fromLLVMType(Inst.getType(), BB->getDataLayout());
 
-  // Handle imm dominated children
-  for (auto *Child : *DT.getNode(BB)) {
-    color(Child->getBlock());
+        auto Local = getFreeLocal(LocalType, Assigned);
+        Target->LocalMapping[&Inst] = Local;
+        Assigned.insert(Local);
+
+        WATEVER_LOG_TRACE("Mapping {} to local {}", Inst.getNameOrAsOperand(),
+                          Target->LocalMapping[&Inst]);
+      }
+    }
+
+    // There might be alloca's who's lifetime start now, even though they are
+    // never used in this block, as this might be the NCD.
+    if (auto It = AllocsStartingAt.find(BB); It != AllocsStartingAt.end()) {
+      for (auto *AI : It->second) {
+        colorPromotedAlloca(AI);
+      }
+    }
+
+    // Handle imm dominated children
+    for (auto *Child : *DT.getNode(BB)) {
+      Worklist.push_back(Child->getBlock());
+    }
   }
 }
 
