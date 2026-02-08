@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <llvm/ADT/APInt.h>
 #include <llvm/ADT/DenseMapInfo.h>
+#include <llvm/ADT/PostOrderIterator.h>
 #include <llvm/ADT/STLExtras.h>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/IR/Attributes.h>
@@ -1882,7 +1883,10 @@ llvm::PreservedAnalyses LegalizationPass::run(llvm::Module &Mod,
     WATEVER_LOG_DBG("Legalizing {}", F->getName().str());
     auto *NewFunc = FuncMap[F];
     FunctionLegalizer FL{F, NewFunc, Builder, Config, FuncMap};
-    FL.visit(F);
+    llvm::ReversePostOrderTraversal<llvm::Function *> RPOT(F);
+    for (auto *BB : RPOT) {
+      FL.visit(BB);
+    }
     FL.fixupPHIs();
     WATEVER_LOG_DBG("Legalized Function:\n {}", llvmToString(*FL.NewFunc));
   }
