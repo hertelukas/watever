@@ -47,8 +47,13 @@ llvm::BasicBlock *FunctionColorer::canBePromoted(llvm::AllocaInst *AI) {
       return nullptr;
     // The user must use AI as pointer (not as argument)
     if (auto *LI = llvm::dyn_cast<llvm::LoadInst>(UserInst)) {
-      if (LI->getPointerOperand() != AI || LI->isVolatile())
+      if (LI->getPointerOperand() != AI || LI->isVolatile()) {
         return nullptr;
+      }
+      // TODO maybe allow this and insert conversions
+      if (LI->getType() != Ty) {
+        return nullptr;
+      }
     } else if (auto *SI = llvm::dyn_cast<llvm::StoreInst>(UserInst)) {
       if (SI->getPointerOperand() != AI || SI->isVolatile())
         return nullptr;
@@ -192,6 +197,11 @@ void FunctionColorer::dumpLiveness() {
   if (!spdlog::should_log(spdlog::level::trace)) {
     return;
   }
+  // Takes too long otherwise
+  if (Source.size() > 5) {
+    return;
+  }
+
   std::string Buffer;
   llvm::raw_string_ostream OS(Buffer);
 
