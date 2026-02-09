@@ -197,6 +197,15 @@ void FunctionLegalizer::fixupPHIs() {
         // value.
         llvm::BasicBlock *OldPred = It->second;
 
+        // If legalizeConstant triggers, the incoming value has to be
+        // "legalized" in the predecessor - as PHI nodes must come first.
+        // See regression 260209
+        if (auto *Term = NewPred->getTerminator()) {
+          Builder.SetInsertPoint(Term);
+        } else {
+          WATEVER_UNREACHABLE("PHI predecessor has no terminator");
+        }
+
         auto Idx = OldPN->getBasicBlockIndex(OldPred);
         if (Idx == -1) {
           WATEVER_UNREACHABLE("New incoming edge from unknown old predecessor");
