@@ -596,15 +596,16 @@ void FunctionColorer::findInterference(
   llvm::Instruction *KillingInst = nullptr;
   // Val dies in this block, lookup where exactly
   if (!IsLiveOut) {
-    if (!DyingAt.contains(BB)) {
+    if (auto It = DyingAt.find(BB); It != DyingAt.end()) {
+      if (!It->second.contains(Val)) {
+        WATEVER_UNREACHABLE("Not-live-out value {} does not die in block {}",
+                            Val->getNameOrAsOperand(), getBlockName(BB));
+      }
+      KillingInst = DyingAt[BB][Val];
+    } else {
       WATEVER_UNREACHABLE("No dying information for block {}",
                           getBlockName(BB));
     }
-    if (!DyingAt.lookup(BB).contains(Val)) {
-      WATEVER_UNREACHABLE("Not-live-out value {} does not die in block {}",
-                          Val->getNameOrAsOperand(), getBlockName(BB));
-    }
-    KillingInst = DyingAt[BB][Val];
   }
 
   bool SkipUntilDef = !IsLiveIn;
@@ -714,39 +715,25 @@ bool FunctionColorer::avoidColor(llvm::Value *Node, uint32_t Local,
 
   // Delete colors of neighbors as possibilities
   for (auto *Neighbor : Neighbors) {
-    FreeLocals.erase(Target->LocalMapping.lookup_or(Neighbor, UINT32_MAX));
+    if (auto It = Target->LocalMapping.find(Neighbor);
+        It != Target->LocalMapping.end()) {
+      FreeLocals.erase(It->second);
+    }
   }
 
   // Hack tries to select the color "which is used least by Node's neighbors".
   // However, we can ensure that is used by none of its neighbors, and even
   // create a new local as fallback.
-  auto TryColor = [&](uint32_t Color) {
-    setColor(Node, Color, ChangedSet);
-    for (auto *Neighbor : Neighbors) {
-      if (!avoidColor(Neighbor, Color, ChangedSet)) {
-        WATEVER_LOG_TRACE("Could not recolor {} without assiging it {}",
-                          Neighbor->getNameOrAsOperand(), Color);
-        return false;
-      }
-    }
-    return true;
-  };
-
   uint32_t NewLocal;
-  while (!FreeLocals.empty()) {
+  if (!FreeLocals.empty()) {
     NewLocal = *FreeLocals.begin();
-    FreeLocals.erase(FreeLocals.begin());
-    if (TryColor(NewLocal)) {
-      WATEVER_LOG_TRACE("Successfully recolored {} to {}",
-                        Node->getNameOrAsOperand(), NewLocal);
-      return true;
-    }
+  } else {
+    NewLocal = Target->getNewLocal(Ty);
   }
-  NewLocal = Target->getNewLocal(Ty);
-  if (!TryColor(NewLocal)) {
-    WATEVER_UNREACHABLE("Failed to recolor {} to completely new local {}",
-                        Node->getNameOrAsOperand(), NewLocal);
-  }
+
+  // We can do this safely, without avoidColor on the neighbors, as we just
+  // ensured that all neighbors don't have this local.
+  setColor(Node, NewLocal, ChangedSet);
 
   WATEVER_LOG_TRACE("Successfully recolored {} to completely new local {}",
                     Node->getNameOrAsOperand(), NewLocal);
@@ -810,6 +797,11 @@ void FunctionColorer::recolorChunk(
     if (llvm::isa<llvm::Argument>(MaybeArgument)) {
       uint32_t Local = Target->LocalMapping.lookup(MaybeArgument);
       for (auto *Member : Chunks.members(*EC)) {
+        // Skip correctly colored locals
+        if (Target->LocalMapping.lookup(Member) == Local) {
+          Fixed.insert(Member);
+          continue;
+        }
         recolor(Member, Local);
         Fixed.insert(Member);
       }
