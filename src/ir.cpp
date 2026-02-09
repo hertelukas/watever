@@ -435,6 +435,20 @@ void BlockLowering::handleIntrinsic(llvm::CallInst &CI) {
     Actions.Insts.emplace_back(Opcode::I32Const, int64_t{0});
     return;
   }
+  // Memory Use Markers
+  case llvm::Intrinsic::lifetime_start:
+  case llvm::Intrinsic::lifetime_end:
+  case llvm::Intrinsic::invariant_start:
+  case llvm::Intrinsic::invariant_end: {
+    // No-Ops
+    return;
+  }
+  case llvm::Intrinsic::launder_invariant_group:
+  case llvm::Intrinsic::strip_invariant_group: {
+    // Return a ptr, so just pass the argument through
+    WorkList.push_back(CI.getArgOperand(0));
+    return;
+  }
   default: {
     WATEVER_TODO("handle {} intrinsic",
                  CI.getCalledFunction()->getName().str());
