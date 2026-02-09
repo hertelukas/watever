@@ -1746,7 +1746,23 @@ void FunctionLegalizer::visitIntrinsicInst(llvm::IntrinsicInst &II) {
     ValueMap[&II] = Builder.CreateFAdd(MulRes, ThirdLegalArg[0]);
     return;
   }
+  // Memory Use Markers (no-ops)
+  case llvm::Intrinsic::lifetime_start:
+  case llvm::Intrinsic::lifetime_end:
+  case llvm::Intrinsic::invariant_start:
+  case llvm::Intrinsic::invariant_end: {
+    return;
+  }
+  case llvm::Intrinsic::launder_invariant_group:
+  case llvm::Intrinsic::strip_invariant_group: {
+    // Return a ptr, so just pass the argument through
+    ValueMap[&II] = getMappedValue(II.getArgOperand(0));
+    return;
+  }
   // General Intrinsics
+  case llvm::Intrinsic::assume: {
+    return;
+  }
   case llvm::Intrinsic::ptrmask: {
     auto LegalPointer = getMappedValue(II.getOperand(0));
     auto LegalMask = getMappedValue(II.getOperand(1));
@@ -1766,20 +1782,6 @@ void FunctionLegalizer::visitIntrinsicInst(llvm::IntrinsicInst &II) {
     }
     return;
   }
-  // Memory Use Markers (no-ops)
-  case llvm::Intrinsic::lifetime_start:
-  case llvm::Intrinsic::lifetime_end:
-  case llvm::Intrinsic::invariant_start:
-  case llvm::Intrinsic::invariant_end: {
-    return;
-  }
-  case llvm::Intrinsic::launder_invariant_group:
-  case llvm::Intrinsic::strip_invariant_group: {
-    // Return a ptr, so just pass the argument through
-    ValueMap[&II] = getMappedValue(II.getArgOperand(0));
-    return;
-  }
-
   default:
     break;
   }
