@@ -1726,7 +1726,67 @@ void FunctionLegalizer::visitIntrinsicInst(llvm::IntrinsicInst &II) {
   case llvm::Intrinsic::log10: FPtoFPFuncName = "log10"; break;
   case llvm::Intrinsic::log2: FPtoFPFuncName = "log2"; break;
   case llvm::Intrinsic::fabs: FPtoFPFuncName = "fabs"; break;
-  // clang-format on
+    // clang-format on
+  // Bit Manipulation Intrinsics
+  case llvm::Intrinsic::bswap: {
+    auto *Arg = getMappedValue(II.getArgOperand(0))[0];
+    if (Arg->getType()->isIntegerTy(32)) {
+      // fshr is used as rotr
+      auto *Fshr = llvm::Intrinsic::getOrInsertDeclaration(
+          II.getModule(), llvm::Intrinsic::fshr, {Arg->getType()});
+      auto *Lower = Builder.CreateAnd(Arg, 0xFF00FF);
+      // Rotate by 8: The lowest 8 bit are now in the top, the upper middle 8
+      // bit are now in the lower middle
+      auto *Upper = Builder.CreateCall(
+          Fshr, {Lower, Lower, llvm::ConstantInt::get(Int32Ty, 8)});
+
+      // Rotate by 24: The highest 8 bit are now at the bottom, the lower middle
+      // 8 bit are now in the upper middle
+      auto *RotrHighToLow = Builder.CreateCall(
+          Fshr, {Arg, Arg, llvm::ConstantInt::get(Int32Ty, 24)});
+      Lower = Builder.CreateAnd(RotrHighToLow, 0xFF00FF);
+      ValueMap[&II] = Builder.CreateOr(Lower, Upper);
+    } else if (Arg->getType()->isIntegerTy(64)) {
+      auto moveByte = [&](uint64_t Mask, int Shift) {
+        auto *Masked = Builder.CreateAnd(Arg, Builder.getInt64(Mask));
+        if (Shift > 0) {
+          return Builder.CreateShl(Masked, Shift);
+        }
+        return Builder.CreateLShr(Masked, -Shift);
+      };
+      // Build from low to up
+      auto *Result = Builder.CreateShl(Arg, 56);
+      for (uint32_t I = 1; I < 8; ++I) {
+        Result = Builder.CreateOr(Result,
+                                  moveByte(0xFFULL << (I * 8), 56 - (16 * I)));
+      }
+      ValueMap[&II] = Result;
+    } else {
+      WATEVER_UNIMPLEMENTED("bswap for {}-bit integer",
+                            Arg->getType()->getIntegerBitWidth());
+    }
+    return;
+  }
+  case llvm::Intrinsic::fshl: {
+    // If the first two arguments are the same, do rotate in the backend
+    auto *FirstArg = getMappedValue(II.getArgOperand(0))[0];
+    auto *SecondArg = getMappedValue(II.getArgOperand(1))[0];
+    if (FirstArg == SecondArg) {
+      break;
+    }
+    WATEVER_UNIMPLEMENTED("fshl");
+    return;
+  }
+  case llvm::Intrinsic::fshr: {
+    // If the first two arguments are the same, do rotate in the backend
+    auto *FirstArg = getMappedValue(II.getArgOperand(0))[0];
+    auto *SecondArg = getMappedValue(II.getArgOperand(1))[0];
+    if (FirstArg == SecondArg) {
+      break;
+    }
+    WATEVER_UNIMPLEMENTED("fshr");
+    return;
+  }
   // Specialized Arithmetic Intrinsics
   case llvm::Intrinsic::fmuladd: {
     auto FirstLegalArg = getMappedValue(II.getArgOperand(0));

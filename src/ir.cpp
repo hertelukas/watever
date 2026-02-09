@@ -424,6 +424,34 @@ void BlockLowering::handleIntrinsic(llvm::CallInst &CI) {
     WorkList.push_back(CI.getArgOperand(0));
     return;
   }
+  case llvm::Intrinsic::fshl: {
+    if (CI.getArgOperand(0) != CI.getArgOperand(1)) {
+      WATEVER_UNREACHABLE("backend can only handle rotl fshl");
+    }
+    auto BitWidth = CI.getArgOperand(0)->getType()->getIntegerBitWidth();
+    if (BitWidth == 32) {
+      Actions.Insts.emplace_back(Opcode::I32Rotl);
+    } else if (BitWidth == 64) {
+      Actions.Insts.emplace_back(Opcode::I64Rotl);
+    }
+    WorkList.push_back(CI.getArgOperand(0));
+    WorkList.push_back(CI.getArgOperand(2));
+    return;
+  }
+  case llvm::Intrinsic::fshr: {
+    if (CI.getArgOperand(0) != CI.getArgOperand(1)) {
+      WATEVER_UNREACHABLE("backend can only handle rotr fshr");
+    }
+    auto BitWidth = CI.getArgOperand(0)->getType()->getIntegerBitWidth();
+    if (BitWidth == 32) {
+      Actions.Insts.emplace_back(Opcode::I32Rotr);
+    } else if (BitWidth == 64) {
+      Actions.Insts.emplace_back(Opcode::I64Rotr);
+    }
+    WorkList.push_back(CI.getArgOperand(0));
+    WorkList.push_back(CI.getArgOperand(2));
+    return;
+  }
   // General Intrinsics
   case llvm::Intrinsic::is_constant: {
     if (auto *C = llvm::dyn_cast<llvm::Constant>(CI.getArgOperand(0))) {
