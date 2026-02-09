@@ -1665,6 +1665,44 @@ void FunctionLegalizer::visitIntrinsicInst(llvm::IntrinsicInst &II) {
     ValueMap[&II] = Builder.CreateSelect(Cmp, LHS, RHS);
     return;
   }
+  case llvm::Intrinsic::scmp:
+  case llvm::Intrinsic::ucmp: {
+    auto ID = II.getIntrinsicID();
+    auto *LHS = getMappedValue(II.getArgOperand(0))[0];
+    auto *RHS = getMappedValue(II.getArgOperand(1))[0];
+
+    auto BitWidth = II.getArgOperand(0)->getType()->getIntegerBitWidth();
+    auto LegalWidth = LHS->getType()->getIntegerBitWidth();
+
+    if (BitWidth < LegalWidth) {
+      if (ID == llvm::Intrinsic::scmp) {
+        LHS = signExtend(LHS, BitWidth, LegalWidth);
+        RHS = signExtend(RHS, BitWidth, LegalWidth);
+      } else {
+        LHS = zeroExtend(LHS, BitWidth, LegalWidth);
+        RHS = zeroExtend(RHS, BitWidth, LegalWidth);
+      }
+    }
+
+    llvm::Value *GT;
+    llvm::Value *LT;
+    if (ID == llvm::Intrinsic::scmp) {
+      GT = Builder.CreateICmpSGT(LHS, RHS);
+      LT = Builder.CreateICmpSLT(LHS, RHS);
+    } else {
+      GT = Builder.CreateICmpUGT(LHS, RHS);
+      LT = Builder.CreateICmpULT(LHS, RHS);
+    }
+
+    GT = Builder.CreateZExt(GT, Builder.getInt32Ty());
+    LT = Builder.CreateZExt(LT, Builder.getInt32Ty());
+    llvm::Value *Result = Builder.CreateSub(GT, LT);
+    if (II.getType()->getIntegerBitWidth() > 32) {
+      Result = Builder.CreateSExt(Result, Int64Ty);
+    }
+    ValueMap[&II] = Result;
+    return;
+  }
   case llvm::Intrinsic::memcpy:
   case llvm::Intrinsic::memmove:
   case llvm::Intrinsic::memset: {
