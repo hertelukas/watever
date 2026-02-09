@@ -782,6 +782,18 @@ void FunctionColorer::recolorChunk(
     return;
   }
 
+  auto Color = Target->LocalMapping.lookup(EC->getData());
+  bool AllTheSame = true;
+  for (auto *Member : Chunks.members(*EC)) {
+    if (Target->LocalMapping.lookup(Member) != Color) {
+      AllTheSame = false;
+      break;
+    }
+  }
+  // TODO it is very rare that they are not the same
+  if (AllTheSame) {
+    return;
+  }
   Fixed.clear();
 
   // If any of the values in this class is an argument, it cannot be recolored.
