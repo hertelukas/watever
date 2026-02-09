@@ -55,8 +55,13 @@ llvm::BasicBlock *FunctionColorer::canBePromoted(llvm::AllocaInst *AI) {
         return nullptr;
       }
     } else if (auto *SI = llvm::dyn_cast<llvm::StoreInst>(UserInst)) {
-      if (SI->getPointerOperand() != AI || SI->isVolatile())
+      if (SI->getPointerOperand() != AI || SI->isVolatile()) {
         return nullptr;
+      }
+      // TODO see load - this could be allowed
+      if (SI->getValueOperand()->getType() != Ty) {
+        return nullptr;
+     }
     } else {
       return nullptr;
     }
