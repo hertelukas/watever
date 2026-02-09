@@ -1608,6 +1608,20 @@ void FunctionLegalizer::visitIntrinsicInst(llvm::IntrinsicInst &II) {
     return;
   }
     // C/C++ Library intrinsics
+  case llvm::Intrinsic::abs: {
+    // See https://stackoverflow.com/a/12041874/9820072
+    auto *Arg = getMappedValue(II.getArgOperand(0))[0];
+    auto BitWidth = II.getArgOperand(0)->getType()->getIntegerBitWidth();
+    auto LegalWidth = Arg->getType()->getIntegerBitWidth();
+    auto *ExtendedArg = Arg;
+    if (BitWidth < LegalWidth) {
+      ExtendedArg = signExtend(Arg, BitWidth, LegalWidth);
+    }
+    auto *Mask = Builder.CreateAShr(ExtendedArg, LegalWidth - 1);
+    auto *Xor = Builder.CreateXor(Arg, Mask);
+    ValueMap[&II] = Builder.CreateSub(Xor, Mask);
+    return;
+  }
   case llvm::Intrinsic::smax:
   case llvm::Intrinsic::smin:
   case llvm::Intrinsic::umax:
