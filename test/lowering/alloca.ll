@@ -65,8 +65,7 @@ define i32 @alloca_i32_promoted() {
 ;
 ; CHECK-NOT: global.get
 ; CHECK: i32.const 3
-; CHECK-NEXT: local.set [[PROMOTED:[0-9]+]]
-; CHECK-NEXT: local.get [[PROMOTED]]
+; CHECK-NEXT: local.tee
     %1 = alloca i32
     store i32 3, ptr %1
     %2 = load i32, ptr %1

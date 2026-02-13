@@ -310,6 +310,8 @@ class FunctionLowering {
   // reverse post order
   llvm::DenseMap<llvm::BasicBlock *, uint64_t> RPOOrdering;
 
+  void peephole();
+  
   // This is necessary, as it is not known during coloring if a root-local is
   // directly consumed by the next AST. It is also not possible during lowering
   // to decide whether the local can be removed, as it might be used for other

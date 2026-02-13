@@ -1846,6 +1846,44 @@ void FunctionLowering::getMergeChildren(
                     });
 }
 
+// TODO This is currently O(n^2)
+void FunctionLowering::peephole() {
+  WasmInst *Last = nullptr;
+  for (auto *It = F.Body.Insts.begin(); It != F.Body.Insts.end();) {
+    bool Erased = false;
+    // local.set a; local.get a; -> local.tee a;
+    if (It->Op == Opcode::LocalGet) {
+      if (Last && Last->Op == Opcode::LocalSet) {
+        const auto *Arg = llvm::cast<LocalArg>(It->getArgument());
+        const auto *LastArg = llvm::cast<LocalArg>(Last->getArgument());
+        if (Arg->Index == LastArg->Index) {
+          Last->Op = Opcode::LocalTee;
+          Erased = true;
+          It = F.Body.Insts.erase(It);
+        }
+      }
+    }
+
+    // local.get a; local.set a; -> ;
+    if (It->Op == Opcode::LocalSet) {
+      if (Last && Last->Op == Opcode::LocalGet) {
+        const auto *Arg = llvm::cast<LocalArg>(It->getArgument());
+        const auto *LastArg = llvm::cast<LocalArg>(Last->getArgument());
+        if (Arg->Index == LastArg->Index) {
+          Erased = true;
+          It = F.Body.Insts.erase(Last, std::next(It));
+          Last = nullptr;
+        }
+      }
+    }
+
+    if (!Erased) {
+      Last = It;
+      ++It;
+    }
+  }
+}
+
 void FunctionLowering::removeUnusedLocals() {
   llvm::DenseSet<uint32_t> UsedLocals;
   for (const auto &Inst : F.Body.Insts) {
@@ -1876,6 +1914,7 @@ void FunctionLowering::lower(ValType RetTy) {
                CurrentTask);
   }
 
+  peephole();
   removeUnusedLocals();
 }
 
