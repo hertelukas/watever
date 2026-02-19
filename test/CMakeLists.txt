@@ -21,6 +21,11 @@ add_custom_target(check-benchmark
     DEPENDS ${PROJECT_NAME}
 )
 
+add_custom_target(check-irreducible
+    COMMAND ${LLVM_EXTERNAL_LIT} -sv ${CMAKE_CURRENT_BINARY_DIR}/irreducible
+    DEPENDS ${PROJECT_NAME}
+)
+
 add_custom_target(check-all
-    DEPENDS check-${PROJECT_NAME} check-benchmark
+    DEPENDS check-${PROJECT_NAME} check-benchmark check-irreducible
 )
