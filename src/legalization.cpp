@@ -1582,6 +1582,8 @@ void FunctionLegalizer::visitIntrinsicInst(llvm::IntrinsicInst &II) {
 
   // Functions taking exactly a float/double and returning a float/double
   const char *FPtoFPFuncName = nullptr;
+  // Functions taking two float/double arguments and returing a float/double
+  const char *FPPFtoFPFuncName = nullptr;
   switch (II.getIntrinsicID()) {
     // Variable Argument Handling Intrinsics
   case llvm::Intrinsic::vastart: {
@@ -1747,7 +1749,7 @@ void FunctionLegalizer::visitIntrinsicInst(llvm::IntrinsicInst &II) {
     }
     break;
   }
-    // clang-format off
+  // clang-format off
   case llvm::Intrinsic::sin: FPtoFPFuncName = "sin"; break;
   case llvm::Intrinsic::cos: FPtoFPFuncName = "cos"; break;
   case llvm::Intrinsic::tan: FPtoFPFuncName = "tan"; break;
@@ -1757,6 +1759,7 @@ void FunctionLegalizer::visitIntrinsicInst(llvm::IntrinsicInst &II) {
   case llvm::Intrinsic::sinh: FPtoFPFuncName = "sinh"; break;
   case llvm::Intrinsic::cosh: FPtoFPFuncName = "cosh"; break;
   case llvm::Intrinsic::tanh: FPtoFPFuncName = "tanh"; break;
+  case llvm::Intrinsic::pow: FPPFtoFPFuncName = "pow"; break;
   case llvm::Intrinsic::exp: FPtoFPFuncName = "exp"; break;
   case llvm::Intrinsic::exp2: FPtoFPFuncName = "exp2"; break;
   case llvm::Intrinsic::exp10: FPtoFPFuncName = "exp10"; break;
@@ -1897,6 +1900,26 @@ void FunctionLegalizer::visitIntrinsicInst(llvm::IntrinsicInst &II) {
                             FPtoFPFuncName);
     }
     ValueMap[&II] = emitLibCall(LibCallName, {LegalArg[0]}, Ty);
+    return;
+  }
+
+  if (FPPFtoFPFuncName) {
+    auto LegalArg0 = getMappedValue(II.getArgOperand(0));
+    auto LegalArg1 = getMappedValue(II.getArgOperand(1));
+    assert(LegalArg0.isScalar() &&
+           "First argument to fp-fp to fp instruction must be scalar");
+    assert(LegalArg1.isScalar() &&
+           "Second argument to fp-fp to fp instruction must be scalar");
+
+    auto *Ty = LegalArg0[0]->getType();
+    std::string LibCallName = FPPFtoFPFuncName;
+    if (Ty->isFloatTy()) {
+      LibCallName += "f";
+    } else if (!Ty->isDoubleTy()) {
+      WATEVER_UNIMPLEMENTED("Math intrinsic {} only supported for flaot/double",
+                            FPPFtoFPFuncName);
+    }
+    ValueMap[&II] = emitLibCall(LibCallName, {LegalArg0[0], LegalArg1[0]}, Ty);
     return;
   }
 

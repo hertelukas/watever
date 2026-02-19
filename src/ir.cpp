@@ -351,6 +351,18 @@ void BlockLowering::handleIntrinsic(llvm::CallInst &CI) {
     WorkList.push_back(Len);
     break;
   }
+  case llvm::Intrinsic::sqrt: {
+    auto *Ty = CI.getArgOperand(0)->getType();
+    if (Ty->isFloatTy()) {
+      Actions.Insts.emplace_back(Opcode::F32Sqrt);
+    } else if (Ty->isDoubleTy()) {
+      Actions.Insts.emplace_back(Opcode::F64Sqrt);
+    } else {
+      WATEVER_UNIMPLEMENTED("sqrt with type {}", llvmToString(*Ty));
+    }
+    WorkList.push_back(CI.getArgOperand(0));
+    return;
+  }
   case llvm::Intrinsic::floor: {
     auto *Ty = CI.getArgOperand(0)->getType();
     if (Ty->isFloatTy()) {
