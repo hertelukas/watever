@@ -105,6 +105,10 @@ class FunctionLegalizer : public llvm::InstVisitor<FunctionLegalizer> {
       return legalizeConstant(C);
     }
 
+    if (auto *MD = llvm::dyn_cast<llvm::MetadataAsValue>(OldVal)) {
+      return LegalValue{MD};
+    }
+
     WATEVER_UNREACHABLE("No value found for {}", llvmToString(*OldVal));
   }
 
