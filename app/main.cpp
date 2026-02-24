@@ -194,7 +194,11 @@ int main(int argc, char *argv[]) {
     llvm::ModulePassManager LegalizeMPM;
     llvm::FunctionPassManager LegalizeFPM;
 
+#ifdef LLVM_IS_DYNAMIC
     LegalizeFPM.addPass(llvm::FixIrreduciblePass());
+#else
+    LegalizeFPM.addPass(llvm::FixIrreduciblePass(true));
+#endif
 
     LegalizeMPM.addPass(
         llvm::createModuleToFunctionPassAdaptor(std::move(LegalizeFPM)));

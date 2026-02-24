@@ -23,6 +23,7 @@ target_include_directories(${PROJECT_NAME}lib SYSTEM PUBLIC
 if (LLVM_LINK_LLVM_DYLIB)
   message(STATUS "Dynamically linking against LLVM")
   target_link_libraries(${PROJECT_NAME}lib PUBLIC LLVM)
+  target_compile_definitions(${PROJECT_NAME}lib PUBLIC LLVM_IS_DYNAMIC)
 else()
   message(STATUS "Statically linking LLVM")
   target_link_libraries(${PROJECT_NAME}lib PUBLIC
