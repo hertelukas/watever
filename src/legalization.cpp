@@ -1039,6 +1039,73 @@ void FunctionLegalizer::visitStoreInst(llvm::StoreInst &SI) {
   RecursiveStore(RecursiveStore, StoreType, 0, It);
 }
 
+void FunctionLegalizer::visitAtomicRMWInst(llvm::AtomicRMWInst &AI) {
+  if (Config.EnabledFeatures.atomics_enabled()) {
+    WATEVER_UNIMPLEMENTED("atomics support");
+  }
+
+  auto *PtrArg = getMappedValue(AI.getPointerOperand())[0];
+
+  auto EmitBinOp = [&](llvm::Instruction::BinaryOps BO) {
+    auto LegalArg = getMappedValue(AI.getValOperand());
+    if (!LegalArg.isScalar()) {
+      WATEVER_UNIMPLEMENTED("non-scalar atomic rmw");
+    }
+    auto *Arg = LegalArg[0];
+    auto *Old = Builder.CreateLoad(Arg->getType(), PtrArg);
+    auto *New = Builder.CreateBinOp(BO, Old, Arg);
+    Builder.CreateStore(New, PtrArg);
+    ValueMap[&AI] = Old;
+    return;
+  };
+
+  switch (AI.getOperation()) {
+  case llvm::AtomicRMWInst::Xchg:
+    break;
+  case llvm::AtomicRMWInst::Add: {
+    return EmitBinOp(llvm::Instruction::BinaryOps::Add);
+  }
+  case llvm::AtomicRMWInst::Sub: {
+    return EmitBinOp(llvm::Instruction::BinaryOps::Sub);
+  }
+  case llvm::AtomicRMWInst::And: {
+    return EmitBinOp(llvm::Instruction::BinaryOps::And);
+  }
+  case llvm::AtomicRMWInst::Nand:
+    break;
+  case llvm::AtomicRMWInst::Or: {
+    return EmitBinOp(llvm::Instruction::BinaryOps::Or);
+  }
+  case llvm::AtomicRMWInst::Xor: {
+    return EmitBinOp(llvm::Instruction::BinaryOps::Xor);
+  }
+  case llvm::AtomicRMWInst::Max:
+  case llvm::AtomicRMWInst::Min:
+  case llvm::AtomicRMWInst::UMax:
+  case llvm::AtomicRMWInst::UMin:
+    break;
+  case llvm::AtomicRMWInst::FAdd: {
+    return EmitBinOp(llvm::Instruction::BinaryOps::FAdd);
+  }
+  case llvm::AtomicRMWInst::FSub: {
+    return EmitBinOp(llvm::Instruction::BinaryOps::FSub);
+  }
+  case llvm::AtomicRMWInst::FMax:
+  case llvm::AtomicRMWInst::FMin:
+  case llvm::AtomicRMWInst::FMaximum:
+  case llvm::AtomicRMWInst::FMinimum:
+  case llvm::AtomicRMWInst::UIncWrap:
+  case llvm::AtomicRMWInst::UDecWrap:
+  case llvm::AtomicRMWInst::USubCond:
+  case llvm::AtomicRMWInst::USubSat:
+  default:
+    break;
+  }
+
+  WATEVER_UNIMPLEMENTED("Unsupported rmw operation: {}",
+                        AI.getOperationName(AI.getOperation()).str());
+}
+
 void FunctionLegalizer::visitGetElementPtrInst(llvm::GetElementPtrInst &GI) {
   const llvm::DataLayout &DL = GI.getModule()->getDataLayout();
 
@@ -1749,7 +1816,7 @@ void FunctionLegalizer::visitIntrinsicInst(llvm::IntrinsicInst &II) {
     }
     break;
   }
-  // clang-format off
+    // clang-format off
   case llvm::Intrinsic::sin: FPtoFPFuncName = "sin"; break;
   case llvm::Intrinsic::cos: FPtoFPFuncName = "cos"; break;
   case llvm::Intrinsic::tan: FPtoFPFuncName = "tan"; break;
@@ -1876,7 +1943,7 @@ void FunctionLegalizer::visitIntrinsicInst(llvm::IntrinsicInst &II) {
     return;
   }
   case llvm::Intrinsic::threadlocal_address: {
-    if (!Config.EnabledFeatures.annotations_enabled()) {
+    if (!Config.EnabledFeatures.atomics_enabled()) {
       ValueMap[&II] = II.getArgOperand(0);
     } else {
       WATEVER_UNIMPLEMENTED("atomics support");

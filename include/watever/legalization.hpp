@@ -256,6 +256,7 @@ public:
   void emitScalarStore(llvm::Value *Val, llvm::Value *Ptr,
                        llvm::Type *StoreType, llvm::Align Align);
   void visitStoreInst(llvm::StoreInst &SI);
+  void visitAtomicRMWInst(llvm::AtomicRMWInst &AI);
   void visitGetElementPtrInst(llvm::GetElementPtrInst &GI);
 
   // Conversion Operations
