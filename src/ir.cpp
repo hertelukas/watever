@@ -133,6 +133,27 @@ static bool putValueOnStack(llvm::Value *Val, WasmActions &Actions, Module &M,
     }
     return true;
   }
+
+  if (auto *CE = llvm::dyn_cast<llvm::ConstantExpr>(Val)) {
+    // All of those are no-ops
+    if (CE->getOpcode() == llvm::Instruction::PtrToInt ||
+        CE->getOpcode() == llvm::Instruction::IntToPtr ||
+        CE->getOpcode() == llvm::Instruction::BitCast) {
+      return putValueOnStack(CE->getOperand(0), Actions, M, Is64Bit);
+    }
+    if (CE->getOpcode() == llvm::Instruction::Add) {
+      bool Success = putValueOnStack(CE->getOperand(0), Actions, M, Is64Bit);
+      Success &= putValueOnStack(CE->getOperand(1), Actions, M, Is64Bit);
+      if (Success) {
+        if (CE->getOperand(0)->getType()->isIntegerTy(32)) {
+          Actions.Insts.emplace_back(Opcode::I32Add);
+        } else {
+          Actions.Insts.emplace_back(Opcode::I64Add);
+        }
+        return true;
+      }
+    }
+  }
   return false;
 }
 
