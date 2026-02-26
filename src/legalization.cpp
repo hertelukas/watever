@@ -15,6 +15,7 @@
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/IRBuilder.h>
+#include <llvm/IR/InlineAsm.h>
 #include <llvm/IR/InstrTypes.h>
 #include <llvm/IR/Instruction.h>
 #include <llvm/IR/Instructions.h>
@@ -1531,6 +1532,17 @@ void FunctionLegalizer::visitFreezeInst(llvm::FreezeInst &FI) {
 }
 
 void FunctionLegalizer::visitCallInst(llvm::CallInst &CI) {
+  if (CI.isInlineAsm()) {
+    auto *IA = llvm::cast<llvm::InlineAsm>(CI.getCalledOperand());
+    if (IA->getAsmString().empty()) {
+      // TODO in theory if it is a sideffect block we need to treat it as a
+      // barrier. However, currently we are strictly ordered anyway, so probably
+      // good to go
+      return;
+    }
+    WATEVER_UNIMPLEMENTED("non-empty inline assembly");
+  }
+
   auto *OldCalledFunc = CI.getCalledFunction();
 
   // Resolve callee
