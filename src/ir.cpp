@@ -493,6 +493,10 @@ void BlockLowering::handleIntrinsic(llvm::CallInst &CI) {
     return;
   }
   // General Intrinsics
+  case llvm::Intrinsic::trap: {
+    Actions.Insts.emplace_back(Opcode::Unreachable);
+    return;
+  }
   case llvm::Intrinsic::is_constant: {
     if (auto *C = llvm::dyn_cast<llvm::Constant>(CI.getArgOperand(0))) {
       if (C->isManifestConstant()) {
