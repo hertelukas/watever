@@ -90,6 +90,8 @@ static bool putValueOnStack(llvm::Value *Val, WasmActions &Actions, Module &M,
   if (auto *F = llvm::dyn_cast<llvm::Function>(Val)) {
     auto *WasmFunc = M.FunctionMap[F];
     M.addIndirectFunctionElement(WasmFunc);
+    // Esnure that a indirect function table is available
+    M.getIndirectFunctionTable();
     auto Arg = std::make_unique<RelocatableTableIndexArg>(WasmFunc);
     if (F->getDataLayout().getPointerSizeInBits() == 64) {
       Actions.Insts.emplace_back(Opcode::I64Const, std::move(Arg));
