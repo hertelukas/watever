@@ -1882,7 +1882,17 @@ void FunctionLegalizer::visitIntrinsicInst(llvm::IntrinsicInst &II) {
     if (FirstArg == SecondArg) {
       break;
     }
-    WATEVER_UNIMPLEMENTED("fshl");
+    auto *Shift = getMappedValue(II.getArgOperand(2))[0];
+    // Otherwise, legalize
+    // high << shift
+    auto *Upper = Builder.CreateShl(FirstArg, Shift);
+    // low >> 1
+    auto *Lower = Builder.CreateLShr(SecondArg, 1);
+    // 31 - shift
+    auto *NewShift = Builder.CreateXor(Shift, -1);
+    // (low >> 1) >> (32 - shift)
+    Lower = Builder.CreateLShr(Lower, NewShift);
+    ValueMap[&II] = Builder.CreateOr(Upper, Lower);
     return;
   }
   case llvm::Intrinsic::fshr: {
@@ -1892,7 +1902,13 @@ void FunctionLegalizer::visitIntrinsicInst(llvm::IntrinsicInst &II) {
     if (FirstArg == SecondArg) {
       break;
     }
-    WATEVER_UNIMPLEMENTED("fshr");
+    auto *Shift = getMappedValue(II.getArgOperand(2))[0];
+    // Otherwise, legalize
+    auto *Upper = Builder.CreateShl(FirstArg, 1);
+    auto *NewShift = Builder.CreateXor(Shift, -1);
+    Upper = Builder.CreateShl(Upper, NewShift);
+    auto *Lower = Builder.CreateLShr(SecondArg, Shift);
+    ValueMap[&II] = Builder.CreateOr(Upper, Lower);
     return;
   }
   // Specialized Arithmetic Intrinsics
