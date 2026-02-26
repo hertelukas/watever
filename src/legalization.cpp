@@ -1876,40 +1876,89 @@ void FunctionLegalizer::visitIntrinsicInst(llvm::IntrinsicInst &II) {
     return;
   }
   case llvm::Intrinsic::fshl: {
-    // If the first two arguments are the same, do rotate in the backend
-    auto *FirstArg = getMappedValue(II.getArgOperand(0))[0];
-    auto *SecondArg = getMappedValue(II.getArgOperand(1))[0];
-    if (FirstArg == SecondArg) {
-      break;
+    llvm::Value *FirstArg;
+    llvm::Value *SecondArg;
+    FirstArg = getMappedValue(II.getArgOperand(0))[0];
+    if (II.getArgOperand(0) == II.getArgOperand(1)) {
+      SecondArg = FirstArg;
+    } else {
+      SecondArg = getMappedValue(II.getArgOperand(1))[0];
     }
+
     auto *Shift = getMappedValue(II.getArgOperand(2))[0];
-    // Otherwise, legalize
-    // high << shift
-    auto *Upper = Builder.CreateShl(FirstArg, Shift);
-    // low >> 1
-    auto *Lower = Builder.CreateLShr(SecondArg, 1);
-    // 31 - shift
-    auto *NewShift = Builder.CreateXor(Shift, -1);
-    // (low >> 1) >> (32 - shift)
-    Lower = Builder.CreateLShr(Lower, NewShift);
-    ValueMap[&II] = Builder.CreateOr(Upper, Lower);
+    unsigned BitWidth = II.getType()->getIntegerBitWidth();
+    if (BitWidth == 32 || BitWidth == 64) {
+      // If the first two arguments are the same, do rotate in the backend
+      if (FirstArg == SecondArg) {
+        break;
+      }
+      // Otherwise, legalize
+      // high << shift
+      auto *Upper = Builder.CreateShl(FirstArg, Shift);
+      // low >> 1
+      auto *Lower = Builder.CreateLShr(SecondArg, 1);
+      // 31 - shift
+      auto *NewShift = Builder.CreateXor(Shift, -1);
+      // (low >> 1) >> (32 - shift)
+      Lower = Builder.CreateLShr(Lower, NewShift);
+      ValueMap[&II] = Builder.CreateOr(Upper, Lower);
+      return;
+    }
+
+    // Blindly following what LLVM does here
+    unsigned LegalWidth = BitWidth > 32 ? 64 : 32;
+    auto *LegalType = LegalWidth == 32 ? Int32Ty : Int64Ty;
+    if (FirstArg == SecondArg) {
+      auto *LowerMasked = zeroExtend(FirstArg, BitWidth, LegalWidth);
+      auto *Urem = Builder.CreateURem(
+          LowerMasked, llvm::ConstantInt::get(LegalType, BitWidth));
+      auto *Upper = Builder.CreateShl(FirstArg, Urem);
+      auto *UpperMasked = Builder.CreateAnd(FirstArg, (1 << BitWidth) - 2);
+      auto *UpperShifted = Builder.CreateLShr(UpperMasked, 1);
+      auto *NewShift = Builder.CreateSub(
+          llvm::ConstantInt::get(LegalType, BitWidth - 1), Urem);
+      auto *MaskedShift = Builder.CreateAnd(
+          NewShift, llvm::APInt::getLowBitsSet(LegalWidth, BitWidth));
+      UpperShifted = Builder.CreateLShr(UpperShifted, MaskedShift);
+      ValueMap[&II] = Builder.CreateOr(Upper, UpperShifted);
+      return;
+    }
+
+    auto *UpperShifted = Builder.CreateShl(FirstArg, BitWidth);
+    auto *LowerMasked = zeroExtend(SecondArg, BitWidth, LegalWidth);
+    auto *Upper = Builder.CreateOr(UpperShifted, LowerMasked);
+    auto *ShiftMasked = zeroExtend(Shift, BitWidth, LegalWidth);
+    auto *Urem = Builder.CreateURem(
+        ShiftMasked, llvm::ConstantInt::get(LegalType, BitWidth));
+    UpperShifted = Builder.CreateShl(Upper, Urem);
+    ValueMap[&II] = Builder.CreateLShr(UpperShifted, BitWidth);
     return;
   }
   case llvm::Intrinsic::fshr: {
-    // If the first two arguments are the same, do rotate in the backend
-    auto *FirstArg = getMappedValue(II.getArgOperand(0))[0];
-    auto *SecondArg = getMappedValue(II.getArgOperand(1))[0];
-    if (FirstArg == SecondArg) {
-      break;
+    llvm::Value *FirstArg;
+    llvm::Value *SecondArg;
+    FirstArg = getMappedValue(II.getArgOperand(0))[0];
+    if (II.getArgOperand(0) == II.getArgOperand(1)) {
+      SecondArg = FirstArg;
+    } else {
+      SecondArg = getMappedValue(II.getArgOperand(1))[0];
     }
-    auto *Shift = getMappedValue(II.getArgOperand(2))[0];
-    // Otherwise, legalize
-    auto *Upper = Builder.CreateShl(FirstArg, 1);
-    auto *NewShift = Builder.CreateXor(Shift, -1);
-    Upper = Builder.CreateShl(Upper, NewShift);
-    auto *Lower = Builder.CreateLShr(SecondArg, Shift);
-    ValueMap[&II] = Builder.CreateOr(Upper, Lower);
-    return;
+    unsigned BitWidth = FirstArg->getType()->getIntegerBitWidth();
+    if (BitWidth == 32 || BitWidth == 64) {
+      // If the first two arguments are the same, do rotate in the backend
+      if (FirstArg == SecondArg) {
+        break;
+      }
+      auto *Shift = getMappedValue(II.getArgOperand(2))[0];
+      // Otherwise, legalize
+      auto *Upper = Builder.CreateShl(FirstArg, 1);
+      auto *NewShift = Builder.CreateXor(Shift, -1);
+      Upper = Builder.CreateShl(Upper, NewShift);
+      auto *Lower = Builder.CreateLShr(SecondArg, Shift);
+      ValueMap[&II] = Builder.CreateOr(Upper, Lower);
+      return;
+    }
+    WATEVER_UNIMPLEMENTED("fshr on unsupported bit widht");
   }
   // Specialized Arithmetic Intrinsics
   case llvm::Intrinsic::fmuladd: {
