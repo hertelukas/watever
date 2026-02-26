@@ -17,6 +17,7 @@
 #include <llvm/Analysis/LoopNestAnalysis.h>
 #include <llvm/IR/Argument.h>
 #include <llvm/IR/BasicBlock.h>
+#include <llvm/IR/CFG.h>
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/DataLayout.h>
 #include <llvm/IR/Function.h>
@@ -144,16 +145,14 @@ static bool putValueOnStack(llvm::Value *Val, WasmActions &Actions, Module &M,
       return putValueOnStack(CE->getOperand(0), Actions, M, Is64Bit);
     }
     if (CE->getOpcode() == llvm::Instruction::Add) {
+      if (CE->getOperand(0)->getType()->isIntegerTy(32)) {
+        Actions.Insts.emplace_back(Opcode::I32Add);
+      } else {
+        Actions.Insts.emplace_back(Opcode::I64Add);
+      }
       bool Success = putValueOnStack(CE->getOperand(0), Actions, M, Is64Bit);
       Success &= putValueOnStack(CE->getOperand(1), Actions, M, Is64Bit);
-      if (Success) {
-        if (CE->getOperand(0)->getType()->isIntegerTy(32)) {
-          Actions.Insts.emplace_back(Opcode::I32Add);
-        } else {
-          Actions.Insts.emplace_back(Opcode::I64Add);
-        }
-        return true;
-      }
+      return Success;
     }
   }
   return false;
