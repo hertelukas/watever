@@ -274,6 +274,12 @@ void Module::flattenConstant(
     }
   }
 
+  if (llvm::isa<llvm::UndefValue>(C)) {
+    uint64_t Width = DL.getTypeAllocSize(C->getType());
+    Buffer.insert(Buffer.end(), Width, 0);
+    return;
+  }
+
   WATEVER_UNIMPLEMENTED("constant data of type {} is not yet supported",
                         llvmToString(*C->getType()));
 }
