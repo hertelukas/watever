@@ -1981,6 +1981,92 @@ void FunctionLegalizer::visitIntrinsicInst(llvm::IntrinsicInst &II) {
     }
     WATEVER_UNIMPLEMENTED("fshr on unsupported bit widht");
   }
+  // Airthmetic with Overflow Intrinsics
+  case llvm::Intrinsic::sadd_with_overflow:
+  case llvm::Intrinsic::uadd_with_overflow:
+  case llvm::Intrinsic::ssub_with_overflow:
+  case llvm::Intrinsic::usub_with_overflow: {
+    auto LegalLHS = getMappedValue(II.getArgOperand(0));
+    auto LegalRHS = getMappedValue(II.getArgOperand(1));
+    if (!LegalLHS.isScalar() || !LegalRHS.isScalar()) {
+      WATEVER_UNIMPLEMENTED(
+          "overflow intrinsic only supported on scalar types");
+    }
+    auto *LHS = LegalLHS[0];
+    auto *RHS = LegalRHS[0];
+
+    auto ID = II.getIntrinsicID();
+    bool IsSigned = ID == llvm::Intrinsic::sadd_with_overflow ||
+                    ID == llvm::Intrinsic::ssub_with_overflow;
+    bool IsAddition = ID == llvm::Intrinsic::sadd_with_overflow ||
+                      ID == llvm::Intrinsic::uadd_with_overflow;
+    auto Op = IsAddition ? llvm::Instruction::BinaryOps::Add
+                         : llvm::Instruction::BinaryOps::Sub;
+
+    unsigned OriginalWidth =
+        II.getArgOperand(0)->getType()->getIntegerBitWidth();
+    unsigned Width = LHS->getType()->getIntegerBitWidth();
+    auto *Ty = Width <= 32 ? Int32Ty : Int64Ty;
+    llvm::Value *Sum = nullptr;
+    llvm::Value *Overflow = nullptr;
+
+    // If the type exist in wasm, we can do:
+    // signed: (b < 0) ^ (a + b) < a -> overflow
+    //         (b > 0) ^ (a - b) < a -> overflow
+    // unsigned: (a + b) < a -> overflow
+    //           (a - b) > a -> overflow
+    if (OriginalWidth == Width) {
+      Sum = Builder.CreateBinOp(Op, LHS, RHS);
+      if (IsSigned) {
+        auto *BAdds =
+            IsAddition
+                ? Builder.CreateICmpSLT(RHS, llvm::ConstantInt::get(Ty, 0))
+                : Builder.CreateICmpSGT(RHS, llvm::ConstantInt::get(Ty, 0));
+
+        auto *ResultSmaller = Builder.CreateICmpSLT(Sum, LHS);
+
+        Overflow = Builder.CreateXor(BAdds, ResultSmaller);
+      } else {
+        Overflow = IsAddition ? Builder.CreateICmpULT(Sum, LHS)
+                              : Builder.CreateICmpUGT(Sum, LHS);
+      }
+    } else {
+      if (IsSigned) {
+        LHS = signExtend(LHS, OriginalWidth, Width);
+        RHS = signExtend(RHS, OriginalWidth, Width);
+      } else {
+        LHS = zeroExtend(LHS, OriginalWidth, Width);
+        RHS = zeroExtend(RHS, OriginalWidth, Width);
+      }
+
+      // We cannot count on wrap arounds
+      // (a + b) != (a + b) & <mask> -> overflow
+      Sum = Builder.CreateBinOp(Op, LHS, RHS);
+      auto *MaskedSum = IsSigned ? signExtend(Sum, OriginalWidth, Width)
+                                 : zeroExtend(Sum, OriginalWidth, Width);
+      Overflow = Builder.CreateICmpNE(Sum, MaskedSum);
+    }
+    ValueMap[&II] = LegalValue{{Sum, Overflow}};
+    return;
+  }
+  case llvm::Intrinsic::smul_with_overflow:
+  case llvm::Intrinsic::umul_with_overflow: {
+    auto LHS = getMappedValue(II.getArgOperand(0));
+    auto RHS = getMappedValue(II.getArgOperand(1));
+    if (!LHS.isScalar() || !RHS.isScalar()) {
+      WATEVER_UNIMPLEMENTED(
+          "overflow intrinsic only supported on scalar types");
+    }
+    // Multiplications would need the double-sized bit width to check whether an
+    // overflow occured
+    if (LHS[0]->getType()->getIntegerBitWidth() > 32) {
+      // i64 would require an i128 multiplication, including setting up a
+      // stack...
+      WATEVER_UNIMPLEMENTED("mul overflow intrinsic only supported up to i32");
+    }
+    WATEVER_TODO("mul overflow with legal type");
+    return;
+  }
   // Specialized Arithmetic Intrinsics
   case llvm::Intrinsic::fmuladd: {
     auto FirstLegalArg = getMappedValue(II.getArgOperand(0));
