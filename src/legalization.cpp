@@ -1233,15 +1233,24 @@ void FunctionLegalizer::visitZExtInst(llvm::ZExtInst &ZI) {
     auto *Val = Arg[0];
     // If we currently filled only parts of a Wasm value, we have to ensure
     // that the upper bits in the new value are clean
-    if (FromWidth != 32) {
+    if (FromWidth != 32 && FromWidth != 64) {
       Val = Builder.CreateAnd(
           Val, llvm::APInt::getLowBitsSet(Val->getType()->getIntegerBitWidth(),
                                           FromWidth));
     }
+    // The only extension that is supported in wasm natively (i64extendi32)
     if (ToWidth > 32 && FromWidth <= 32) {
       ValueMap[&ZI] = Builder.CreateZExt(Val, ZI.getDestTy());
     } else {
-      ValueMap[&ZI] = Val;
+      if (ToWidth <= 64) {
+        ValueMap[&ZI] = Val;
+      } else {
+        llvm::SmallVector<llvm::Value *, 2> Vs = {Val};
+        for (uint32_t I = 1; I * 64 < ToWidth; ++I) {
+          Vs.push_back(llvm::ConstantInt::get(Int64Ty, 0));
+        }
+        ValueMap[&ZI] = LegalValue(Vs);
+      }
     }
     return;
   }
