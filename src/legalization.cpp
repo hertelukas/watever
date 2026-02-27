@@ -1409,14 +1409,29 @@ void FunctionLegalizer::visitBitCastInst(llvm::BitCastInst &BI) {
 //===----------------------------------------------------------------------===//
 
 void FunctionLegalizer::visitICmpInst(llvm::ICmpInst &ICI) {
-  auto LHS = getMappedValue(ICI.getOperand(0));
-  auto RHS = getMappedValue(ICI.getOperand(1));
+  auto LegalLHS = getMappedValue(ICI.getOperand(0));
+  auto LegalRHS = getMappedValue(ICI.getOperand(1));
 
-  if (LHS.isScalar()) {
+  if (LegalLHS.isScalar()) {
+    auto *LHS = LegalLHS[0];
+    auto *RHS = LegalRHS[0];
+    if (ICI.getOperand(0)->getType()->isIntegerTy()) {
+      auto OriginalWidth = ICI.getOperand(0)->getType()->getIntegerBitWidth();
+      auto LegalWidth = LHS->getType()->getIntegerBitWidth();
+      if (OriginalWidth != LegalWidth) {
+        if (ICI.isSigned()) {
+          LHS = signExtend(LHS, OriginalWidth, LegalWidth);
+          RHS = signExtend(RHS, OriginalWidth, LegalWidth);
+        } else {
+          LHS = zeroExtend(LHS, OriginalWidth, LegalWidth);
+          RHS = zeroExtend(RHS, OriginalWidth, LegalWidth);
+        }
+      }
+    }
     auto *Comparison =
-        Builder.CreateICmp(ICI.getPredicate(), LHS[0], RHS[0], ICI.getName());
-
+        Builder.CreateICmp(ICI.getPredicate(), LHS, RHS, ICI.getName());
     ValueMap[&ICI] = Builder.CreateZExt(Comparison, Int32Ty);
+
     return;
   }
 
