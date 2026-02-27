@@ -128,6 +128,14 @@ class FunctionLegalizer : public llvm::InstVisitor<FunctionLegalizer> {
       WATEVER_UNIMPLEMENTED("Unsupported zero extension to {}", To);
     }
 
+    if (Val->getType()->getIntegerBitWidth() <= 32 && To == 64) {
+      Val = Builder.CreateZExt(Val, Int64Ty);
+      // Upper bits are zeroed
+      if (From == 32 && To == 64) {
+        return Val;
+      }
+    }
+
     llvm::APInt Mask = llvm::APInt::getLowBitsSet(To, From);
     return Builder.CreateAnd(Val, Mask);
   }

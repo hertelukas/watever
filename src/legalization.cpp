@@ -1,6 +1,7 @@
 #include "watever/legalization.hpp"
 #include "watever/utils.hpp"
 #include <algorithm>
+#include <cassert>
 #include <cstdint>
 #include <llvm/ADT/APInt.h>
 #include <llvm/ADT/DenseMapInfo.h>
@@ -2051,20 +2052,88 @@ void FunctionLegalizer::visitIntrinsicInst(llvm::IntrinsicInst &II) {
   }
   case llvm::Intrinsic::smul_with_overflow:
   case llvm::Intrinsic::umul_with_overflow: {
-    auto LHS = getMappedValue(II.getArgOperand(0));
-    auto RHS = getMappedValue(II.getArgOperand(1));
-    if (!LHS.isScalar() || !RHS.isScalar()) {
+    auto LegalLHS = getMappedValue(II.getArgOperand(0));
+    auto LegalRHS = getMappedValue(II.getArgOperand(1));
+    if (!LegalLHS.isScalar() || !LegalRHS.isScalar()) {
       WATEVER_UNIMPLEMENTED(
           "overflow intrinsic only supported on scalar types");
     }
+
+    auto *LHS = LegalLHS[0];
+    auto *RHS = LegalRHS[0];
     // Multiplications would need the double-sized bit width to check whether an
     // overflow occured
-    if (LHS[0]->getType()->getIntegerBitWidth() > 32) {
+    if (LHS->getType()->getIntegerBitWidth() > 32) {
       // i64 would require an i128 multiplication, including setting up a
       // stack...
       WATEVER_UNIMPLEMENTED("mul overflow intrinsic only supported up to i32");
     }
-    WATEVER_TODO("mul overflow with legal type");
+    auto ID = II.getIntrinsicID();
+    bool IsSigned = ID == llvm::Intrinsic::smul_with_overflow;
+    unsigned OriginalWidth =
+        II.getArgOperand(0)->getType()->getIntegerBitWidth();
+    unsigned MultiplicationWidth = OriginalWidth * 2 <= 32 ? 32 : 64;
+
+    if (IsSigned) {
+      LHS = signExtend(LHS, OriginalWidth, MultiplicationWidth);
+      RHS = signExtend(RHS, OriginalWidth, MultiplicationWidth);
+    } else {
+      LHS = zeroExtend(LHS, OriginalWidth, MultiplicationWidth);
+      RHS = zeroExtend(RHS, OriginalWidth, MultiplicationWidth);
+    }
+
+    llvm::Value *Product = Builder.CreateMul(LHS, RHS);
+    llvm::Value *Overflow = nullptr;
+    // No extensions needed
+    if (OriginalWidth <= 16) {
+      assert(LHS->getType()->isIntegerTy(32) &&
+             "expected 32-bit type for <= 16-bit integers");
+      // signed: (a * b) != signExtended(a * b) -> overflow
+      // unsigned: ((a * b) >> width) != 0 -> overflow
+      if (IsSigned) {
+        auto *MaskedProduct = signExtend(Product, OriginalWidth, 32);
+        Overflow = Builder.CreateICmpNE(Product, MaskedProduct);
+      } else {
+        // TODO ICmpNE 0 not really needed, as select checks the entire 32-bit
+        // in Wasm. However, legalization currently expects lowest bit to make
+        // decision
+        Overflow =
+            Builder.CreateICmpNE(Builder.CreateAShr(Product, OriginalWidth),
+                                 llvm::ConstantInt::get(Int32Ty, 0));
+      }
+    } else if (OriginalWidth < 32) {
+      WATEVER_UNIMPLEMENTED("multiplication with overflow for types i[17, 31]");
+    } else {
+      assert(OriginalWidth == 32);
+      // unsigned: ((a * b) >> width) != 0 -> overflow
+      if (IsSigned) {
+        // The 32-bit result of a * b
+        auto *MaskedProduct = Builder.CreateTrunc(Product, Int32Ty);
+        // The upper 32-bit of a * b
+        auto *ShiftedProduct = Builder.CreateLShr(Product, OriginalWidth);
+        auto *MaskedShiftedProduct =
+            Builder.CreateTrunc(ShiftedProduct, Int32Ty);
+        // 0xFFFFFFFF, if negative, 0x0 if positive
+        auto *ShiftedMaskedProduct =
+            Builder.CreateAShr(MaskedProduct, OriginalWidth - 1);
+        // If upper 32-bit and lower 32-bit (sign) are not equal (e.g., either
+        // are both 1s, or both only 0s), an overflow occured
+        Overflow =
+            Builder.CreateICmpNE(MaskedShiftedProduct, ShiftedMaskedProduct);
+        Product = MaskedProduct;
+      } else {
+        // TODO ICmpNE 0 not really needed, as select checks the entire 32-bit
+        // in Wasm. However, legalization currently expects lowest bit to make
+        // decision
+        Overflow =
+            Builder.CreateICmpNE(Builder.CreateAShr(Product, OriginalWidth),
+                                 llvm::ConstantInt::get(Int64Ty, 0));
+        Product = Builder.CreateTrunc(Product, Int32Ty);
+      }
+    }
+
+    ValueMap[&II] = LegalValue{{Product, Overflow}};
+
     return;
   }
   // Specialized Arithmetic Intrinsics
