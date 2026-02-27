@@ -799,7 +799,7 @@ void BlockLowering::doGreedyMemOp(llvm::Instruction &I, Opcode::Enum Op) {
     if (auto *BinOp =
             llvm::dyn_cast<llvm::BinaryOperator>(IntToPtr->getOperand(0))) {
       // If we are the only user, and it's an addition, we can inline
-      if (BinOp->getNumUses() <= 1 &&
+      if (IntToPtr->getNumUses() <= 1 && BinOp->getNumUses() <= 1 &&
           BinOp->getOpcode() == llvm::Instruction::Add) {
         if (auto *Offset =
                 llvm::dyn_cast<llvm::ConstantInt>(BinOp->getOperand(1))) {
