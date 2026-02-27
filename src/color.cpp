@@ -623,7 +623,8 @@ void FunctionColorer::findInterference(
     }
   }
 
-  bool SkipUntilDef = !IsLiveIn;
+  // Phi nodes are instantly defined, and interfere with everything
+  bool SkipUntilDef = !IsLiveIn && !llvm::isa<llvm::PHINode>(Val);
 
   for (auto &Inst : *BB) {
     if (SkipUntilDef) {
