@@ -19,7 +19,9 @@
 #include <llvm/IR/CFG.h>
 #include <llvm/IR/DataLayout.h>
 #include <llvm/IR/Dominators.h>
+#include <llvm/IR/Function.h>
 #include <llvm/IR/GlobalValue.h>
+#include <llvm/IR/GlobalVariable.h>
 #include <llvm/IR/InstVisitor.h>
 #include <llvm/IR/InstrTypes.h>
 #include <llvm/IR/Instruction.h>
@@ -52,6 +54,9 @@ class Module {
       llvm::DenseMap<RelocationEntry *, const llvm::GlobalValue *> &FixUps,
       const llvm::DataLayout &DL);
 
+  void handleGlobalConstructors(llvm::GlobalVariable &GV);
+  void handleGlobalDestructors(llvm::GlobalVariable &GV);
+
 public:
   TargetConfig Config;
   llvm::SmallVector<FuncType> Types;
@@ -61,6 +66,7 @@ public:
   llvm::SmallVector<ImportedFunc *> Imports{};
   llvm::SmallVector<DefinedFunc *> Functions{};
   llvm::DenseMap<const llvm::Function *, Function *> FunctionMap{};
+  llvm::DenseMap<llvm::Function *, uint32_t> InitFunctions{};
 
   llvm::SmallVector<ImportedGlobal *> ImportedGlobals{};
   llvm::DenseMap<llvm::Value *, Global *> GlobalMap;

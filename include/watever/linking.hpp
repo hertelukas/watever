@@ -180,6 +180,9 @@ struct InitFunc {
   // the symbol index of init function (not the function index) (varuint32)
   uint32_t SymbolIndex;
 
+  explicit InitFunc(uint32_t P, uint32_t SymIdx)
+      : Priority(P), SymbolIndex(SymIdx) {}
+
   [[nodiscard]] uint32_t getInitFuncLen() const {
     uint32_t Len = llvm::getULEB128Size(Priority);
     Len += llvm::getULEB128Size(SymbolIndex);

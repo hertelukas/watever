@@ -318,6 +318,17 @@ void BinaryWriter::write() {
     Link.Subsections.push_back(std::make_unique<SegmentInfo>(SI));
   }
 
+  if (!Mod.InitFunctions.empty()) {
+    InitFunctions IFs;
+    for (auto &[F, Priority] : Mod.InitFunctions) {
+      auto *WasmFn = Mod.FunctionMap.lookup(F);
+      assert(WasmFn && "could not find lowered init function");
+      InitFunc I(Priority, WasmFn->SymbolIndex);
+      IFs.Functions.emplace_back(Priority, WasmFn->SymbolIndex);
+    }
+    Link.Subsections.push_back(std::make_unique<InitFunctions>(IFs));
+  }
+
   writeLinking(Link);
 
   for (const auto &Reloc : Relocations) {

@@ -284,6 +284,38 @@ void Module::flattenConstant(
                         llvmToString(*C->getType()));
 }
 
+void Module::handleGlobalConstructors(llvm::GlobalVariable &GV) {
+  // Might already have been optimized away
+  if (llvm::isa<llvm::ConstantAggregateZero>(GV.getInitializer())) {
+    return;
+  }
+  auto *FuncArray = llvm::dyn_cast<llvm::ConstantArray>(GV.getInitializer());
+  assert(FuncArray && "global_ctors must be an array");
+
+  for (size_t I = 0; I < FuncArray->getNumOperands(); ++I) {
+    auto *Struct = llvm::cast<llvm::ConstantStruct>(FuncArray->getOperand(I));
+
+    auto *PriorityConst = llvm::cast<llvm::ConstantInt>(Struct->getOperand(0));
+    uint32_t Priority = PriorityConst->getZExtValue();
+
+    auto *FnConst = Struct->getOperand(1);
+    auto *Fn = llvm::dyn_cast<llvm::Function>(FnConst->stripPointerCasts());
+    // Might have been optimized away
+    if (!Fn) {
+      continue;
+    }
+    InitFunctions[Fn] = Priority;
+  }
+}
+
+void Module::handleGlobalDestructors(llvm::GlobalVariable &GV) {
+  // Might already have been optimized away
+  if (llvm::isa<llvm::ConstantAggregateZero>(GV.getInitializer())) {
+    return;
+  }
+  WATEVER_UNIMPLEMENTED("add dtor init function");
+}
+
 llvm::DenseMap<llvm::Value *, int>
 BlockLowering::getDependencyTreeUserCount(llvm::Instruction *Root) const {
   llvm::DenseMap<llvm::Value *, int> Result;
@@ -1992,6 +2024,23 @@ Module ModuleLowering::convert(llvm::Module &Mod,
 
   for (auto &GV : Mod.globals()) {
     WATEVER_LOG_TRACE("Adding global value {}", GV.getName().str());
+
+    if (GV.getName() == "llvm.global_ctors") {
+      Res.handleGlobalConstructors(GV);
+      continue;
+    }
+    if (GV.getName() == "llvm.global_dtors") {
+      Res.handleGlobalDestructors(GV);
+      continue;
+    }
+    if (GV.getName() == "llvm.used") {
+      WATEVER_UNIMPLEMENTED("llvm.used GV");
+      continue;
+    }
+    if (GV.getName() == "llvm.compiler.used") {
+      WATEVER_UNIMPLEMENTED("llvm.compiler.used GV");
+      continue;
+    }
 
     if (GV.isDeclaration()) {
       auto UndefData = std::make_unique<UndefinedData>(Res.Symbols.size(),
