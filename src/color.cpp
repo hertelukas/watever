@@ -61,7 +61,7 @@ llvm::BasicBlock *FunctionColorer::canBePromoted(llvm::AllocaInst *AI) {
       // TODO see load - this could be allowed
       if (SI->getValueOperand()->getType() != Ty) {
         return nullptr;
-     }
+      }
     } else {
       return nullptr;
     }
@@ -157,7 +157,12 @@ void FunctionColorer::upAndMark(llvm::BasicBlock *BB, llvm::Value *Val) {
       if (LiveOut[Pred].empty() || LiveOut[Pred].back() != Val) {
         LiveOut[Pred].push_back(Val);
       }
-      Worklist.push_back(Pred);
+      // This check is needed for promoted stack slots, for loops
+      // with a single BB (as otherwise, the LiveIn check would stop
+      // propagation).
+      if (Pred != BB) {
+        Worklist.push_back(Pred);
+      }
     }
   }
 }
