@@ -331,6 +331,7 @@ BlockLowering::getDependencyTreeUserCount(llvm::Instruction *Root) const {
     auto *Val = WorkList.pop_back_val();
     if (auto *Inst = llvm::dyn_cast<llvm::Instruction>(Val)) {
       if (llvm::isa<llvm::PHINode>(Inst)) {
+        ASTNodes.erase(Inst);
         continue;
       }
       // Stop at the AST leaf
@@ -338,6 +339,7 @@ BlockLowering::getDependencyTreeUserCount(llvm::Instruction *Root) const {
         if (auto It = Parent.Roots.find(Root->getParent());
             It != Parent.Roots.end()) {
           if (It->second.contains(Inst)) {
+            ASTNodes.erase(Inst);
             continue;
           }
         }
