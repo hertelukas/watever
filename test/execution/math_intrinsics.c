@@ -20,9 +20,11 @@ int main(void) {
   printf("asin(%.2f) = %.2f\n", 0.6, asinf(0.6f));
   printf("acos(%.2f) = %.2f\n", 0.7, acos(0.7));
   printf("atan(%.2f) = %.2f\n", 0.8, atanf(0.8f));
+  printf("atan2(%.2f, %.2f) = %.2f\n", 0.8, 0.3, atan2(0.8, 0.3));
   printf("sinh(%.2f) = %.2f\n", 0.9, sinh(0.9));
   printf("cosh(%.2f) = %.2f\n", 1.0, coshf(1.0f));
   printf("tanh(%.2f) = %.2f\n", 1.1, tanh(1.1));
+  printf("pow(%.2f, %.2f) = %.2f\n", 1.1, 12.0, pow(1.1, 12.0));
   printf("exp(%.2f) = %.2f\n", 1.2, expf(1.2f));
   printf("exp2(%.2f) = %.2f\n", 3.0, exp2(3.0));
   printf("exp10(%.2f) = %.2f\n", 2.0, exp10f(2.0f));
@@ -39,9 +41,11 @@ int main(void) {
 // CHECK-NEXT: asin(0.60) = 0.64
 // CHECK-NEXT: acos(0.70) = 0.80
 // CHECK-NEXT: atan(0.80) = 0.67
+// CHECK-NEXT: atan2(0.80, 0.30) = 1.21
 // CHECK-NEXT: sinh(0.90) = 1.03
 // CHECK-NEXT: cosh(1.00) = 1.54
 // CHECK-NEXT: tanh(1.10) = 0.80
+// CHECK-NEXT: pow(1.10, 12.00) = 3.14
 // CHECK-NEXT: exp(1.20) = 3.32
 // CHECK-NEXT: exp2(3.00) = 8.00
 // CHECK-NEXT: exp10(2.00) = 100.00

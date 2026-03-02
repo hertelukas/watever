@@ -1860,6 +1860,7 @@ void FunctionLegalizer::visitIntrinsicInst(llvm::IntrinsicInst &II) {
   case llvm::Intrinsic::asin: FPtoFPFuncName = "asin"; break;
   case llvm::Intrinsic::acos: FPtoFPFuncName = "acos"; break;
   case llvm::Intrinsic::atan: FPtoFPFuncName = "atan"; break;
+  case llvm::Intrinsic::atan2: FPPFtoFPFuncName = "atan2"; break;
   case llvm::Intrinsic::sinh: FPtoFPFuncName = "sinh"; break;
   case llvm::Intrinsic::cosh: FPtoFPFuncName = "cosh"; break;
   case llvm::Intrinsic::tanh: FPtoFPFuncName = "tanh"; break;
