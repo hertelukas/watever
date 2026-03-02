@@ -444,7 +444,7 @@ void BlockLowering::handleIntrinsic(llvm::CallInst &CI) {
     } else if (Ty->isDoubleTy()) {
       Actions.Insts.emplace_back(Opcode::F64Ceil);
     } else {
-      WATEVER_UNIMPLEMENTED("floor with type {}", llvmToString(*Ty));
+      WATEVER_UNIMPLEMENTED("ceil with type {}", llvmToString(*Ty));
     }
     WorkList.push_back(CI.getArgOperand(0));
     return;
@@ -456,7 +456,21 @@ void BlockLowering::handleIntrinsic(llvm::CallInst &CI) {
     } else if (Ty->isDoubleTy()) {
       Actions.Insts.emplace_back(Opcode::F64Trunc);
     } else {
-      WATEVER_UNIMPLEMENTED("floor with type {}", llvmToString(*Ty));
+      WATEVER_UNIMPLEMENTED("trunc with type {}", llvmToString(*Ty));
+    }
+    WorkList.push_back(CI.getArgOperand(0));
+    return;
+  }
+  case llvm::Intrinsic::rint:
+  case llvm::Intrinsic::nearbyint:
+  case llvm::Intrinsic::roundeven: {
+    auto *Ty = CI.getArgOperand(0)->getType();
+    if (Ty->isFloatTy()) {
+      Actions.Insts.emplace_back(Opcode::F32Nearest);
+    } else if (Ty->isDoubleTy()) {
+      Actions.Insts.emplace_back(Opcode::F64Nearest);
+    } else {
+      WATEVER_UNIMPLEMENTED("rint with type {}", llvmToString(*Ty));
     }
     WorkList.push_back(CI.getArgOperand(0));
     return;

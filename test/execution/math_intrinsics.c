@@ -32,6 +32,7 @@ int main(void) {
   printf("log10(%.2f) = %.2f\n", 100.0, log10f(100.0f));
   printf("log2(%.2f) = %.2f\n", 8.0, log2(8.0));
   printf("fabs(%.2f) = %.2f\n", -123.45, fabsf(-123.45f));
+  printf("round(%.2f) = %.2f\n", 123.5, roundf(123.5f));
   return 0;
 }
 
@@ -53,3 +54,4 @@ int main(void) {
 // CHECK-NEXT: log10(100.00) = 2.00
 // CHECK-NEXT: log2(8.00) = 3.00
 // CHECK-NEXT: fabs(-123.45) = 123.45
+// CHECK-NEXT: round(123.50) = 124.00
