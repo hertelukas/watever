@@ -428,13 +428,13 @@ void FunctionLegalizer::visitSwitchInst(llvm::SwitchInst &SI) {
   auto *DefaultDest =
       llvm::dyn_cast<llvm::BasicBlock>(getMappedValue(SI.getDefaultDest())[0]);
 
-  PartitionList PL{};
-  generateClusters(SI, PL);
-
-  if (PL.empty()) {
+  if (SI.getNumCases() == 0) {
     Builder.CreateBr(DefaultDest);
     return;
   }
+
+  PartitionList PL{};
+  generateClusters(SI, PL);
 
   // Build binary search tree
   // Emits a tree for the partitions between Begin and End
