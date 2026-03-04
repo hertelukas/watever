@@ -263,6 +263,9 @@ bool FunctionColorer::mayWAR(llvm::Instruction *LI, llvm::Instruction *Root) {
     } else {
       WATEVER_LOG_ERR("trying to check WAR hazard on non-load instruction");
     }
+    if (LI->getParent() != Root->getParent()) {
+      return true;
+    }
   }
 
   auto LoadLoc = llvm::MemoryLocation::get(LI);
