@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <llvm/ADT/DenseMap.h>
 #include <llvm/ADT/DenseSet.h>
+#include <llvm/ADT/MapVector.h>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/Analysis/BlockFrequencyInfo.h>
 #include <llvm/Analysis/BranchProbabilityInfo.h>
@@ -269,7 +270,7 @@ bool FunctionColorer::mayWAR(llvm::Instruction *LI, llvm::Instruction *Root) {
   for (auto *I = LI->getNextNode(); I != Root; I = I->getNextNode()) {
     auto MRI = AA.getModRefInfo(I, LoadLoc);
     if (llvm::isModSet(MRI)) {
-      WATEVER_LOG_TRACE("{} might clobber {}", I->getNameOrAsOperand(),
+      WATEVER_LOG_TRACE("{} might clobber {}", llvmToString(*I),
                         LI->getNameOrAsOperand());
       return true;
     }
@@ -338,12 +339,11 @@ FunctionColorer::getRootReason(llvm::Instruction &I) {
 // - Iterate backwards over each load, and check whether there is a potential
 //   WAR hazard before its would-be-root is evaluated; For this, at least all
 //   other roots between the load and the would-be-root need to be checked.
-// - If there is a potential hazard, do nothing
-// - If we can prove that there can't be a harzard, map all LastUses[Load] to
-//   LastUses[NewRoot], and LastUses[NewRoot].insert(Load). Also set
-//   DyingAt[BB][I] to the NewRoot for all instructions that were in
-//   LastUses[Load]. Also remap the would-be-root map, as previous loads could
-//   now potentially be evaluated later.
+// - If there is a potential hazard, do nothing; the load must stay a root.
+// - If we can prove that there can't be a harzard, delete the load as a root.
+// - If the roots changed, recalculate the death-points. I tried doing this
+//   in-place, but failed, as the roots influence each other. This way is easier
+//   to reason about.
 void FunctionColorer::computeBlockSchedule(llvm::BasicBlock *BB) {
   // All these values' lifetime end during this BB
   llvm::DenseSet<llvm::Value *> MustDie(LiveIn[BB].begin(), LiveIn[BB].end());
@@ -363,7 +363,7 @@ void FunctionColorer::computeBlockSchedule(llvm::BasicBlock *BB) {
 
   // Maps loads to their roots, if reordering them would not introduce a hazard
   // violation
-  llvm::DenseMap<llvm::Instruction *, llvm::Instruction *> LoadsRoots;
+  llvm::MapVector<llvm::Instruction *, llvm::Instruction *> LoadsRoots;
 
   for (auto &Inst : *BB) {
     auto ShouldBeRoot = getRootReason(Inst);
@@ -384,7 +384,7 @@ void FunctionColorer::computeBlockSchedule(llvm::BasicBlock *BB) {
         if (!VisitedInCurrentTree.insert(Next).second)
           continue;
 
-        // If Next ust die in this BB, and was used by this root, set it as
+        // If Next must die in this BB, and was used by this root, set it as
         // dying here. If a later root uses Next as well, it will push the death
         // back.
         if (MustDie.contains(Next)) {
@@ -394,7 +394,7 @@ void FunctionColorer::computeBlockSchedule(llvm::BasicBlock *BB) {
         if (auto *I = llvm::dyn_cast<llvm::Instruction>(Next)) {
           // Setting the first root that uses the load as the loads' potential
           // root
-          if (LoadsRoots.contains(I)) {
+          if (I != &Inst && LoadsRoots.contains(I)) {
             if (!LoadsRoots.lookup(I)) {
               LoadsRoots[I] = &Inst;
             }
@@ -417,28 +417,70 @@ void FunctionColorer::computeBlockSchedule(llvm::BasicBlock *BB) {
     }
   }
 
+  // Fix-up loads
+  bool RootsChanged = false;
+  for (auto &[Load, FirstRoot] : llvm::reverse(LoadsRoots)) {
+    if (!FirstRoot) {
+      WATEVER_LOG_INFO("Load {} is not used", Load->getNameOrAsOperand());
+      continue;
+    }
+    // The potential root is no longer necessarily correct: if it was a load,
+    // depending on this load, we want the load's new root
+    if (!Target->Roots[BB].contains(FirstRoot)) {
+      FirstRoot = LoadsRoots[FirstRoot];
+    }
+    assert(FirstRoot);
+    if (FirstRoot && !mayWAR(Load, FirstRoot)) {
+      // The load is no longer a root
+      RootsChanged = true;
+      Target->Roots[BB].remove(Load);
+      // Earlier roots, depending on this load-root, can now find the actual
+      // root
+      LoadsRoots[Load] = FirstRoot;
+    }
+  }
+
+  // Recompute lifetimes with finalized roots
+  if (RootsChanged) {
+    DyingAt[BB].clear();
+    for (auto &Inst : *BB) {
+      // Skip non-roots
+      if (!Target->Roots[BB].contains(&Inst)) {
+        continue;
+      }
+      VisitedInCurrentTree.clear();
+      WorkList.push_back(&Inst);
+      while (!WorkList.empty()) {
+        auto *Next = WorkList.pop_back_val();
+
+        if (!VisitedInCurrentTree.insert(Next).second)
+          continue;
+
+        // Last root wins due to forward scan - and roots are emitted in order
+        if (MustDie.contains(Next)) {
+          DyingAt[BB][Next] = &Inst;
+        }
+
+        if (auto *I = llvm::dyn_cast<llvm::Instruction>(Next)) {
+          // Stop at other roots
+          if (I != &Inst && Target->Roots[BB].contains(I)) {
+            continue;
+          }
+
+          if (I->getParent() == BB) {
+            for (llvm::Value *Op : I->operands()) {
+              WorkList.push_back(Op);
+            }
+          }
+        }
+      }
+    }
+  }
+
   for (auto &[Val, Root] : DyingAt[BB]) {
     WATEVER_LOG_TRACE("{} is last use of {}", llvmToString(*Root),
                       Val->getNameOrAsOperand());
     LastUses[Root].insert(Val);
-  }
-
-  // Fix-up loads
-  for (auto &[Load, PotentialRoot] : LoadsRoots) {
-    // The potential root is no longer necessarily correct: if it was a load,
-    // depending on this load, we want the load's root
-    PotentialRoot = DyingAt[BB][Load];
-    if (!mayWAR(Load, PotentialRoot)) {
-      // Everything that previously died at the load, now dies at the load's
-      // root
-      for (auto *WasDyingAtLoad : LastUses[Load]) {
-        LastUses[PotentialRoot].insert(WasDyingAtLoad);
-        DyingAt[BB][WasDyingAtLoad] = PotentialRoot;
-      }
-      LastUses.erase(Load);
-      DyingAt[BB][Load] = PotentialRoot;
-      Target->Roots[BB].remove(Load);
-    }
   }
 }
 

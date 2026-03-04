@@ -9,9 +9,10 @@ define void @foo(ptr %p) {
 ; CHECK: load
 ; The loaded pointer has to be set in a local, as it has multiple
 ; users in WebAssembly, even though it does not in LLVM
-; CHECK-NEXT: local.tee
+; CHECK-NEXT: local.set
 entry:
   %a = load ptr, ptr %p
+  store ptr null, ptr %p
 
 ; This is an offset and inlined twice - so %a has two users
 ; and needs a local.tee (for the first and second store), even though
