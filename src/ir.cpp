@@ -14,6 +14,7 @@
 #include <llvm/ADT/DenseSet.h>
 #include <llvm/ADT/STLExtras.h>
 #include <llvm/ADT/StringRef.h>
+#include <llvm/Analysis/AliasAnalysis.h>
 #include <llvm/Analysis/LoopNestAnalysis.h>
 #include <llvm/IR/Argument.h>
 #include <llvm/IR/BasicBlock.h>
@@ -30,6 +31,7 @@
 #include <llvm/IR/Operator.h>
 #include <llvm/IR/Type.h>
 #include <llvm/IR/Value.h>
+#include <llvm/Passes/PassBuilder.h>
 #include <llvm/Support/Casting.h>
 #include <llvm/Support/MathExtras.h>
 #include <memory>
@@ -1525,6 +1527,7 @@ void BlockLowering::lower() {
       // the store/load
       if (IsGreedyOptimization) {
         if (auto *Inst = llvm::dyn_cast<llvm::AllocaInst>(Next)) {
+	  Counts[Next]--;
           visit(*Inst);
           continue;
         }
@@ -2175,10 +2178,11 @@ Module ModuleLowering::convert(llvm::Module &Mod,
     Res.Config.EnabledFeatures.merge(WasmFunc->FeatureSet);
 
     auto &DT = FAM.getResult<llvm::DominatorTreeAnalysis>(F);
+    auto &AA = FAM.getResult<llvm::AAManager>(F);
     auto &LI = FAM.getResult<llvm::LoopAnalysis>(F);
 
     if (C.DoColoring) {
-      FunctionColorer FC{F, WasmFunc, DT, FAM};
+      FunctionColorer FC{F, WasmFunc, DT, AA, FAM};
       WATEVER_LOG_DBG("Coloring function {}", F.getName().str());
       FC.run();
     }

@@ -8,6 +8,7 @@
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/Analysis/BlockFrequencyInfo.h>
 #include <llvm/Analysis/BranchProbabilityInfo.h>
+#include <llvm/Analysis/MemoryLocation.h>
 #include <llvm/IR/Argument.h>
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/CFG.h>
@@ -18,6 +19,7 @@
 #include <llvm/IR/Type.h>
 #include <llvm/IR/User.h>
 #include <llvm/Support/Casting.h>
+#include <llvm/Support/ModRef.h>
 #include <llvm/Support/raw_ostream.h>
 
 using namespace watever;
@@ -248,20 +250,48 @@ void FunctionColorer::dumpLiveness() {
 }
 #endif
 
-bool FunctionColorer::isRoot(llvm::Instruction &I) {
+bool FunctionColorer::mayWAR(llvm::Instruction *LI, llvm::Instruction *Root) {
+  assert(Root->getParent() == LI->getParent());
+
+  if (!llvm::isa<llvm::LoadInst>(LI)) {
+    assert(
+        (llvm::isa<llvm::ZExtInst>(LI) || llvm::isa<llvm::SExtInst>(LI)) &&
+        "can only check WAR on loads - or their explicit sext/zext versions");
+    if (auto *Operand = llvm::dyn_cast<llvm::LoadInst>(LI->getOperand(0))) {
+      LI = Operand;
+    } else {
+      WATEVER_LOG_ERR("trying to check WAR hazard on non-load instruction");
+    }
+  }
+
+  auto LoadLoc = llvm::MemoryLocation::get(LI);
+
+  for (auto *I = LI->getNextNode(); I != Root; I = I->getNextNode()) {
+    auto MRI = AA.getModRefInfo(I, LoadLoc);
+    if (llvm::isModSet(MRI)) {
+      WATEVER_LOG_TRACE("{} might clobber {}", I->getNameOrAsOperand(),
+                        LI->getNameOrAsOperand());
+      return true;
+    }
+  }
+  return false;
+}
+
+FunctionColorer::RootReason
+FunctionColorer::getRootReason(llvm::Instruction &I) {
   // Everything with side effects needs to be scheduled in order
   if (I.mayHaveSideEffects()) {
-    return true;
+    return RootReason::SideEffects;
   }
 
   // Terminators need to be evaluated
   if (I.isTerminator()) {
-    return true;
+    return RootReason::Terminator;
   }
 
   // Also, if I is used in another block, it needs to be materialized to a local
   if (Target->hasExternalUser(&I, I.getParent())) {
-    return true;
+    return RootReason::ExternalUser;
   }
 
   // Loads are side-effect free. Nevertheless, they need to be executed in
@@ -273,20 +303,20 @@ bool FunctionColorer::isRoot(llvm::Instruction &I) {
     if (LI->getNumUses() == 1) {
       auto *User = *LI->users().begin();
       if (llvm::isa<llvm::ZExtInst>(User) || llvm::isa<llvm::SExtInst>(User)) {
-        return false;
+        return RootReason::None;
       }
     }
-    return true;
+    return RootReason::Load;
   }
 
   if (llvm::isa<llvm::ZExtInst>(I) || llvm::isa<llvm::SExtInst>(I)) {
     if (auto *LI = llvm::dyn_cast<llvm::LoadInst>(I.getOperand(0))) {
       if (LI->getNumUses() == 1) {
-        return true;
+        return RootReason::Load;
       }
     }
   }
-  return false;
+  return RootReason::None;
 }
 
 // This is not optimal. It sets the last use as the root of the last tree using
@@ -299,6 +329,21 @@ bool FunctionColorer::isRoot(llvm::Instruction &I) {
 //
 // %c could safely reuse the local used for %b. However, the local for %b is
 // only available after the branch (the root of this evaluation tree).
+//
+// Loads only need to be roots if there is a risk of a WAR hazard being
+// violated. To achieve this, the following algorithm is used:
+// - Declare all loads as roots
+// - Store for all loads the first root that would force an evaluation, as
+//   would-be-root
+// - Iterate backwards over each load, and check whether there is a potential
+//   WAR hazard before its would-be-root is evaluated; For this, at least all
+//   other roots between the load and the would-be-root need to be checked.
+// - If there is a potential hazard, do nothing
+// - If we can prove that there can't be a harzard, map all LastUses[Load] to
+//   LastUses[NewRoot], and LastUses[NewRoot].insert(Load). Also set
+//   DyingAt[BB][I] to the NewRoot for all instructions that were in
+//   LastUses[Load]. Also remap the would-be-root map, as previous loads could
+//   now potentially be evaluated later.
 void FunctionColorer::computeBlockSchedule(llvm::BasicBlock *BB) {
   // All these values' lifetime end during this BB
   llvm::DenseSet<llvm::Value *> MustDie(LiveIn[BB].begin(), LiveIn[BB].end());
@@ -316,8 +361,20 @@ void FunctionColorer::computeBlockSchedule(llvm::BasicBlock *BB) {
   // what must die
   llvm::DenseSet<llvm::Value *> VisitedInCurrentTree;
 
+  // Maps loads to their roots, if reordering them would not introduce a hazard
+  // violation
+  llvm::DenseMap<llvm::Instruction *, llvm::Instruction *> LoadsRoots;
+
   for (auto &Inst : *BB) {
-    if (isRoot(Inst)) {
+    auto ShouldBeRoot = getRootReason(Inst);
+    if (ShouldBeRoot == RootReason::Load) {
+      assert(MustDie.contains(&Inst) &&
+             "if the instruction must be a root due to a laod, it must die in "
+             "this block. Otherwise, the root reason should have been "
+             "ExternalUser");
+      LoadsRoots.insert({&Inst, nullptr});
+    }
+    if (ShouldBeRoot != RootReason::None) {
       VisitedInCurrentTree.clear();
       WorkList.push_back(&Inst);
 
@@ -327,17 +384,27 @@ void FunctionColorer::computeBlockSchedule(llvm::BasicBlock *BB) {
         if (!VisitedInCurrentTree.insert(Next).second)
           continue;
 
+        // If Next ust die in this BB, and was used by this root, set it as
+        // dying here. If a later root uses Next as well, it will push the death
+        // back.
         if (MustDie.contains(Next)) {
           DyingAt[BB][Next] = &Inst;
         }
 
-        if (auto *NextInst = llvm::dyn_cast<llvm::Instruction>(Next)) {
-          if (Target->Roots[BB].contains(NextInst)) {
+        if (auto *I = llvm::dyn_cast<llvm::Instruction>(Next)) {
+          // Setting the first root that uses the load as the loads' potential
+          // root
+          if (LoadsRoots.contains(I)) {
+            if (!LoadsRoots.lookup(I)) {
+              LoadsRoots[I] = &Inst;
+            }
+          }
+
+          if (Target->Roots[BB].contains(I)) {
             continue;
           }
-        }
 
-        if (auto *I = llvm::dyn_cast<llvm::Instruction>(Next)) {
+          // Push arguments to the instruction to be pushed into this tree
           if (I->getParent() == BB) {
             for (llvm::Value *Op : I->operands()) {
               WorkList.push_back(Op);
@@ -345,6 +412,7 @@ void FunctionColorer::computeBlockSchedule(llvm::BasicBlock *BB) {
           }
         }
       }
+
       Target->Roots[BB].insert(&Inst);
     }
   }
@@ -353,6 +421,24 @@ void FunctionColorer::computeBlockSchedule(llvm::BasicBlock *BB) {
     WATEVER_LOG_TRACE("{} is last use of {}", llvmToString(*Root),
                       Val->getNameOrAsOperand());
     LastUses[Root].insert(Val);
+  }
+
+  // Fix-up loads
+  for (auto &[Load, PotentialRoot] : LoadsRoots) {
+    // The potential root is no longer necessarily correct: if it was a load,
+    // depending on this load, we want the load's root
+    PotentialRoot = DyingAt[BB][Load];
+    if (!mayWAR(Load, PotentialRoot)) {
+      // Everything that previously died at the load, now dies at the load's
+      // root
+      for (auto *WasDyingAtLoad : LastUses[Load]) {
+        LastUses[PotentialRoot].insert(WasDyingAtLoad);
+        DyingAt[BB][WasDyingAtLoad] = PotentialRoot;
+      }
+      LastUses.erase(Load);
+      DyingAt[BB][Load] = PotentialRoot;
+      Target->Roots[BB].remove(Load);
+    }
   }
 }
 
@@ -432,9 +518,9 @@ void FunctionColorer::color(llvm::BasicBlock *Entry) {
       if (Target->LocalMapping.contains(Val)) {
         Assigned.insert(Target->LocalMapping[Val]);
       } else {
-        // This is generally okay, however, it will force the lowering to use a
-        // completely new local and should therefore not be the default. Can be
-        // prevented by handling this kind of value in needsColor
+        // This is generally okay, however, it will force the lowering to use
+        // a completely new local and should therefore not be the default. Can
+        // be prevented by handling this kind of value in needsColor
         WATEVER_LOG_INFO("{} is live-in but has no local assigned to it",
                          Val->getNameOrAsOperand());
       }
@@ -817,13 +903,13 @@ void FunctionColorer::recolorChunk(
   }
   Fixed.clear();
 
-  // If any of the values in this class is an argument, it cannot be recolored.
-  // Therefore, we have to recolor the entire graph
+  // If any of the values in this class is an argument, it cannot be
+  // recolored. Therefore, we have to recolor the entire graph
   // TODO If we fail to recolor everything to the argument, try recoloring
   // everything except the argument (e.g., remove the argument from the chunk
   // and continue as usual). If this is often the case, this might lead to
-  // suboptimal affinities - e.g., it might make sense to weigh affinities with
-  // arguments lower, as they are less likely to get fulfilled
+  // suboptimal affinities - e.g., it might make sense to weigh affinities
+  // with arguments lower, as they are less likely to get fulfilled
   for (auto *MaybeArgument : Chunks.members(*EC)) {
     // As all arguments necessarily interfere, there will never be multiple in
     // an equivalence class
@@ -846,8 +932,8 @@ void FunctionColorer::recolorChunk(
   // This is the "cheap" solution, but forcing a new color, which might not be
   // necessary.
   // TODO Think about these open questions:
-  // - Do we prefer one local more for perfect chunks, or do we prefer splitting
-  // chunks
+  // - Do we prefer one local more for perfect chunks, or do we prefer
+  // splitting chunks
   // - Should we only try once (e.g., with the most common color in the chunk,
   // or with the color having the fewest interferences, ...), or should we try
   // every generated color so far? This could be a large number of locals

@@ -7,6 +7,8 @@
 #include <llvm/ADT/EquivalenceClasses.h>
 #include <llvm/ADT/SmallPtrSet.h>
 #include <llvm/ADT/SmallVector.h>
+#include <llvm/Analysis/AliasAnalysis.h>
+#include <llvm/Analysis/LoopAnalysisManager.h>
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/Dominators.h>
 #include <llvm/IR/Function.h>
@@ -35,6 +37,7 @@ class FunctionColorer {
   DefinedFunc *Target;
 
   llvm::DominatorTree &DT;
+  llvm::AAResults &AA;
   llvm::FunctionAnalysisManager &FAM;
 
   llvm::DenseMap<llvm::BasicBlock *, llvm::SmallVector<llvm::Value *>> LiveIn;
@@ -71,7 +74,19 @@ class FunctionColorer {
   void dumpLiveness();
 #endif
 
-  bool isRoot(llvm::Instruction &I);
+  /// Returns true, when there is an instruction before its last use, that might
+  /// modify the memory location. Only considers users in the same BB.
+  bool mayWAR(llvm::Instruction *LI, llvm::Instruction *Root);
+
+  enum class RootReason : std::uint8_t {
+    None,
+    Terminator,
+    SideEffects,
+    ExternalUser,
+    Load,
+  };
+
+  RootReason getRootReason(llvm::Instruction &I);
   void computeBlockSchedule(llvm::BasicBlock *BB);
 
   uint32_t getFreeLocal(ValType Type, const llvm::DenseSet<uint32_t> &Assigned);
@@ -98,8 +113,8 @@ class FunctionColorer {
 
 public:
   FunctionColorer(llvm::Function &F, DefinedFunc *T, llvm::DominatorTree &DT,
-                  llvm::FunctionAnalysisManager &FAM)
-      : Source(F), Target(T), DT(DT), FAM(FAM) {}
+                  llvm::AAResults &AA, llvm::FunctionAnalysisManager &FAM)
+      : Source(F), Target(T), DT(DT), AA(AA), FAM(FAM) {}
   /// Tries to color Target by creating as few Target->Locals as possible. To
   /// get the mapped information, the targets LocalMapping is filled.
   void run();

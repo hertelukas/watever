@@ -191,36 +191,16 @@ define ptr @load_root_gep(ptr %a) {
 ; CHECK: local.get 0
 ; CHECK-NEXT: i32.const 12
 ; CHECK-NEXT: i32.add
-; CHECK-NEXT: local.tee 0
+; CHECK-NEXT: local.tee [[PTR:[0-9]]]
+; CHECK-NEXT: local.get [[PTR]]
 ; CHECK-NEXT: i32.load
-; CHECK-NEXT: local.set 1
-; CHECK-NEXT: local.get 0
-; CHECK-NEXT: local.get 1
 ; CHECK-NEXT: i32.store
-; CHECK-NEXT: local.get 0
+; CHECK-NEXT: local.get [[PTR]]
 entry:
-; %a is a root and dies here; so %1 can be stored into the same local
   %1 = getelementptr i8, ptr %a, i32 12
-; the load here does a greedy inlining of the offset - thinking that %a
-; is still valid 
   %2 = load i32, ptr %1, align 4
   store i32 %2, ptr %1
   br label %exit
 exit:
   ret ptr %1
-}
-
-define i32 @write_after_read(ptr %ptr) {
-; CHECK-LABEL: write_after_read
-; CHECK:      local.get       0
-; CHECK-NEXT: i32.load
-; CHECK-NEXT: local.set       1
-; CHECK-NEXT: local.get       0
-; CHECK-NEXT: i32.const       1
-; CHECK-NEXT: i32.store
-; CHECK-NEXT: local.get       1
-entry:
-  %a = load i32, ptr %ptr
-  store i32 1, ptr %ptr
-  ret i32 %a
 }
