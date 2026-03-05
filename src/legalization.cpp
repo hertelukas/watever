@@ -128,6 +128,18 @@ LegalValue FunctionLegalizer::legalizeConstant(llvm::Constant *C) {
       WATEVER_UNREACHABLE(
           "constant inttoptr does not have a constant as int operand");
     }
+    if (CE->getOpcode() == llvm::Instruction::Sub ||
+        CE->getOpcode() == llvm::Instruction::Add) {
+      auto LHS = legalizeConstant(CE->getOperand(0));
+      auto RHS = legalizeConstant(CE->getOperand(1));
+      assert(LHS.isScalar() && RHS.isScalar() && "operands must be scalar");
+
+      auto *Inst = llvm::BinaryOperator::Create(
+          static_cast<llvm::Instruction::BinaryOps>(CE->getOpcode()), LHS[0],
+          RHS[0]);
+      Builder.Insert(Inst);
+      return LegalValue{Inst};
+    }
     WATEVER_UNIMPLEMENTED("constant expression {}", llvmToString(*CE));
   }
 
