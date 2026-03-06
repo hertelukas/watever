@@ -318,10 +318,8 @@ void Module::handleGlobalDestructors(llvm::GlobalVariable &GV) {
   WATEVER_UNIMPLEMENTED("add dtor init function");
 }
 
-llvm::DenseMap<llvm::Value *, int>
-BlockLowering::getDependencyTreeUserCount(llvm::Instruction *Root) const {
-  llvm::DenseMap<llvm::Value *, int> Result;
-
+void BlockLowering::updateDependencyTreeUserCount(llvm::Instruction *Root) {
+  Counts.clear();
   llvm::SmallVector<llvm::Value *> WorkList;
   llvm::SmallPtrSet<llvm::Value *, 16> ASTNodes;
 
@@ -364,9 +362,8 @@ BlockLowering::getDependencyTreeUserCount(llvm::Instruction *Root) const {
         Count++;
       }
     }
-    Result[Node] = Count;
+    Counts[Node] = Count;
   }
-  return Result;
 }
 
 void BlockLowering::handleIntrinsic(llvm::CallInst &CI) {
@@ -526,6 +523,10 @@ void BlockLowering::handleIntrinsic(llvm::CallInst &CI) {
     }
     WorkList.push_back(CI.getArgOperand(0));
     WorkList.push_back(CI.getArgOperand(2));
+    // The second argument is not needed
+    if (auto *Inst = llvm::dyn_cast<llvm::Instruction>(CI.getArgOperand(1))) {
+      Counts[Inst]--;
+    }
     return;
   }
   case llvm::Intrinsic::fshr: {
@@ -540,6 +541,10 @@ void BlockLowering::handleIntrinsic(llvm::CallInst &CI) {
     }
     WorkList.push_back(CI.getArgOperand(0));
     WorkList.push_back(CI.getArgOperand(2));
+    // The second argument is not needed
+    if (auto *Inst = llvm::dyn_cast<llvm::Instruction>(CI.getArgOperand(1))) {
+      Counts[Inst]--;
+    }
     return;
   }
   // General Intrinsics
@@ -1512,7 +1517,7 @@ void BlockLowering::lower() {
     WATEVER_LOG_TRACE("{} is AST root, materialize", llvmToString(*Root));
 
     WorkList.push_back(Root);
-    auto Counts = getDependencyTreeUserCount(Root);
+    updateDependencyTreeUserCount(Root);
 
     while (!WorkList.empty()) {
       auto *Next = WorkList.pop_back_val();
@@ -1527,7 +1532,7 @@ void BlockLowering::lower() {
       // the store/load
       if (IsGreedyOptimization) {
         if (auto *Inst = llvm::dyn_cast<llvm::AllocaInst>(Next)) {
-	  Counts[Next]--;
+          Counts[Next]--;
           visit(*Inst);
           continue;
         }

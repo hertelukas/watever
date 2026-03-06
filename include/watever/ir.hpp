@@ -140,10 +140,10 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
   WasmActions Actions;
 
   llvm::SmallPtrSet<llvm::Instruction *, 16> Emitted;
+  llvm::DenseMap<llvm::Value *, int> Counts;
 
   /// Calculates the users of each value for the AST at \p Root.
-  [[nodiscard]] llvm::DenseMap<llvm::Value *, int>
-  getDependencyTreeUserCount(llvm::Instruction *Root) const;
+  void updateDependencyTreeUserCount(llvm::Instruction *Root);
 
   Module &M;
   DefinedFunc &Parent;
@@ -317,7 +317,7 @@ class FunctionLowering {
   llvm::DenseMap<llvm::BasicBlock *, uint64_t> RPOOrdering;
 
   void peephole();
-  
+
   // This is necessary, as it is not known during coloring if a root-local is
   // directly consumed by the next AST. It is also not possible during lowering
   // to decide whether the local can be removed, as it might be used for other
