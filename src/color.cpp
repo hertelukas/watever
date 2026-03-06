@@ -433,7 +433,7 @@ void FunctionColorer::computeBlockSchedule(llvm::BasicBlock *BB) {
       FirstRoot = LoadsRoots[FirstRoot];
     }
     assert(FirstRoot);
-    if (FirstRoot && !mayWAR(Load, FirstRoot)) {
+    if (!mayWAR(Load, FirstRoot)) {
       // The load is no longer a root
       RootsChanged = true;
       Target->Roots[BB].remove(Load);
@@ -706,83 +706,12 @@ bool FunctionColorer::interfere(llvm::Value *A, llvm::Value *B) {
 void FunctionColorer::getInterferenceNeighbors(
     llvm::Value *Val, llvm::DenseSet<llvm::Value *> &Neighbors) {
   llvm::DenseSet<llvm::BasicBlock *> Visited;
-
-  for (auto &Use : Val->uses()) {
-    auto *User = Use.getUser();
-    if (auto *Phi = llvm::dyn_cast<llvm::PHINode>(User)) {
-      findInterference(Phi->getIncomingBlock(Use), Val, Neighbors, Visited);
-    } else if (auto *Inst = llvm::dyn_cast<llvm::Instruction>(User)) {
-      findInterference(Inst->getParent(), Val, Neighbors, Visited);
+  for (const auto &[OtherVal, _] : Target->LocalMapping) {
+    if (OtherVal != Val && interfere(Val, OtherVal)) {
+      Neighbors.insert(OtherVal);
     }
   }
-}
-
-// Val is used in this BB, or in one of the blocks dominated by BB. Find all
-// interfering values on the path to BB.
-void FunctionColorer::findInterference(
-    llvm::BasicBlock *BB, llvm::Value *Val,
-    llvm::DenseSet<llvm::Value *> &Neighbors,
-    llvm::DenseSet<llvm::BasicBlock *> &Visited) {
-  Visited.insert(BB);
-
-  // As we know that Val is used in this block it is live-in iff if it is not
-  // defined in this block. (Phi nodes are technically live-in, but not for
-  // Hack, which is what is wanted here - as we don't want to check for
-  // interferences in predecessors of that phi node)
-  bool IsLiveIn = true;
-  if (auto *Inst = llvm::dyn_cast<llvm::Instruction>(Val)) {
-    if (Inst->getParent() == BB) {
-      IsLiveIn = false;
-    }
-  }
-
-  bool IsLiveOut = false;
-  for (auto *LiveOutVal : LiveOut[BB]) {
-    if (LiveOutVal == Val) {
-      IsLiveOut = true;
-      break;
-    }
-  }
-
-  llvm::Instruction *KillingInst = nullptr;
-  // Val dies in this block, lookup where exactly
-  if (!IsLiveOut) {
-    if (auto It = DyingAt.find(BB); It != DyingAt.end()) {
-      if (!It->second.contains(Val)) {
-        WATEVER_UNREACHABLE("Not-live-out value {} does not die in block {}",
-                            Val->getNameOrAsOperand(), getBlockName(BB));
-      }
-      KillingInst = DyingAt[BB][Val];
-    } else {
-      WATEVER_UNREACHABLE("No dying information for block {}",
-                          getBlockName(BB));
-    }
-  }
-
-  // Phi nodes are instantly defined, and interfere with everything
-  bool SkipUntilDef = !IsLiveIn && !llvm::isa<llvm::PHINode>(Val);
-
-  for (auto &Inst : *BB) {
-    if (SkipUntilDef) {
-      // Once the function is defined, no longer skip
-      if (&Inst == Val) {
-        SkipUntilDef = false;
-      }
-      continue;
-    }
-    Neighbors.insert(&Inst);
-    if (&Inst == KillingInst) {
-      break;
-    }
-  }
-
-  if (IsLiveIn) {
-    for (auto *Predecessor : llvm::predecessors(BB)) {
-      if (!Visited.contains(Predecessor)) {
-        findInterference(Predecessor, Val, Neighbors, Visited);
-      }
-    }
-  }
+  return;
 }
 
 // We will only ever have moves between phi nodes, so only iterate over them
