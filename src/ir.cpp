@@ -810,6 +810,8 @@ void BlockLowering::visitAllocaInst(llvm::AllocaInst &AI) {
     return;
   }
 
+  assert(Parent.FP.has_value() && "dynamic alloca requires a frame pointer");
+
   // Note that the instructions are evaluated in reverse order
 
   // We need the modified stack pointer on top of the stack, there  is no
@@ -863,15 +865,6 @@ void BlockLowering::visitAllocaInst(llvm::AllocaInst &AI) {
   } else {
     Size = llvm::alignTo(Size, 16);
     Actions.Insts.emplace_back(ConstOp, Size);
-    Actions.Insts.emplace_back(Opcode::GlobalGet, StackPointer);
-  }
-
-  // For dynamic allocations, we also need a frame pointer, in order to clean up
-  // the stack after. So create a prologue on the fly
-  if (!Parent.FP.has_value()) {
-    Parent.FP = Parent.getNewLocal(PtrTy);
-    Actions.Insts.emplace_back(Opcode::LocalSet,
-                               std::make_unique<LocalArg>(Parent.FP.value()));
     Actions.Insts.emplace_back(Opcode::GlobalGet, StackPointer);
   }
 }
@@ -2266,20 +2259,46 @@ Module ModuleLowering::convert(llvm::Module &Mod,
     }
 
     WasmFunc->setupStackFrame(&F.front());
+    const bool Is64Bit = Mod.getDataLayout().getPointerSizeInBits() == 64;
+    const auto ConstOp = Is64Bit ? Opcode::I64Const : Opcode::I32Const;
+    const auto SubOp = Is64Bit ? Opcode::I64Sub : Opcode::I32Sub;
+    const auto PtrTy = Is64Bit ? ValType::I64 : ValType::I32;
+
+    // No stack frame might still require a frame pointer for dynamic
+    // allocations
+    auto NeedsPrologue = [&]() {
+      if (WasmFunc->FP.has_value()) {
+        return true;
+      }
+      for (auto &BB : F) {
+        for (auto &I : BB) {
+          if (auto *AI = llvm::dyn_cast<llvm::AllocaInst>(&I)) {
+            if (WasmFunc->PromotedAllocas.contains(AI)) {
+              continue;
+            }
+            WasmFunc->FP = WasmFunc->getNewLocal(PtrTy);
+            return true;
+          }
+        }
+      }
+      return false;
+    };
+
     // Generate prologue, if we use a FP
-    if (WasmFunc->FP.has_value()) {
-      const bool Is64Bit = Mod.getDataLayout().getPointerSizeInBits() == 64;
-      const auto ConstOp = Is64Bit ? Opcode::I64Const : Opcode::I32Const;
-      const auto SubOp = Is64Bit ? Opcode::I64Sub : Opcode::I32Sub;
-      const auto PtrTy = Is64Bit ? ValType::I64 : ValType::I32;
+    if (NeedsPrologue()) {
       // SP = SP - frame_size
       WasmFunc->Body.Insts.emplace_back(Opcode::GlobalGet,
                                         Res.getStackPointer(PtrTy));
-      WasmFunc->Body.Insts.emplace_back(ConstOp, WasmFunc->FrameSize);
-      WasmFunc->Body.Insts.emplace_back(SubOp);
-      WasmFunc->Body.Insts.emplace_back(
-          Opcode::LocalTee, std::make_unique<LocalArg>(WasmFunc->FP.value()));
-      WasmFunc->Body.Insts.emplace_back(Opcode::GlobalSet, Res.StackPointer);
+      if (WasmFunc->FrameSize > 0) {
+        WasmFunc->Body.Insts.emplace_back(ConstOp, WasmFunc->FrameSize);
+        WasmFunc->Body.Insts.emplace_back(SubOp);
+        WasmFunc->Body.Insts.emplace_back(
+            Opcode::LocalTee, std::make_unique<LocalArg>(WasmFunc->FP.value()));
+        WasmFunc->Body.Insts.emplace_back(Opcode::GlobalSet, Res.StackPointer);
+      } else {
+        WasmFunc->Body.Insts.emplace_back(
+            Opcode::LocalSet, std::make_unique<LocalArg>(WasmFunc->FP.value()));
+      }
     }
 
     FunctionLowering FL{*WasmFunc, DT, LI, Res};

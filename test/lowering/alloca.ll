@@ -311,28 +311,26 @@ entry:
 
 define void @alloca_only_dynamic(i32 %a) {
 ; CHECK-LABEL: $alloca_only_dynamic
-; Argument to alloca
-; CHECK: local.get 0
-
 ; Setting up the frame pointer on the fly
-; CHECK-NEXT: global.get 0
-; CHECK-NEXT: local.set 2
+; CHECK: global.get 0
+; CHECK-NEXT: local.set [[FP:[0-9]+]]
 
 ; Do the allocation
+; CHECK-NEXT: local.get 0
 ; CHECK-NEXT: i32.const 15
 ; CHECK-NEXT: i32.add
 ; CHECK-NEXT: i32.const -16
 ; CHECK-NEXT: i32.and
-; CHECK-NEXT: local.set 1
+; CHECK-NEXT: local.set [[PTR:[0-9]+]]
 ; CHECK-NEXT: global.get 0
-; CHECK-NEXT: local.get 1
+; CHECK-NEXT: local.get [[PTR]]
 ; CHECK-NEXT: i32.sub
 ; CHECK-NEXT: global.set 0
 ; CHECK-NEXT: global.get 0
 ; CHECK-NEXT: call 0
 
 ; Restore the SP
-; CHECK-NEXT: local.get 2
+; CHECK-NEXT: local.get [[FP]]
 ; CHECK-NEXT: global.set 0
 entry:
   %ptr = alloca i8, i32 %a
