@@ -866,14 +866,14 @@ void BlockLowering::visitAllocaInst(llvm::AllocaInst &AI) {
     Actions.Insts.emplace_back(Opcode::GlobalGet, StackPointer);
   }
 
-    // For dynamic allocations, we also need a frame pointer, in order to clean up
+  // For dynamic allocations, we also need a frame pointer, in order to clean up
   // the stack after. So create a prologue on the fly
   if (!Parent.FP.has_value()) {
     Parent.FP = Parent.getNewLocal(PtrTy);
-    Actions.Insts.emplace_back(Opcode::LocalSet, Parent.FP.value());
+    Actions.Insts.emplace_back(Opcode::LocalSet,
+                               std::make_unique<LocalArg>(Parent.FP.value()));
     Actions.Insts.emplace_back(Opcode::GlobalGet, StackPointer);
   }
-
 }
 
 void BlockLowering::doGreedyMemOp(llvm::Instruction &I, Opcode::Enum Op) {
