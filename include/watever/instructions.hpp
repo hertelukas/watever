@@ -38,7 +38,7 @@ public:
   [[nodiscard]] InstArgKind getKind() const { return Kind; }
   virtual void encode(llvm::raw_ostream &) const = 0;
   virtual void addRelocation(llvm::raw_ostream &, Relocation &) {};
-  virtual void mapLocal(const llvm::SmallVector<uint32_t> &) {};
+  virtual void mapLocal(const llvm::DenseMap<uint32_t, uint32_t> &) {};
   [[nodiscard]] virtual std::string getString() const = 0;
   virtual ~InstArgument() = default;
 };
@@ -91,9 +91,9 @@ public:
     llvm::encodeULEB128(Index, OS);
   }
 
-  void mapLocal(const llvm::SmallVector<uint32_t> &Mapping) override {
-    if (Index < Mapping.size()) {
-      Index = Mapping[Index];
+  void mapLocal(const llvm::DenseMap<uint32_t, uint32_t> &Mapping) override {
+    if (Mapping.contains(Index)) {
+      Index = Mapping.lookup(Index);
     } else {
       WATEVER_LOG_WARN("Could not find mapping for local {}", Index);
     }
@@ -337,7 +337,7 @@ public:
 #endif
 
   void write(llvm::raw_ostream &OS, Relocation &Reloc,
-             llvm::SmallVector<uint32_t> &LocalMap) const {
+             llvm::DenseMap<uint32_t, uint32_t> &LocalMap) const {
     Opcode(Op).writeBytes(OS);
 
     std::visit(
