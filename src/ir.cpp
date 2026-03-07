@@ -424,6 +424,32 @@ void BlockLowering::handleIntrinsic(llvm::CallInst &CI) {
     WorkList.push_back(CI.getArgOperand(0));
     return;
   }
+  case llvm::Intrinsic::minimum: {
+    auto *Ty = CI.getArgOperand(0)->getType();
+    if (Ty->isFloatTy()) {
+      Actions.Insts.emplace_back(Opcode::F32Min);
+    } else if (Ty->isDoubleTy()) {
+      Actions.Insts.emplace_back(Opcode::F64Min);
+    } else {
+      WATEVER_UNIMPLEMENTED("minimum with type {}", llvmToString(*Ty));
+    }
+    WorkList.push_back(CI.getOperand(0));
+    WorkList.push_back(CI.getOperand(1));
+    return;
+  }
+  case llvm::Intrinsic::maximum: {
+    auto *Ty = CI.getArgOperand(0)->getType();
+    if (Ty->isFloatTy()) {
+      Actions.Insts.emplace_back(Opcode::F32Max);
+    } else if (Ty->isDoubleTy()) {
+      Actions.Insts.emplace_back(Opcode::F64Max);
+    } else {
+      WATEVER_UNIMPLEMENTED("maximum with type {}", llvmToString(*Ty));
+    }
+    WorkList.push_back(CI.getOperand(0));
+    WorkList.push_back(CI.getOperand(1));
+    return;
+  }
   case llvm::Intrinsic::floor: {
     auto *Ty = CI.getArgOperand(0)->getType();
     if (Ty->isFloatTy()) {
