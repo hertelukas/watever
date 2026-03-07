@@ -169,8 +169,10 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
       auto *StackPointer = M.getStackPointer(PtrTy);
       auto GlobalArgVal = std::make_unique<RelocatableGlobalArg>(StackPointer);
       Actions.Insts.emplace_back(Opcode::GlobalSet, std::move(GlobalArgVal));
-      Actions.Insts.emplace_back(AddOp);
-      Actions.Insts.emplace_back(ConstOp, Parent.FrameSize);
+      if (Parent.FrameSize != 0) {
+        Actions.Insts.emplace_back(AddOp);
+        Actions.Insts.emplace_back(ConstOp, Parent.FrameSize);
+      }
       auto SavedSPArg = std::make_unique<LocalArg>(Parent.FP.value());
       Actions.Insts.emplace_back(Opcode::LocalGet, std::move(SavedSPArg));
     }
