@@ -573,6 +573,43 @@ void BlockLowering::handleIntrinsic(llvm::CallInst &CI) {
     }
     return;
   }
+    // Saturating fp to integer conversions
+  case llvm::Intrinsic::fptoui_sat: {
+    auto *Ty = CI.getArgOperand(0)->getType();
+    auto *DestTy = CI.getType();
+
+    if (Ty->isFloatTy() && DestTy->isIntegerTy(32)) {
+      Actions.Insts.emplace_back(Opcode::I32TruncSatF32U);
+    } else if (Ty->isDoubleTy() && DestTy->isIntegerTy(32)) {
+      Actions.Insts.emplace_back(Opcode::I32TruncSatF64U);
+    } else if (Ty->isFloatTy() && DestTy->isIntegerTy(64)) {
+      Actions.Insts.emplace_back(Opcode::I64TruncSatF32U);
+    } else if (Ty->isDoubleTy() && DestTy->isIntegerTy(64)) {
+      Actions.Insts.emplace_back(Opcode::I64TruncSatF64U);
+    } else {
+      WATEVER_UNREACHABLE("fptoui_sat should have been legalized");
+    }
+    WorkList.push_back(CI.getArgOperand(0));
+    return;
+  }
+  case llvm::Intrinsic::fptosi_sat: {
+    auto *Ty = CI.getArgOperand(0)->getType();
+    auto *DestTy = CI.getType();
+
+    if (Ty->isFloatTy() && DestTy->isIntegerTy(32)) {
+      Actions.Insts.emplace_back(Opcode::I32TruncSatF32S);
+    } else if (Ty->isDoubleTy() && DestTy->isIntegerTy(32)) {
+      Actions.Insts.emplace_back(Opcode::I32TruncSatF64S);
+    } else if (Ty->isFloatTy() && DestTy->isIntegerTy(64)) {
+      Actions.Insts.emplace_back(Opcode::I64TruncSatF32S);
+    } else if (Ty->isDoubleTy() && DestTy->isIntegerTy(64)) {
+      Actions.Insts.emplace_back(Opcode::I64TruncSatF64S);
+    } else {
+      WATEVER_UNREACHABLE("fptosi_sat should have been legalized");
+    }
+    WorkList.push_back(CI.getArgOperand(0));
+    return;
+  }
   // General Intrinsics
   case llvm::Intrinsic::trap: {
     Actions.Insts.emplace_back(Opcode::Unreachable);

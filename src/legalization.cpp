@@ -2184,6 +2184,75 @@ void FunctionLegalizer::visitIntrinsicInst(llvm::IntrinsicInst &II) {
     ValueMap[&II] = Builder.CreateFAdd(MulRes, ThirdLegalArg[0]);
     return;
   }
+  // Saturating floating-point to integer conversions
+  case llvm::Intrinsic::fptoui_sat: {
+    auto LegalArg = getMappedValue(II.getArgOperand(0));
+    assert(LegalArg.isScalar() && "argument for fptosi_sat must be scalar");
+    auto *Arg = LegalArg[0];
+    auto *Ty = Arg->getType();
+    auto *DestTy = II.getType();
+
+    // Natively supported
+    if (Ty->isDoubleTy() || Ty->isFloatTy()) {
+      if (DestTy->isIntegerTy(32) || DestTy->isIntegerTy(64)) {
+        // Handled during lowering
+        break;
+      }
+    }
+    // Saturate into the target scope [-2^(BitWidth-1), 2^(BitWidth-1) - 1]
+    auto BitWidth = DestTy->getIntegerBitWidth();
+
+    double MinBound = 0;
+    double MaxBound = (1ULL << (BitWidth)) - 1;
+    auto *MinFP = llvm::ConstantFP::get(Ty, MinBound);
+    auto *MaxFP = llvm::ConstantFP::get(Ty, MaxBound);
+
+    auto *SatMin =
+        Builder.CreateBinaryIntrinsic(llvm::Intrinsic::maximum, Arg, MinFP);
+    auto *SatMax =
+        Builder.CreateBinaryIntrinsic(llvm::Intrinsic::minimum, SatMin, MaxFP);
+
+    auto *ToInt =
+        Builder.CreateFPToUI(SatMax, BitWidth > 32 ? Int64Ty : Int32Ty);
+
+    ValueMap[&II] = ToInt;
+    return;
+
+    return;
+  }
+  case llvm::Intrinsic::fptosi_sat: {
+    auto LegalArg = getMappedValue(II.getArgOperand(0));
+    assert(LegalArg.isScalar() && "argument for fptosi_sat must be scalar");
+    auto *Arg = LegalArg[0];
+    auto *Ty = Arg->getType();
+    auto *DestTy = II.getType();
+
+    // Natively supported
+    if (Ty->isDoubleTy() || Ty->isFloatTy()) {
+      if (DestTy->isIntegerTy(32) || DestTy->isIntegerTy(64)) {
+        // Handled during lowering
+        break;
+      }
+    }
+    // Saturate into the target scope [-2^(BitWidth-1), 2^(BitWidth-1) - 1]
+    auto BitWidth = DestTy->getIntegerBitWidth();
+
+    double MinBound = -(1LL << (BitWidth - 1));
+    double MaxBound = (1LL << (BitWidth - 1)) - 1;
+    auto *MinFP = llvm::ConstantFP::get(Ty, MinBound);
+    auto *MaxFP = llvm::ConstantFP::get(Ty, MaxBound);
+
+    auto *SatMin =
+        Builder.CreateBinaryIntrinsic(llvm::Intrinsic::maximum, Arg, MinFP);
+    auto *SatMax =
+        Builder.CreateBinaryIntrinsic(llvm::Intrinsic::minimum, SatMin, MaxFP);
+
+    auto *ToInt =
+        Builder.CreateFPToSI(SatMax, BitWidth > 32 ? Int64Ty : Int32Ty);
+
+    ValueMap[&II] = ToInt;
+    return;
+  }
   // Memory Use Markers (no-ops)
   case llvm::Intrinsic::lifetime_start:
   case llvm::Intrinsic::lifetime_end:
