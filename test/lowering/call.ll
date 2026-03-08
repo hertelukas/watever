@@ -27,6 +27,8 @@ define void @vararg_target(i32 %a, ...) {
   ret void
 }
 
+declare void @vararg_target_void(...)
+
 define void @call_void() {
 ; CHECK-LABEL: $call_void
 ; CHECK-NEXT: call $void_target
@@ -104,5 +106,16 @@ define void @call_vararg_i32_i64() {
 ; CHECK-NEXT: local.get
 ; CHECK-NEXT: call $vararg_target
   call void (i32, ...) @vararg_target(i32 5, i32 6, i64 7)
+  ret void
+}
+
+define void @call_vararg_void() {
+; CHECK-LABEL: func $call_vararg_void
+; CHECK-NEXT: call
+
+; CHECK-LABEL: func $vararg_target_void_bitcast
+; CHECK: i32.const 0
+; CHECK-NEXT: call
+  call void @vararg_target_void()
   ret void
 }
