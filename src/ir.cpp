@@ -450,6 +450,19 @@ void BlockLowering::handleIntrinsic(llvm::CallInst &CI) {
     WorkList.push_back(CI.getOperand(1));
     return;
   }
+  case llvm::Intrinsic::copysign: {
+    auto *Ty = CI.getArgOperand(0)->getType();
+    if (Ty->isFloatTy()) {
+      Actions.Insts.emplace_back(Opcode::F32Copysign);
+    } else if (Ty->isDoubleTy()) {
+      Actions.Insts.emplace_back(Opcode::F64Copysign);
+    } else {
+      WATEVER_UNIMPLEMENTED("copysign with type {}", llvmToString(*Ty));
+    }
+    WorkList.push_back(CI.getArgOperand(0));
+    WorkList.push_back(CI.getArgOperand(1));
+    return;
+  }
   case llvm::Intrinsic::floor: {
     auto *Ty = CI.getArgOperand(0)->getType();
     if (Ty->isFloatTy()) {
