@@ -1127,7 +1127,8 @@ void BlockLowering::visitZExtInst(llvm::ZExtInst &ZI) {
     }
     // TODO use alignment
     // uint32_t Alignment = LoadInst->getAlign().value();
-    if (!IsPromoted) {
+    if (!IsPromoted && LI->getParent() == ZI.getParent() &&
+        LI->getNumUses() == 1) {
       if (ToWidth == 32) {
         if (FromWidth == 8) {
           doGreedyMemOp(*LI, Opcode::I32Load8U);

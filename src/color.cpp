@@ -224,7 +224,7 @@ void FunctionColorer::dumpLiveness() {
     return;
   }
   // Takes too long otherwise
-  if (Source.size() > 5) {
+  if (Source.size() > 50) {
     return;
   }
 
