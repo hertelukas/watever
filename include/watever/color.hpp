@@ -9,6 +9,7 @@
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/Analysis/AliasAnalysis.h>
 #include <llvm/Analysis/LoopAnalysisManager.h>
+#include <llvm/Analysis/LoopInfo.h>
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/Dominators.h>
 #include <llvm/IR/Function.h>
@@ -38,6 +39,7 @@ class FunctionColorer {
 
   llvm::DominatorTree &DT;
   llvm::AAResults &AA;
+  llvm::LoopInfo &LI;
   llvm::FunctionAnalysisManager &FAM;
 
   llvm::DenseMap<llvm::BasicBlock *, llvm::SmallVector<llvm::Value *>> LiveIn;
@@ -113,8 +115,9 @@ class FunctionColorer {
 
 public:
   FunctionColorer(llvm::Function &F, DefinedFunc *T, llvm::DominatorTree &DT,
-                  llvm::AAResults &AA, llvm::FunctionAnalysisManager &FAM)
-      : Source(F), Target(T), DT(DT), AA(AA), FAM(FAM) {}
+                  llvm::AAResults &AA, llvm::LoopInfo &LI,
+                  llvm::FunctionAnalysisManager &FAM)
+      : Source(F), Target(T), DT(DT), AA(AA), LI(LI), FAM(FAM) {}
   /// Tries to color Target by creating as few Target->Locals as possible. To
   /// get the mapped information, the targets LocalMapping is filled.
   void run();

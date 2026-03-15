@@ -84,6 +84,19 @@ llvm::BasicBlock *FunctionColorer::canBePromoted(llvm::AllocaInst *AI) {
     }
   }
   assert(CommonDom && "no start block of promoted AI found");
+
+  // To ensure correct loop backedge propagation, start the lifetime of the
+  // alloca at the outermost preheader
+  while (auto *L = LI.getLoopFor(CommonDom)) {
+    if (auto *Preheader = L->getLoopPreheader()) {
+      CommonDom = Preheader;
+    } else {
+      // Even in reducible form, we might have multiple pre-headers; start
+      // lifetime at immediate dominator of header
+      CommonDom = DT.getNode(L->getHeader())->getIDom()->getBlock();
+    }
+  }
+
   WATEVER_LOG_TRACE("Promoting {} (StartBlock: {})", AI->getNameOrAsOperand(),
                     getBlockName(CommonDom));
   return CommonDom;

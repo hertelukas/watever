@@ -2253,7 +2253,7 @@ Module ModuleLowering::convert(llvm::Module &Mod,
     auto &LI = FAM.getResult<llvm::LoopAnalysis>(F);
 
     if (C.DoColoring) {
-      FunctionColorer FC{F, WasmFunc, DT, AA, FAM};
+      FunctionColorer FC{F, WasmFunc, DT, AA, LI, FAM};
       WATEVER_LOG_DBG("Coloring function {}", F.getName().str());
       FC.run();
     }
