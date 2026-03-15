@@ -1253,7 +1253,7 @@ void FunctionLegalizer::visitZExtInst(llvm::ZExtInst &ZI) {
     }
     // The only extension that is supported in wasm natively (i64extendi32)
     if (ToWidth > 32 && FromWidth <= 32) {
-      ValueMap[&ZI] = Builder.CreateZExt(Val, ZI.getDestTy());
+      ValueMap[&ZI] = Builder.CreateZExt(Val, Int64Ty);
     } else {
       if (ToWidth <= 64) {
         ValueMap[&ZI] = Val;

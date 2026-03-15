@@ -12,6 +12,16 @@ define i32 @zext_i8_i32(i8 %a) {
     ret i32 %1
 }
 
+define i48 @zext_i16_i48(i16 %a) {
+; CHECK-LABEL: $zext_i16_i48
+; CHECK:        local.get 0
+; CHECK-NEXT:   i32.const 65535
+; CHECK-NEXT:   i32.and
+; CHECK-NEXT:   i64.extend_i32_u
+    %1 = zext i16 %a to i48
+    ret i48 %1
+}
+
 define i64 @zext_i8_i64(i8 %a) {
 ; CHECK-LABEL: $zext_i8_i64
 ; CHECK:        local.get 0
