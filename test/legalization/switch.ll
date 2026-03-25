@@ -1,5 +1,8 @@
 ; RUN: watever -l 0 %s --legal | FileCheck %s
 
+target datalayout = "e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-i128:128-n32:64-S128-ni:1:10:20"
+target triple = "wasm32-unknown-unknown"
+
 define void @a() {
   ret void
 }
@@ -7,6 +10,24 @@ define void @b() {
   ret void
 }
 define void @c() {
+  ret void
+}
+
+define void @loaded_i8(ptr %ptr) {
+; CHECK-LABEL: define void @loaded_i8
+; CHECK: sext i8 {{.*}} to i32
+  %target = load i8, ptr %ptr
+  switch i8 %target, label %merge [ i8 -86, label %a
+                                    i8 -87, label %b ]
+a:
+  call void @a()
+  br label %merge
+
+b:
+  call void @b()
+  br label %merge
+
+merge:
   ret void
 }
 

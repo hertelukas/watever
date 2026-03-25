@@ -433,9 +433,9 @@ void FunctionLegalizer::visitSwitchInst(llvm::SwitchInst &SI) {
 
   auto *CondVal = Cond[0];
   if (SI.getCondition()->getType() != CondVal->getType()) {
-    CondVal = Builder.CreateAnd(
-        CondVal, llvm::APInt::getLowBitsSet(
-                     32, SI.getCondition()->getType()->getIntegerBitWidth()));
+    CondVal =
+        signExtend(CondVal, SI.getCondition()->getType()->getIntegerBitWidth(),
+                   CondVal->getType()->getIntegerBitWidth());
   }
   auto *DefaultDest =
       llvm::dyn_cast<llvm::BasicBlock>(getMappedValue(SI.getDefaultDest())[0]);
