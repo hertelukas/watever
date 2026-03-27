@@ -4,8 +4,10 @@
 #include <llvm/ADT/DenseMap.h>
 #include <llvm/ADT/STLExtras.h>
 #include <llvm/ADT/StringRef.h>
+#include <llvm/Analysis/ValueTracking.h>
 #include <llvm/IR/Analysis.h>
 #include <llvm/IR/BasicBlock.h>
+#include <llvm/IR/ConstantRange.h>
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/IRBuilder.h>
@@ -134,6 +136,14 @@ class FunctionLegalizer : public llvm::InstVisitor<FunctionLegalizer> {
       if (From == 32 && To == 64) {
         return Val;
       }
+    }
+
+    const llvm::DataLayout &DL =
+        Builder.GetInsertBlock()->getModule()->getDataLayout();
+    llvm::KnownBits Known = llvm::computeKnownBits(Val, DL);
+
+    if (Known.countMinLeadingZeros() >= (To - From)) {
+      return Val;
     }
 
     llvm::APInt Mask = llvm::APInt::getLowBitsSet(To, From);

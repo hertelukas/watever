@@ -1176,7 +1176,7 @@ void FunctionLegalizer::visitGetElementPtrInst(llvm::GetElementPtrInst &GI) {
                     llvmToString(*SextIdx), FirstTypeSize);
 
   TotalOffset = AddOffset(TotalOffset, ScaleIndex(SextIdx, FirstTypeSize));
-  
+
   ++IdxIt;
 
   for (; IdxIt != GI.idx_end(); ++IdxIt) {
@@ -1252,12 +1252,16 @@ void FunctionLegalizer::visitZExtInst(llvm::ZExtInst &ZI) {
   const auto ToWidth = ZI.getDestTy()->getIntegerBitWidth();
   if (Arg.isScalar()) {
     auto *Val = Arg[0];
+    const auto ValWidth = Val->getType()->getIntegerBitWidth();
     // If we currently filled only parts of a Wasm value, we have to ensure
     // that the upper bits in the new value are clean
     if (FromWidth != 32 && FromWidth != 64) {
-      Val = Builder.CreateAnd(
-          Val, llvm::APInt::getLowBitsSet(Val->getType()->getIntegerBitWidth(),
-                                          FromWidth));
+      // If known to be clean, don't do anything
+      llvm::KnownBits Known = llvm::computeKnownBits(Val, ZI.getDataLayout());
+      if (Known.countMinLeadingZeros() < (ValWidth - FromWidth)) {
+        Val = Builder.CreateAnd(
+            Val, llvm::APInt::getLowBitsSet(ValWidth, FromWidth));
+      }
     }
     // The only extension that is supported in wasm natively (i64extendi32)
     if (ToWidth > 32 && FromWidth <= 32) {
