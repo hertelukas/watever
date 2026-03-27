@@ -147,12 +147,13 @@ void FunctionColorer::upAndMark(llvm::BasicBlock *BB, llvm::Value *Val) {
     }
 
     // Propagation done, stop
-    if (!LiveIn[BB].empty() && LiveIn[BB].back() == Val) {
+    if (!LiveIn[BB->getNumber()].empty() &&
+        LiveIn[BB->getNumber()].back() == Val) {
       continue;
     }
 
     if (!IsDefinedHere) {
-      LiveIn[BB].push_back(Val);
+      LiveIn[BB->getNumber()].push_back(Val);
     }
 
     // Do not propagate phi definitions
@@ -170,8 +171,9 @@ void FunctionColorer::upAndMark(llvm::BasicBlock *BB, llvm::Value *Val) {
         }
       }
 
-      if (LiveOut[Pred].empty() || LiveOut[Pred].back() != Val) {
-        LiveOut[Pred].push_back(Val);
+      if (LiveOut[Pred->getNumber()].empty() ||
+          LiveOut[Pred->getNumber()].back() != Val) {
+        LiveOut[Pred->getNumber()].push_back(Val);
       }
       // This check is needed for promoted stack slots, for loops
       // with a single BB (as otherwise, the LiveIn check would stop
@@ -188,7 +190,7 @@ void FunctionColorer::computeLiveSets() {
     if (auto *AI = llvm::dyn_cast<llvm::AllocaInst>(&Inst)) {
       if (auto *StartBlock = canBePromoted(AI)) {
         PromotedAIStartBlocks[AI] = StartBlock;
-        AllocsStartingAt[StartBlock].push_back(AI);
+        AllocsStartingAt[StartBlock->getNumber()].push_back(AI);
         Target->PromotedAllocas.insert(AI);
       }
     }
@@ -201,7 +203,7 @@ void FunctionColorer::computeLiveSets() {
 
       if (auto *Phi = llvm::dyn_cast<llvm::PHINode>(UserInst)) {
         UserParentBlock = Phi->getIncomingBlock(U);
-        LiveOut[UserParentBlock].push_back(&V);
+        LiveOut[UserParentBlock->getNumber()].push_back(&V);
       } else {
         UserParentBlock = UserInst->getParent();
       }
@@ -238,13 +240,15 @@ void FunctionColorer::dumpLiveness() {
   };
 
   for (auto &BB : Source) {
-    std::sort(LiveIn[&BB].begin(), LiveIn[&BB].end(), NameComparison);
-    std::sort(LiveOut[&BB].begin(), LiveOut[&BB].end(), NameComparison);
+    std::sort(LiveIn[BB.getNumber()].begin(), LiveIn[BB.getNumber()].end(),
+              NameComparison);
+    std::sort(LiveOut[BB.getNumber()].begin(), LiveOut[BB.getNumber()].end(),
+              NameComparison);
 
     OS << "Liveness for block " << getBlockName(&BB) << "\n";
 
     OS << "Live In {\n";
-    for (auto *V : LiveIn[&BB]) {
+    for (auto *V : LiveIn[BB.getNumber()]) {
       OS << "  ";
       V->printAsOperand(OS, false);
       OS << "\n";
@@ -252,7 +256,7 @@ void FunctionColorer::dumpLiveness() {
     OS << "}\n";
 
     OS << "Live Out {\n";
-    for (auto *V : LiveOut[&BB]) {
+    for (auto *V : LiveOut[BB.getNumber()]) {
       OS << "  ";
       V->printAsOperand(OS, false);
       OS << "\n";
@@ -362,13 +366,14 @@ FunctionColorer::getRootReason(llvm::Instruction &I) {
 //   to reason about.
 void FunctionColorer::computeBlockSchedule(llvm::BasicBlock *BB) {
   // All these values' lifetime end during this BB
-  llvm::DenseSet<llvm::Value *> MustDie(LiveIn[BB].begin(), LiveIn[BB].end());
+  llvm::DenseSet<llvm::Value *> MustDie(LiveIn[BB->getNumber()].begin(),
+                                        LiveIn[BB->getNumber()].end());
   for (auto &I : *BB) {
     if (!I.getType()->isVoidTy()) {
       MustDie.insert(&I);
     }
   }
-  for (auto *V : LiveOut[BB])
+  for (auto *V : LiveOut[BB->getNumber()])
     MustDie.erase(V);
 
   // Forward scan finding latest user
@@ -404,7 +409,7 @@ void FunctionColorer::computeBlockSchedule(llvm::BasicBlock *BB) {
         // dying here. If a later root uses Next as well, it will push the death
         // back.
         if (MustDie.contains(Next)) {
-          DyingAt[BB][Next] = &Inst;
+          DyingAt[BB->getNumber()][Next] = &Inst;
         }
 
         if (auto *I = llvm::dyn_cast<llvm::Instruction>(Next)) {
@@ -458,7 +463,7 @@ void FunctionColorer::computeBlockSchedule(llvm::BasicBlock *BB) {
 
   // Recompute lifetimes with finalized roots
   if (RootsChanged) {
-    DyingAt[BB].clear();
+    DyingAt[BB->getNumber()].clear();
     for (auto &Inst : *BB) {
       // Skip non-roots
       if (!Target->Roots[BB].contains(&Inst)) {
@@ -474,7 +479,7 @@ void FunctionColorer::computeBlockSchedule(llvm::BasicBlock *BB) {
 
         // Last root wins due to forward scan - and roots are emitted in order
         if (MustDie.contains(Next)) {
-          DyingAt[BB][Next] = &Inst;
+          DyingAt[BB->getNumber()][Next] = &Inst;
         }
 
         if (auto *I = llvm::dyn_cast<llvm::Instruction>(Next)) {
@@ -493,7 +498,7 @@ void FunctionColorer::computeBlockSchedule(llvm::BasicBlock *BB) {
     }
   }
 
-  for (auto &[Val, Root] : DyingAt[BB]) {
+  for (auto &[Val, Root] : DyingAt[BB->getNumber()]) {
     WATEVER_LOG_TRACE("{} is last use of {}", llvmToString(*Root),
                       Val->getNameOrAsOperand());
     LastUses[Root].insert(Val);
@@ -565,7 +570,7 @@ void FunctionColorer::color(llvm::BasicBlock *Entry) {
     // TODO maybe it is cheaper to keep track of unassigned?
     llvm::DenseSet<uint32_t> Assigned;
 
-    for (auto *Val : LiveIn.lookup(BB)) {
+    for (auto *Val : LiveIn[BB->getNumber()]) {
       // Phi nodes are technically live-in but ignored by Hack
       if (auto *Phi = llvm::dyn_cast<llvm::PHINode>(Val)) {
         if (Phi->getParent() == BB)
@@ -642,7 +647,8 @@ void FunctionColorer::color(llvm::BasicBlock *Entry) {
 
     // There might be alloca's who's lifetime start now, even though they are
     // never used in this block, as this might be the NCD.
-    if (auto It = AllocsStartingAt.find(BB); It != AllocsStartingAt.end()) {
+    if (auto It = AllocsStartingAt.find(BB->getNumber());
+        It != AllocsStartingAt.end()) {
       for (auto *AI : It->second) {
         colorPromotedAlloca(AI);
       }
@@ -698,7 +704,7 @@ bool FunctionColorer::interfere(llvm::Value *A, llvm::Value *B) {
 
   // If the value of the first is live out at the block defining second, we
   // interfere
-  for (llvm::Value *LiveOut : LiveOut.lookup(getParent(Second))) {
+  for (llvm::Value *LiveOut : LiveOut[getParent(Second)->getNumber()]) {
     if (LiveOut == First) {
       return true;
     }
@@ -707,7 +713,8 @@ bool FunctionColorer::interfere(llvm::Value *A, llvm::Value *B) {
   // At this point, first might be live in the block where second is defined,
   // but not at its end. They interfere if the last using root of first comes
   // after the definition of second.
-  if (auto *DeathFirst = DyingAt.lookup(getParent(Second)).lookup(First)) {
+  if (auto *DeathFirst =
+          DyingAt[getParent(Second)->getNumber()].lookup(First)) {
     if (DT.dominates(Second, DeathFirst)) {
       return true;
     }

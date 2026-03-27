@@ -42,10 +42,10 @@ class FunctionColorer {
   llvm::LoopInfo &LI;
   llvm::FunctionAnalysisManager &FAM;
 
-  llvm::DenseMap<llvm::BasicBlock *, llvm::SmallVector<llvm::Value *>> LiveIn;
-  llvm::DenseMap<llvm::BasicBlock *, llvm::SmallVector<llvm::Value *>> LiveOut;
+  llvm::SmallVector<llvm::SmallVector<llvm::Value *>> LiveIn;
+  llvm::SmallVector<llvm::SmallVector<llvm::Value *>> LiveOut;
   llvm::DenseMap<llvm::AllocaInst *, llvm::BasicBlock *> PromotedAIStartBlocks;
-  llvm::DenseMap<llvm::BasicBlock *, llvm::SmallVector<llvm::AllocaInst *>>
+  llvm::DenseMap<unsigned, llvm::SmallVector<llvm::AllocaInst *>>
       AllocsStartingAt;
 
   // Maps for which values the lifetime ends at a given instruction
@@ -53,9 +53,7 @@ class FunctionColorer {
       LastUses;
 
   // TODO maybe use a better data structure for cache locality
-  llvm::DenseMap<llvm::BasicBlock *,
-                 llvm::DenseMap<llvm::Value *, llvm::Instruction *>>
-      DyingAt;
+  llvm::SmallVector<llvm::DenseMap<llvm::Value *, llvm::Instruction *>> DyingAt;
 
   llvm::EquivalenceClasses<llvm::Value *> Chunks;
   llvm::SmallVector<AffinityEdge> Affinities;
@@ -117,7 +115,11 @@ public:
   FunctionColorer(llvm::Function &F, DefinedFunc *T, llvm::DominatorTree &DT,
                   llvm::AAResults &AA, llvm::LoopInfo &LI,
                   llvm::FunctionAnalysisManager &FAM)
-      : Source(F), Target(T), DT(DT), AA(AA), LI(LI), FAM(FAM) {}
+      : Source(F), Target(T), DT(DT), AA(AA), LI(LI), FAM(FAM) {
+    LiveIn.resize(F.getMaxBlockNumber() + 1);
+    LiveOut.resize(F.getMaxBlockNumber() + 1);
+    DyingAt.resize(F.getMaxBlockNumber() + 1);
+  }
   /// Tries to color Target by creating as few Target->Locals as possible. To
   /// get the mapped information, the targets LocalMapping is filled.
   void run();
