@@ -347,7 +347,11 @@ void FunctionLegalizer::visitBranchInst(llvm::BranchInst &BI) {
     auto *False = GetMappedBlock(1);
     auto *Cond = getMappedValue(BI.getCondition())[0];
 
-    Cond = Builder.CreateAnd(Cond, 1);
+    llvm::KnownBits Known = llvm::computeKnownBits(Cond, BI.getDataLayout());
+    if (Known.countMinLeadingZeros() <
+        Cond->getType()->getIntegerBitWidth() - 1) {
+      Cond = Builder.CreateAnd(Cond, 1);
+    }
     Cond = Builder.CreateTrunc(Cond, Int1Ty);
 
     ValueMap[&BI] = Builder.CreateCondBr(Cond, True, False);
