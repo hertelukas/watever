@@ -21,7 +21,7 @@ void dumpWasm(WasmActions &Body) {
       OS << "|  ";
     }
 
-    OS << Inst.getString() << "\n";
+    OS << Inst.getString(Body.BranchTables) << "\n";
 
     if (Inst.Op == Opcode::Block || Inst.Op == Opcode::Loop ||
         Inst.Op == Opcode::If || Inst.Op == Opcode::Else) {

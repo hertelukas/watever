@@ -15,7 +15,7 @@ namespace watever {
 
 void CodeWriter::visit(WasmActions &Actions) {
   for (auto &Inst : Actions.Insts) {
-    Inst.write(OS, Reloc, LocalMap);
+    Inst.write(OS, Reloc, LocalMap, Actions.BranchTables);
   }
 }
 
@@ -108,7 +108,7 @@ void BinaryWriter::writeCode() {
     for (const auto &[Ty, LocalList] : F->Locals) {
       // Assign local indices, based on type
       for (auto &Local : LocalList) {
-	assert(!LocalMapping.contains(Local) && "duplicate local");
+        assert(!LocalMapping.contains(Local) && "duplicate local");
         LocalMapping[Local] = CurrentLocal++;
       }
       llvm::encodeULEB128(LocalList.size(), CodeOS);

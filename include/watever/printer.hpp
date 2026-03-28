@@ -1,6 +1,6 @@
 #pragma once
 
-#include "watever/ir.hpp"
+#include "watever/instructions.hpp"
 
 namespace watever {
 void dumpWasm(WasmActions &Body);

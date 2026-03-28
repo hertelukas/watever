@@ -167,14 +167,13 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
       const auto ConstOp = Is64Bit ? Opcode::I64Const : Opcode::I32Const;
       const auto AddOp = Is64Bit ? Opcode::I64Add : Opcode::I32Add;
       auto *StackPointer = M.getStackPointer(PtrTy);
-      auto GlobalArgVal = std::make_unique<RelocatableGlobalArg>(StackPointer);
-      Actions.Insts.emplace_back(Opcode::GlobalSet, std::move(GlobalArgVal));
+      Actions.Insts.emplace_back(Opcode::GlobalSet,
+                                 RelocatableGlobalArg{StackPointer});
       if (Parent.FrameSize != 0) {
         Actions.Insts.emplace_back(AddOp);
         Actions.Insts.emplace_back(ConstOp, Parent.FrameSize);
       }
-      auto SavedSPArg = std::make_unique<LocalArg>(Parent.FP.value());
-      Actions.Insts.emplace_back(Opcode::LocalGet, std::move(SavedSPArg));
+      Actions.Insts.emplace_back(Opcode::LocalGet, LocalArg{Parent.FP.value()});
     }
     addOperandsToWorklist(RI.operands());
   }

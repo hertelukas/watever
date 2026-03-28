@@ -44,16 +44,13 @@ using namespace watever;
 /// false otherwise.
 static bool putValueOnStack(llvm::Value *Val, WasmActions &Actions, Module &M,
                             bool Is64Bit) {
+  auto PointerConstOp = Is64Bit ? Opcode::I64Const : Opcode::I32Const;
   if (auto *GV = llvm::dyn_cast<llvm::GlobalVariable>(Val)) {
     auto *WasmData = M.DataMap[GV];
     if (!WasmData) {
       WATEVER_UNREACHABLE("unknown global {}", llvmToString(*GV));
     }
-    if (Is64Bit) {
-      Actions.Insts.emplace_back(Opcode::I64Const, WasmData);
-    } else {
-      Actions.Insts.emplace_back(Opcode::I32Const, WasmData);
-    }
+    Actions.Insts.emplace_back(PointerConstOp, RelocatablePointerArg{WasmData});
     return true;
   }
 
@@ -95,21 +92,13 @@ static bool putValueOnStack(llvm::Value *Val, WasmActions &Actions, Module &M,
     M.addIndirectFunctionElement(WasmFunc);
     // Esnure that a indirect function table is available
     M.getIndirectFunctionTable();
-    auto Arg = std::make_unique<RelocatableTableIndexArg>(WasmFunc);
-    if (F->getDataLayout().getPointerSizeInBits() == 64) {
-      Actions.Insts.emplace_back(Opcode::I64Const, std::move(Arg));
-    } else {
-      Actions.Insts.emplace_back(Opcode::I32Const, std::move(Arg));
-    }
+    Actions.Insts.emplace_back(PointerConstOp,
+                               RelocatableTableIndexArg{WasmFunc});
     return true;
   }
 
   if (llvm::isa<llvm::ConstantPointerNull>(Val)) {
-    if (Is64Bit) {
-      Actions.Insts.emplace_back(Opcode::I64Const, int64_t{0});
-    } else {
-      Actions.Insts.emplace_back(Opcode::I32Const, int64_t{0});
-    }
+    Actions.Insts.emplace_back(PointerConstOp, int64_t{0});
     return true;
   }
 
@@ -117,11 +106,7 @@ static bool putValueOnStack(llvm::Value *Val, WasmActions &Actions, Module &M,
     llvm::Type *Ty = Val->getType();
 
     if (Ty->isPointerTy()) {
-      if (Is64Bit) {
-        Actions.Insts.emplace_back(Opcode::I64Const, int64_t{0});
-      } else {
-        Actions.Insts.emplace_back(Opcode::I32Const, int64_t{0});
-      }
+      Actions.Insts.emplace_back(PointerConstOp, int64_t{0});
     } else if (Ty->isIntegerTy()) {
       if (Ty->getIntegerBitWidth() <= 32) {
         Actions.Insts.emplace_back(Opcode::I32Const, int64_t{0});
@@ -380,7 +365,8 @@ void BlockLowering::handleIntrinsic(llvm::CallInst &CI) {
     auto *Src = CI.getArgOperand(1);
     auto *Len = CI.getArgOperand(2);
 
-    Actions.Insts.emplace_back(Opcode::MemoryCopy, 0, 0);
+    Actions.Insts.emplace_back(Opcode::MemoryCopy,
+                               MemCpyArg{.FromMemory = 0, .ToMemory = 0});
     WorkList.push_back(Dest);
     WorkList.push_back(Src);
     WorkList.push_back(Len);
@@ -805,8 +791,7 @@ void BlockLowering::visitAllocaInst(llvm::AllocaInst &AI) {
       Actions.Insts.emplace_back(AddOp);
       Actions.Insts.emplace_back(ConstOp, static_cast<int64_t>(It->second));
     }
-    Actions.Insts.emplace_back(Opcode::LocalGet,
-                               std::make_unique<LocalArg>(Parent.FP.value()));
+    Actions.Insts.emplace_back(Opcode::LocalGet, LocalArg(Parent.FP.value()));
     return;
   }
 
@@ -819,7 +804,8 @@ void BlockLowering::visitAllocaInst(llvm::AllocaInst &AI) {
   StackPointer = M.getStackPointer(PtrTy);
 
   if (Size == 0) {
-    Actions.Insts.emplace_back(Opcode::GlobalGet, StackPointer);
+    Actions.Insts.emplace_back(Opcode::GlobalGet,
+                               RelocatableGlobalArg{StackPointer});
     return;
   }
 
@@ -829,8 +815,10 @@ void BlockLowering::visitAllocaInst(llvm::AllocaInst &AI) {
 
   // We need the modified stack pointer on top of the stack, there  is no
   // global tee
-  Actions.Insts.emplace_back(Opcode::GlobalGet, StackPointer);
-  Actions.Insts.emplace_back(Opcode::GlobalSet, StackPointer);
+  Actions.Insts.emplace_back(Opcode::GlobalGet,
+                             RelocatableGlobalArg{StackPointer});
+  Actions.Insts.emplace_back(Opcode::GlobalSet,
+                             RelocatableGlobalArg{StackPointer});
 
   Actions.Insts.emplace_back(SubOp);
 
@@ -858,11 +846,10 @@ void BlockLowering::visitAllocaInst(llvm::AllocaInst &AI) {
      * sub
      */
     uint32_t TotalSizeLocal = Parent.getNewLocal(PtrTy);
-    Actions.Insts.emplace_back(Opcode::LocalGet,
-                               std::make_unique<LocalArg>(TotalSizeLocal));
-    Actions.Insts.emplace_back(Opcode::GlobalGet, StackPointer);
-    Actions.Insts.emplace_back(Opcode::LocalSet,
-                               std::make_unique<LocalArg>(TotalSizeLocal));
+    Actions.Insts.emplace_back(Opcode::LocalGet, LocalArg(TotalSizeLocal));
+    Actions.Insts.emplace_back(Opcode::GlobalGet,
+                               RelocatableGlobalArg{StackPointer});
+    Actions.Insts.emplace_back(Opcode::LocalSet, LocalArg(TotalSizeLocal));
     // Align
     Actions.Insts.emplace_back(AndOp);
     Actions.Insts.emplace_back(ConstOp, int64_t{-16});
@@ -878,7 +865,8 @@ void BlockLowering::visitAllocaInst(llvm::AllocaInst &AI) {
   } else {
     Size = llvm::alignTo(Size, 16);
     Actions.Insts.emplace_back(ConstOp, Size);
-    Actions.Insts.emplace_back(Opcode::GlobalGet, StackPointer);
+    Actions.Insts.emplace_back(Opcode::GlobalGet,
+                               RelocatableGlobalArg{StackPointer});
   }
 }
 
@@ -891,7 +879,7 @@ void BlockLowering::doGreedyMemOp(llvm::Instruction &I, Opcode::Enum Op) {
   // If we already have a local containing the pointer, we can just use our
   // pointer with offset instead of inlining offsets.
   if (Parent.LocalMapping.contains(Ptr)) {
-    Actions.Insts.emplace_back(Op, std::make_unique<MemArg>());
+    Actions.Insts.emplace_back(Op, MemArg{});
     WorkList.push_back(Ptr);
     return;
   }
@@ -909,7 +897,7 @@ void BlockLowering::doGreedyMemOp(llvm::Instruction &I, Opcode::Enum Op) {
           if (Offset->getSExtValue() > 0) {
             WATEVER_LOG_TRACE("inlining offset");
             Actions.Insts.emplace_back(
-                Op, std::make_unique<MemArg>(0, Offset->getZExtValue()));
+                Op, MemArg{.Offset = Offset->getZExtValue()});
             // We need the pointer (without the offset) on top of the stack
             WorkList.push_back(BinOp->getOperand(0));
             return;
@@ -923,15 +911,14 @@ void BlockLowering::doGreedyMemOp(llvm::Instruction &I, Opcode::Enum Op) {
   if (auto *AI = llvm::dyn_cast<llvm::AllocaInst>(Ptr)) {
     // Check if this is a static slot
     if (Parent.StackSlots.contains(AI)) {
-      Actions.Insts.emplace_back(
-          Op, std::make_unique<MemArg>(0, Parent.StackSlots[AI]));
+      Actions.Insts.emplace_back(Op, MemArg{.Offset = Parent.StackSlots[AI]});
       AllocaSkipOffsetList.push_back(WorkList.size());
       WorkList.push_back(AI);
       return;
     }
   }
 
-  Actions.Insts.emplace_back(Op, std::make_unique<MemArg>());
+  Actions.Insts.emplace_back(Op, MemArg{});
   WorkList.push_back(Ptr);
 }
 
@@ -940,8 +927,7 @@ void BlockLowering::visitLoadInst(llvm::LoadInst &LI) {
   if (auto *Alloca = llvm::dyn_cast<llvm::AllocaInst>(LI.getPointerOperand())) {
     if (Parent.PromotedAllocas.contains(Alloca)) {
       auto Local = Parent.LocalMapping.lookup(Alloca);
-      Actions.Insts.emplace_back(Opcode::LocalGet,
-                                 std::make_unique<LocalArg>(Local));
+      Actions.Insts.emplace_back(Opcode::LocalGet, LocalArg(Local));
       return;
     }
   }
@@ -996,8 +982,7 @@ void BlockLowering::visitStoreInst(llvm::StoreInst &SI) {
   if (auto *Alloca = llvm::dyn_cast<llvm::AllocaInst>(SI.getPointerOperand())) {
     if (Parent.PromotedAllocas.contains(Alloca)) {
       auto Local = Parent.LocalMapping.lookup(Alloca);
-      Actions.Insts.emplace_back(Opcode::LocalSet,
-                                 std::make_unique<LocalArg>(Local));
+      Actions.Insts.emplace_back(Opcode::LocalSet, LocalArg(Local));
       WorkList.push_back(SI.getValueOperand());
       return;
     }
@@ -1537,8 +1522,8 @@ void BlockLowering::visitFCmpInst(llvm::FCmpInst &FI) {
 }
 
 void BlockLowering::visitPHINode(llvm::PHINode &PN) {
-  Actions.Insts.emplace_back(
-      Opcode::LocalGet, std::make_unique<LocalArg>(Parent.LocalMapping[&PN]));
+  Actions.Insts.emplace_back(Opcode::LocalGet,
+                             LocalArg(Parent.LocalMapping[&PN]));
 }
 
 void BlockLowering::visitSelectInst(llvm::SelectInst &SI) {
@@ -1557,8 +1542,7 @@ void BlockLowering::visitCallInst(llvm::CallInst &CI) {
 
   if (Callee) {
     auto *Func = M.FunctionMap[Callee];
-    Actions.Insts.emplace_back(Opcode::Call,
-                               std::make_unique<RelocatableFuncArg>(Func));
+    Actions.Insts.emplace_back(Opcode::Call, RelocatableFuncArg(Func));
   } else {
     WorkList.push_back(CI.getCalledOperand());
     auto *FuncTable = M.getIndirectFunctionTable();
@@ -1578,7 +1562,8 @@ void BlockLowering::visitCallInst(llvm::CallInst &CI) {
 
     Actions.Insts.emplace_back(
         Opcode::CallIndirect,
-        std::make_unique<RelocatableIndirectCallArg>(FuncTypeIndex, FuncTable));
+        RelocatableIndirectCallArg{.Tab = FuncTable,
+                                   .TypeIndex = FuncTypeIndex});
   }
 }
 
@@ -1627,8 +1612,7 @@ void BlockLowering::lower() {
         // emitted in this BB in an earler AST.
         if (!Inst || llvm::isa<llvm::PHINode>(Inst) ||
             Inst->getParent() != BB || Emitted.contains(Inst)) {
-          Actions.Insts.emplace_back(Opcode::LocalGet,
-                                     std::make_unique<LocalArg>(It->second));
+          Actions.Insts.emplace_back(Opcode::LocalGet, LocalArg(It->second));
           WATEVER_LOG_TRACE("has already a local, loading");
           continue;
         }
@@ -1640,8 +1624,7 @@ void BlockLowering::lower() {
         Counts[Next]--;
         // Create a local or get one from the colorer
         auto L = Parent.getOrCreateLocal(Next, BB->getDataLayout());
-        Actions.Insts.emplace_back(Opcode::LocalGet,
-                                   std::make_unique<LocalArg>(L));
+        Actions.Insts.emplace_back(Opcode::LocalGet, LocalArg(L));
         continue;
       }
 
@@ -1656,16 +1639,14 @@ void BlockLowering::lower() {
           // Creation is needed, if Next is not used outside this block, but
           // in a later AST.
           uint32_t L = Parent.getOrCreateLocal(Next, BB->getDataLayout());
-          Actions.Insts.emplace_back(Opcode::LocalTee,
-                                     std::make_unique<LocalArg>(L));
+          Actions.Insts.emplace_back(Opcode::LocalTee, LocalArg(L));
           WATEVER_LOG_TRACE("has multiple users so we tee it");
         }
         visit(*Inst);
         Emitted.insert(Inst);
       } else if (auto *Arg = llvm::dyn_cast<llvm::Instruction>(Next)) {
-        Actions.Insts.emplace_back(
-            Opcode::LocalGet,
-            std::make_unique<LocalArg>(Parent.LocalMapping.lookup(Arg)));
+        Actions.Insts.emplace_back(Opcode::LocalGet,
+                                   LocalArg(Parent.LocalMapping.lookup(Arg)));
       } else if (!putValueOnStack(Next, Actions, M,
                                   BB->getDataLayout().getPointerSizeInBits() ==
                                       64)) {
@@ -1682,8 +1663,7 @@ void BlockLowering::lower() {
     }
     // Optimize away local.set local.get
     if (Actions.Insts.back().Op == Opcode::LocalGet) {
-      if (const auto *Arg = llvm::dyn_cast_or_null<LocalArg>(
-              Actions.Insts.back().getArgument())) {
+      if (const auto *Arg = std::get_if<LocalArg>(&Actions.Insts.back().Arg)) {
         if (Arg->Index == LastSetRoot) {
           WATEVER_LOG_TRACE("Optimizing local.set, local.get sequence for {}",
                             LastSetRoot.value());
@@ -1697,8 +1677,8 @@ void BlockLowering::lower() {
           // In that case, the tee is not needed anyway.
           if (!Parent.Body.Insts.empty() &&
               Parent.Body.Insts.back().Op == Opcode::LocalGet) {
-            if (const auto *Arg = llvm::dyn_cast_or_null<LocalArg>(
-                    Parent.Body.Insts.back().getArgument())) {
+            if (const auto *Arg =
+                    std::get_if<LocalArg>(&Actions.Insts.back().Arg)) {
               if (Arg->Index == LastSetRoot) {
                 needsTee = false;
               }
@@ -1706,9 +1686,8 @@ void BlockLowering::lower() {
           }
 
           if (needsTee) {
-            Parent.Body.Insts.emplace_back(
-                Opcode::LocalTee,
-                std::make_unique<LocalArg>(LastSetRoot.value()));
+            Parent.Body.Insts.emplace_back(Opcode::LocalTee,
+                                           LocalArg(LastSetRoot.value()));
           }
         }
       }
@@ -1764,8 +1743,7 @@ void BlockLowering::lower() {
       };
       RootOnlyOneUse = CanSkipLocal();
 
-      Parent.Body.Insts.emplace_back(Opcode::LocalSet,
-                                     std::make_unique<LocalArg>(It->second));
+      Parent.Body.Insts.emplace_back(Opcode::LocalSet, LocalArg(It->second));
     } else {
       LastSetRoot = std::nullopt;
       if (Root->getNumUses() > 0) {
@@ -1926,9 +1904,7 @@ void FunctionLowering::processTree(llvm::BasicBlock *Root, ValType FTy,
       LastCase = CaseValue;
       Targets.push_back(BlockIdx);
     }
-    BranchTableArg Argument{std::move(Targets), DefaultIdx};
-    F.Body.Insts.emplace_back(Opcode::BrTable,
-                              std::make_unique<BranchTableArg>(Argument));
+    F.Body.appendBranchTable(std::move(Targets), DefaultIdx);
   } else {
     WATEVER_UNREACHABLE("unsupported terminator: {}", Term->getOpcodeName());
   }
@@ -1960,8 +1936,7 @@ void FunctionLowering::handleEdge(llvm::BasicBlock *Source,
       if (SourceLocal == DestLocal) {
         continue;
       }
-      F.Body.Insts.emplace_back(Opcode::LocalGet,
-                                std::make_unique<LocalArg>(SourceLocal));
+      F.Body.Insts.emplace_back(Opcode::LocalGet, LocalArg(SourceLocal));
     } else {
       WATEVER_UNIMPLEMENTED("Unsupported phi argument {}",
                             IncomingVal->getNameOrAsOperand());
@@ -1971,9 +1946,8 @@ void FunctionLowering::handleEdge(llvm::BasicBlock *Source,
 
   // Pop them into their destinations
   while (!Destinations.empty()) {
-    F.Body.Insts.emplace_back(
-        Opcode::LocalSet,
-        std::make_unique<LocalArg>(Destinations.pop_back_val()));
+    F.Body.Insts.emplace_back(Opcode::LocalSet,
+                              LocalArg(Destinations.pop_back_val()));
   }
 
   // Backward branch (continue) or forward branch (exit)
@@ -2031,7 +2005,7 @@ void FunctionLowering::peephole() {
 
   for (auto &Inst : F.Body.Insts) {
     if (NewInsts.empty()) {
-      NewInsts.push_back(std::move(Inst));
+      NewInsts.push_back(Inst);
       continue;
     }
 
@@ -2041,25 +2015,25 @@ void FunctionLowering::peephole() {
 
     // local.set a; local.get a; -> local.tee a;
     if (Inst.Op == Opcode::LocalGet && Last.Op == Opcode::LocalSet) {
-      const auto *Arg = llvm::cast<LocalArg>(Inst.getArgument());
-      const auto *LastArg = llvm::cast<LocalArg>(Last.getArgument());
-      if (Arg->Index == LastArg->Index) {
+      const auto &Arg = std::get<LocalArg>(Inst.Arg);
+      const auto &LastArg = std::get<LocalArg>(Last.Arg);
+      if (Arg.Index == LastArg.Index) {
         Last.Op = Opcode::LocalTee;
         Handled = true;
       }
     }
     // local.get a; local.set a; -> ;
     else if (Inst.Op == Opcode::LocalSet && Last.Op == Opcode::LocalGet) {
-      const auto *Arg = llvm::cast<LocalArg>(Inst.getArgument());
-      const auto *LastArg = llvm::cast<LocalArg>(Last.getArgument());
-      if (Arg->Index == LastArg->Index) {
+      const auto &Arg = std::get<LocalArg>(Inst.Arg);
+      const auto &LastArg = std::get<LocalArg>(Last.Arg);
+      if (Arg.Index == LastArg.Index) {
         NewInsts.pop_back();
         Handled = true; // Drop the current Inst as well
       }
     }
 
     if (!Handled) {
-      NewInsts.push_back(std::move(Inst));
+      NewInsts.push_back(Inst);
     }
   }
   F.Body.Insts = std::move(NewInsts);
@@ -2068,8 +2042,7 @@ void FunctionLowering::peephole() {
 void FunctionLowering::removeUnusedLocals() {
   llvm::DenseSet<uint32_t> UsedLocals;
   for (const auto &Inst : F.Body.Insts) {
-    if (const auto *Arg =
-            llvm::dyn_cast_or_null<LocalArg>(Inst.getArgument())) {
+    if (const auto *Arg = std::get_if<LocalArg>(&Inst.Arg)) {
       UsedLocals.insert(Arg->Index);
     }
   }
@@ -2303,17 +2276,18 @@ Module ModuleLowering::convert(llvm::Module &Mod,
     // Generate prologue, if we use a FP
     if (NeedsPrologue()) {
       // SP = SP - frame_size
-      WasmFunc->Body.Insts.emplace_back(Opcode::GlobalGet,
-                                        Res.getStackPointer(PtrTy));
+      WasmFunc->Body.Insts.emplace_back(
+          Opcode::GlobalGet, RelocatableGlobalArg{Res.getStackPointer(PtrTy)});
       if (WasmFunc->FrameSize > 0) {
         WasmFunc->Body.Insts.emplace_back(ConstOp, WasmFunc->FrameSize);
         WasmFunc->Body.Insts.emplace_back(SubOp);
+        WasmFunc->Body.Insts.emplace_back(Opcode::LocalTee,
+                                          LocalArg(WasmFunc->FP.value()));
         WasmFunc->Body.Insts.emplace_back(
-            Opcode::LocalTee, std::make_unique<LocalArg>(WasmFunc->FP.value()));
-        WasmFunc->Body.Insts.emplace_back(Opcode::GlobalSet, Res.StackPointer);
+            Opcode::GlobalSet, RelocatableGlobalArg{Res.StackPointer});
       } else {
-        WasmFunc->Body.Insts.emplace_back(
-            Opcode::LocalSet, std::make_unique<LocalArg>(WasmFunc->FP.value()));
+        WasmFunc->Body.Insts.emplace_back(Opcode::LocalSet,
+                                          LocalArg(WasmFunc->FP.value()));
       }
     }
 
