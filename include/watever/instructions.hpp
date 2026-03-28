@@ -96,9 +96,9 @@ public:
   }
 
 #ifdef WATEVER_LOGGING
-  [[nodiscard]] std::string getString(
-      const llvm::SmallVector<llvm::SmallVector<uint32_t>, 0> &BranchTables)
-      const;
+  void dump(llvm::raw_ostream &OS,
+            const llvm::SmallVector<llvm::SmallVector<uint32_t>, 0>
+                &BranchTables) const;
 #endif
 
   void write(llvm::raw_ostream &OS, Relocation &Reloc,

@@ -5,57 +5,45 @@
 using namespace watever;
 #ifdef WATEVER_LOGGING
 
-[[nodiscard]] std::string WasmInst::getString(
-    const llvm::SmallVector<llvm::SmallVector<uint32_t>, 0> &BranchTables)
-    const {
-  const char *Name = Opcode(Op).getName();
+void WasmInst::dump(llvm::raw_ostream &OS,
+                    const llvm::SmallVector<llvm::SmallVector<uint32_t>, 0>
+                        &BranchTables) const {
+  OS << Opcode(Op).getName();
 
-  return std::visit(
+  std::visit(
       Overloaded{
-          [&](std::monostate) { return std::string(Name); },
-          [&](int64_t Imm) {
-            return llvm::formatv("{0} {1}", Name, Imm).str();
-          },
-          [&](uint64_t Imm) {
-            return llvm::formatv("{0} {1}", Name, Imm).str();
-          },
-          [&](float Imm) { return llvm::formatv("{0} {1}", Name, Imm).str(); },
-          [&](double Imm) { return llvm::formatv("{0} {1}", Name, Imm).str(); },
+          [&](std::monostate) {},
+          [&](int64_t Imm) { OS << " " << Imm; },
+          [&](uint64_t Imm) { OS << " " << Imm; },
+          [&](float Imm) { OS << " " << Imm; },
+          [&](double Imm) { OS << " " << Imm; },
           [&](const MemArg &A) {
-            return llvm::formatv("align: {}, idx: {}, offset: {}", A.Alignment,
-                                 A.MemIdx, A.Offset)
-                .str();
+            OS << llvm::formatv(" align: {}, idx: {}, offset: {}", A.Alignment,
+                                A.MemIdx, A.Offset);
           },
-          [&](const LocalArg &A) { return llvm::formatv("{}", A.Index).str(); },
+          [&](const LocalArg &A) { OS << " " << A.Index; },
           [&](const BranchTableArg &A) {
             auto &BranchTable = BranchTables[A.TableIdx];
-            return llvm::formatv(
-                       "[{0:$[, ]}] : {1}",
-                       llvm::make_range(BranchTable.begin(), BranchTable.end()),
-                       A.DefaultTarget)
-                .str();
+            OS << llvm::formatv(
+                " [{0:$[, ]}] : {1}",
+                llvm::make_range(BranchTable.begin(), BranchTable.end()),
+                A.DefaultTarget);
           },
           [&](const RelocatableFuncArg &A) {
-            return llvm::formatv("{}", A.Func->FunctionIndex).str();
+            OS << " " << A.Func->FunctionIndex;
           },
-          [&](const RelocatableGlobalArg &A) {
-            return llvm::formatv("{}", A.Gl->GlobalIdx).str();
-          },
-          [&](const RelocatablePointerArg &A) {
-            return llvm::formatv("{}", A.DT->Name).str();
-          },
+          [&](const RelocatableGlobalArg &A) { OS << " " << A.Gl->GlobalIdx; },
+          [&](const RelocatablePointerArg &A) { OS << " " << A.DT->Name; },
           [&](const RelocatableIndirectCallArg &A) {
-            return llvm::formatv("{} {}", A.TypeIndex, A.Tab->TableIndex).str();
+            OS << " " << A.TypeIndex << " " << A.Tab->TableIndex;
           },
           [&](const RelocatableTableIndexArg &A) {
-            return llvm::formatv("table index for {}", A.F->Name).str();
+            OS << " table index for " << A.F->Name;
           },
           [&](const MemCpyArg &A) {
-            return llvm::formatv("{} {}", A.FromMemory, A.ToMemory).str();
+            OS << " " << A.FromMemory << " " << A.ToMemory;
           },
-          [&](const BlockTypeArg &A) {
-            return llvm::formatv("{}", toString(A.Type)).str();
-          },
+          [&](const BlockTypeArg &A) { OS << " " << toString(A.Type); },
       },
       Arg);
 }
