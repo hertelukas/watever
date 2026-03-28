@@ -2025,42 +2025,44 @@ void FunctionLowering::getMergeChildren(
                     });
 }
 
-// TODO This is currently O(n^2)
 void FunctionLowering::peephole() {
-  WasmInst *Last = nullptr;
-  for (auto *It = F.Body.Insts.begin(); It != F.Body.Insts.end();) {
-    bool Erased = false;
+  llvm::SmallVector<WasmInst, 8> NewInsts;
+  NewInsts.reserve(F.Body.Insts.size());
+
+  for (auto &Inst : F.Body.Insts) {
+    if (NewInsts.empty()) {
+      NewInsts.push_back(std::move(Inst));
+      continue;
+    }
+
+    auto &Last = NewInsts.back();
+    // Handled instructions are dropped
+    bool Handled = false;
+
     // local.set a; local.get a; -> local.tee a;
-    if (It->Op == Opcode::LocalGet) {
-      if (Last && Last->Op == Opcode::LocalSet) {
-        const auto *Arg = llvm::cast<LocalArg>(It->getArgument());
-        const auto *LastArg = llvm::cast<LocalArg>(Last->getArgument());
-        if (Arg->Index == LastArg->Index) {
-          Last->Op = Opcode::LocalTee;
-          Erased = true;
-          It = F.Body.Insts.erase(It);
-        }
+    if (Inst.Op == Opcode::LocalGet && Last.Op == Opcode::LocalSet) {
+      const auto *Arg = llvm::cast<LocalArg>(Inst.getArgument());
+      const auto *LastArg = llvm::cast<LocalArg>(Last.getArgument());
+      if (Arg->Index == LastArg->Index) {
+        Last.Op = Opcode::LocalTee;
+        Handled = true;
       }
     }
-
     // local.get a; local.set a; -> ;
-    if (It->Op == Opcode::LocalSet) {
-      if (Last && Last->Op == Opcode::LocalGet) {
-        const auto *Arg = llvm::cast<LocalArg>(It->getArgument());
-        const auto *LastArg = llvm::cast<LocalArg>(Last->getArgument());
-        if (Arg->Index == LastArg->Index) {
-          Erased = true;
-          It = F.Body.Insts.erase(Last, std::next(It));
-          Last = nullptr;
-        }
+    else if (Inst.Op == Opcode::LocalSet && Last.Op == Opcode::LocalGet) {
+      const auto *Arg = llvm::cast<LocalArg>(Inst.getArgument());
+      const auto *LastArg = llvm::cast<LocalArg>(Last.getArgument());
+      if (Arg->Index == LastArg->Index) {
+        NewInsts.pop_back();
+        Handled = true; // Drop the current Inst as well
       }
     }
 
-    if (!Erased) {
-      Last = It;
-      ++It;
+    if (!Handled) {
+      NewInsts.push_back(std::move(Inst));
     }
   }
+  F.Body.Insts = std::move(NewInsts);
 }
 
 void FunctionLowering::removeUnusedLocals() {
