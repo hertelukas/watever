@@ -2184,7 +2184,68 @@ void FunctionLegalizer::visitIntrinsicInst(llvm::IntrinsicInst &II) {
   // Saturation Arithmetic Intrinsics
   case llvm::Intrinsic::sadd_sat:
   case llvm::Intrinsic::ssub_sat: {
-    break;
+    auto LegalLHS = getMappedValue(II.getArgOperand(0));
+    auto LegalRHS = getMappedValue(II.getArgOperand(1));
+    if (!LegalLHS.isScalar() || !LegalRHS.isScalar()) {
+      WATEVER_UNIMPLEMENTED(
+          "saturation intrinsic only supported on scalar types");
+    }
+
+    auto *LHS = LegalLHS[0];
+    auto *RHS = LegalRHS[0];
+    unsigned OriginalWidth =
+        II.getArgOperand(0)->getType()->getIntegerBitWidth();
+    unsigned LegalWidth = LHS->getType()->getIntegerBitWidth();
+    LHS = signExtend(LHS, OriginalWidth, LegalWidth);
+    RHS = signExtend(RHS, OriginalWidth, LegalWidth);
+
+    bool IsAddition = II.getIntrinsicID() == llvm::Intrinsic::sadd_sat;
+    auto Op = IsAddition ? llvm::Instruction::BinaryOps::Add
+                         : llvm::Instruction::BinaryOps::Sub;
+
+    auto *Sum = Builder.CreateBinOp(Op, LHS, RHS);
+    auto *Zero = llvm::ConstantInt::get(LHS->getType(), 0);
+
+    // Signed min & max
+    auto MaxAP = llvm::APInt::getSignedMaxValue(OriginalWidth);
+    auto MinAP = llvm::APInt::getSignedMinValue(OriginalWidth);
+    if (LegalWidth > OriginalWidth) {
+      MaxAP = MaxAP.sext(LegalWidth);
+      MinAP = MinAP.sext(LegalWidth);
+    }
+    auto *MaxVal = llvm::ConstantInt::get(LHS->getType(), MaxAP);
+    auto *MinVal = llvm::ConstantInt::get(LHS->getType(), MinAP);
+
+    llvm::Value *Result;
+    if (LegalWidth > OriginalWidth) {
+      // Widened; no hardware overflow, so we apply a standard clamp
+      auto *CmpGt = Builder.CreateICmpSGT(Sum, MaxVal);
+      auto *ClampedMax = Builder.CreateSelect(CmpGt, MaxVal, Sum);
+
+      auto *CmpLt = Builder.CreateICmpSLT(ClampedMax, MinVal);
+      Result = Builder.CreateSelect(CmpLt, MinVal, ClampedMax);
+    } else {
+      // Not widened, will result in overflow
+      // For addition, we have an overflow if rhs < 0 ^ sum < lhs
+      // For subtraction, we have an overflow if rhs > 0 ^ sum < lhs
+      llvm::Value *RhsSignCmp = IsAddition ? Builder.CreateICmpSLT(RHS, Zero)
+                                           : Builder.CreateICmpSGT(RHS, Zero);
+
+      auto *SumLtLhs = Builder.CreateICmpSLT(Sum, LHS);
+
+      auto *OverflowCmp = Builder.CreateXor(RhsSignCmp, SumLtLhs);
+
+      // If sum < 0 -> we need to get max value, as overflow resulted in
+      // negative value
+      // Other way around if sum > 0
+      auto *SumLtZero = Builder.CreateICmpSLT(Sum, Zero);
+      auto *SatVal = Builder.CreateSelect(SumLtZero, MaxVal, MinVal);
+
+      Result = Builder.CreateSelect(OverflowCmp, SatVal, Sum);
+    }
+
+    ValueMap[&II] = LegalValue(Result);
+    return;
   }
   case llvm::Intrinsic::uadd_sat:
   case llvm::Intrinsic::usub_sat: {
@@ -2192,7 +2253,7 @@ void FunctionLegalizer::visitIntrinsicInst(llvm::IntrinsicInst &II) {
     auto LegalRHS = getMappedValue(II.getArgOperand(1));
     if (!LegalLHS.isScalar() || !LegalRHS.isScalar()) {
       WATEVER_UNIMPLEMENTED(
-          "overflow intrinsic only supported on scalar types");
+          "saturation intrinsic only supported on scalar types");
     }
 
     auto *LHS = LegalLHS[0];
