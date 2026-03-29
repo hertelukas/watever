@@ -2181,6 +2181,58 @@ void FunctionLegalizer::visitIntrinsicInst(llvm::IntrinsicInst &II) {
 
     return;
   }
+  // Saturation Arithmetic Intrinsics
+  case llvm::Intrinsic::sadd_sat:
+  case llvm::Intrinsic::ssub_sat: {
+    break;
+  }
+  case llvm::Intrinsic::uadd_sat:
+  case llvm::Intrinsic::usub_sat: {
+    auto LegalLHS = getMappedValue(II.getArgOperand(0));
+    auto LegalRHS = getMappedValue(II.getArgOperand(1));
+    if (!LegalLHS.isScalar() || !LegalRHS.isScalar()) {
+      WATEVER_UNIMPLEMENTED(
+          "overflow intrinsic only supported on scalar types");
+    }
+
+    auto *LHS = LegalLHS[0];
+    auto *RHS = LegalRHS[0];
+    unsigned OriginalWidth =
+        II.getArgOperand(0)->getType()->getIntegerBitWidth();
+    unsigned LegalWidth = LHS->getType()->getIntegerBitWidth();
+    LHS = zeroExtend(LHS, OriginalWidth, LegalWidth);
+    RHS = zeroExtend(RHS, OriginalWidth, LegalWidth);
+
+    bool IsAddition = II.getIntrinsicID() == llvm::Intrinsic::uadd_sat;
+    auto Op = IsAddition ? llvm::Instruction::BinaryOps::Add
+                         : llvm::Instruction::BinaryOps::Sub;
+
+    auto *Sum = Builder.CreateBinOp(Op, LHS, RHS);
+
+    llvm::Value *Result;
+    if (IsAddition) {
+      auto *MaxVal = llvm::ConstantInt::get(
+          LHS->getType(),
+          llvm::APInt::getLowBitsSet(LegalWidth, OriginalWidth));
+      llvm::Value *Cmp;
+      if (LegalWidth > OriginalWidth) {
+        // Widened; no hardware overflow, so check a + b > MaxVal -> overflow
+        Cmp = Builder.CreateICmpUGT(Sum, MaxVal);
+      } else {
+        // Not widened, hardware overflow if a + b < a
+        Cmp = Builder.CreateICmpULT(Sum, LHS);
+      }
+      Result = Builder.CreateSelect(Cmp, MaxVal, Sum);
+    } else {
+      // If a - b > a, we had an underflow (width doesn't matter)
+      auto *Cmp = Builder.CreateICmpUGT(Sum, LHS);
+      Result = Builder.CreateSelect(
+          Cmp, llvm::ConstantInt::get(LHS->getType(), 0), Sum);
+    }
+
+    ValueMap[&II] = LegalValue(Result);
+    return;
+  }
   // Specialized Arithmetic Intrinsics
   case llvm::Intrinsic::fmuladd: {
     auto FirstLegalArg = getMappedValue(II.getArgOperand(0));
