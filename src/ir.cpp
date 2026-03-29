@@ -1572,6 +1572,9 @@ void BlockLowering::lower() {
 
   const auto &Roots = Parent.Roots.lookup(BB);
 
+  std::optional<uint32_t> LastSetRoot = std::nullopt;
+  bool RootOnlyOneUse = false;
+
   for (auto *Root : Roots) {
     // For each instructions with possible side effects, build a dependency
     // tree on the stack in reverse order.
@@ -1658,6 +1661,46 @@ void BlockLowering::lower() {
     if (Actions.Insts.empty()) {
       continue;
     }
+    // Optimize away local.set <x>; local.get <x>.
+    // This is stronger than pure peephole, as we remove both instructions, if
+    // <x> is only used by the current root. The peephole optimization later
+    // cannot prove that and has to insert a local.tee <x> to be safe.
+    if (Actions.Insts.back().Op == Opcode::LocalGet) {
+      if (const auto *Arg = std::get_if<LocalArg>(&Actions.Insts.back().Arg)) {
+        if (Arg->Index == LastSetRoot) {
+          WATEVER_LOG_TRACE("Optimizing local.set, local.get sequence for {}",
+                            LastSetRoot.value());
+          Actions.Insts.pop_back(); // Remove get (the first instruction of the
+                                    // current tree)
+          assert(Parent.Body.Insts.back().Op == Opcode::LocalSet &&
+                 "old root did not set its root");
+          Parent.Body.Insts.pop_back(); // Remove set (the last instruction of
+                                        // the previous tree)
+          // If others need this value, the local still has to be set
+          bool needsTee = !RootOnlyOneUse;
+          // The original root might have been a PHI node, and is just a get.
+          // In that case, the tee is not needed anyway, as we currently have:
+          // local.get <x>
+          // ~local.set <x>~
+          // ----------------
+          // ~local.get <x>~
+          // Even though x might have more users, it does not rely on the old
+          // root to set it.
+          if (!Parent.Body.Insts.empty() &&
+              Parent.Body.Insts.back().Op == Opcode::LocalGet) {
+            const auto Arg = std::get<LocalArg>(Parent.Body.Insts.back().Arg);
+            if (Arg.Index == LastSetRoot) {
+              needsTee = false;
+            }
+          }
+
+          if (needsTee) {
+            Parent.Body.Insts.emplace_back(Opcode::LocalTee,
+                                           LocalArg(LastSetRoot.value()));
+          }
+        }
+      }
+    }
     std::ranges::reverse(Actions.Insts);
     Parent.Body.Insts.insert(Parent.Body.Insts.end(),
                              std::make_move_iterator(Actions.Insts.begin()),
@@ -1666,8 +1709,52 @@ void BlockLowering::lower() {
 
     if (auto It = Parent.LocalMapping.find(Root);
         It != Parent.LocalMapping.end()) {
+      // Mark the just-set value, so the next tree can reuse it if needed
+      LastSetRoot = It->second;
+      // The local can only be omitted, if there is only one user. As pointers
+      // might have a single offset-calculating user, which is always inlined
+      // and then potentially used multiple times, it is generally not safe to
+      // omit locals with pointers.
+      // See regression 260130.
+      auto CanSkipLocal = [&]() {
+        // If there are multiple users, a local is needed, so every user
+        // can access it
+        if (Root->getNumUses() > 1) {
+          return false;
+        }
+
+        // Only pointers might get inlined users, so if not a pointer, omit
+        // setting the local is safe
+        if (!Root->getType()->isPointerTy()) {
+          return true;
+        }
+        // If this is an offset-adding instruction, check if the final pointer
+        // generated with inttoptr has only a single use
+        if (llvm::User *User = llvm::dyn_cast<llvm::PtrToIntInst>(
+                Root->use_begin()->getUser())) {
+          // Only check the dependency tree 5 uses up
+          for (uint32_t I = 0; I < 10; ++I) {
+            if (User->getNumUses() > 1) {
+              // If there are multiple users, IntToPtr will not have a local, as
+              // it is always inlined, so this root needs to be
+              if (llvm::isa<llvm::IntToPtrInst>(User)) {
+                return false;
+              }
+              return true;
+            }
+            if (User->user_empty()) {
+              return true;
+            }
+            User = User->use_begin()->getUser();
+          }
+        }
+        return true;
+      };
+      RootOnlyOneUse = CanSkipLocal();
+
       Parent.Body.Insts.emplace_back(Opcode::LocalSet, LocalArg(It->second));
     } else {
+      LastSetRoot = std::nullopt;
       if (Root->getNumUses() > 0) {
         WATEVER_UNREACHABLE(
             "Multi-use instruction {} did not have a local assigned to it",
