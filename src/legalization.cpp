@@ -493,6 +493,7 @@ void FunctionLegalizer::visitSwitchInst(llvm::SwitchInst &SI) {
               SwitchCond, llvm::ConstantInt::get(SwitchCond->getType(), Range));
           auto *SwitchBB = llvm::BasicBlock::Create(NewFunc->getContext(),
                                                     "sw.cluster", NewFunc);
+	  NewToOldBB[SwitchBB] = SI.getParent();
           Builder.CreateCondBr(InBounds, SwitchBB, DefaultDest);
           Builder.SetInsertPoint(SwitchBB);
         }
