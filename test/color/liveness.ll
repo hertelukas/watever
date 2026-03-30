@@ -1,4 +1,4 @@
-; RUN: watever -l 5 %s -o /dev/zero | FileCheck %s
+; RUN: watever -l 5 %s --disable-simplify-cfg -o /dev/zero | FileCheck %s
 
 declare i32 @start_live()
 

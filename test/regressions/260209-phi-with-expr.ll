@@ -5,9 +5,12 @@ target triple = "wasm32-unknown-unknown"
 
 @.str = private unnamed_addr constant [5 x i8] c"null\00", align 1
 
+declare void @a()
+
 define ptr @foo(i1 %cond) {
 ; CHECK-LABEL: define ptr @foo
 ; CHECK: if:
+; CHECK-NEXT: call void @a()
 ; CHECK-NEXT: ptrtoint ptr @.str to i32
 ; CHECK-NEXT: add i32 {{.*}}, 3
 ; CHECK-NEXT: [[PTR:%[0-9]+]] = inttoptr i32
@@ -17,6 +20,7 @@ entry:
   %ptr = alloca i8
   br i1 %cond, label %if, label %merge
 if:
+  call void @a()
   br label %merge
 merge:
   %res = phi ptr [ %ptr, %entry ], [ getelementptr (i8, ptr @.str, i32 3), %if ]

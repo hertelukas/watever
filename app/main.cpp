@@ -11,8 +11,10 @@
 #include <llvm/Support/SourceMgr.h>
 #include <llvm/Support/TimeProfiler.h>
 #include <llvm/Transforms/Scalar/ADCE.h>
+#include <llvm/Transforms/Scalar/SimplifyCFG.h>
 #include <llvm/Transforms/Utils/BreakCriticalEdges.h>
 #include <llvm/Transforms/Utils/FixIrreducible.h>
+#include <llvm/Transforms/Utils/SimplifyCFGOptions.h>
 
 #define ARGS_NOEXCEPT
 #include "args/args.hxx"
@@ -51,6 +53,10 @@ int main(int argc, char *argv[]) {
   args::Flag DisableColoring(Parser, "Disable Coloring Pass",
                              "Skip coloring pass and assign locals greedily",
                              {"disable-coloring"}, false);
+
+  args::Flag DisableSimplifyCFG(Parser, "Disable Simplify CFG",
+                                "Skip simplify CFG after fixing irreducible",
+                                {"disable-simplify-cfg"}, false);
 
   args::Group FeatureGroup(
       Parser, "WebAssembly Features (--disable-<feature> to disable)");
@@ -199,6 +205,13 @@ int main(int argc, char *argv[]) {
 #else
     LegalizeFPM.addPass(llvm::FixIrreduciblePass(true));
 #endif
+
+    if (!DisableSimplifyCFG) {
+      llvm::SimplifyCFGOptions CFGOptions;
+      CFGOptions.convertSwitchToArithmetic(true).convertSwitchToLookupTable(
+          true);
+      LegalizeFPM.addPass(llvm::SimplifyCFGPass(CFGOptions));
+    }
 
     LegalizeMPM.addPass(
         llvm::createModuleToFunctionPassAdaptor(std::move(LegalizeFPM)));

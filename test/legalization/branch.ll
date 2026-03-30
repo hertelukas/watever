@@ -1,5 +1,8 @@
 ; RUN: watever -l 0 --legal %s | FileCheck %s
 
+declare void @a()
+declare void @b()
+
 define void @if_else(i1 %a) {
 ; CHECK-LABEL: @if_else
 ; CHECK: trunc i32 
@@ -7,8 +10,10 @@ define void @if_else(i1 %a) {
 entry:
   br i1 %a, label %then, label %else
 then:
+  call void @a()
   br label %merge
 else:
+  call void @b()
   br label %merge
 merge:
   ret void

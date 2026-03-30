@@ -1,5 +1,8 @@
 ; RUN: watever -l 0 %s --legal | FileCheck %s
 
+declare void @a()
+declare void @b()
+
 define i32 @foo() {
     ret i32 100
 }
@@ -31,9 +34,11 @@ define i128 @phi_i128(i128 %a, i128 %b, i1 %cond) {
 entry:
     br i1 %cond, label %if, label %else
 if:
+    call void @a()
     %1 = add i128 %a, 1
     br label %exit
 else:
+    call void @b()
     %2 = add i128 %b, 2
     br label %exit
 exit:

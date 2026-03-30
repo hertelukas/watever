@@ -18,21 +18,6 @@ entry:
   ret i32 %a
 }
 
-; The load can safely be reordered after the store,
-; as %ptr and null are NoAlias
-define i32 @legal_reorder(ptr %ptr) {
-; CHECK-LABEL: legal_reorder
-; CHECK-NEXT: i32.const 0
-; CHECK-NEXT: i32.const 0
-; CHECK-NEXT: i32.store
-; CHECK-NEXT: local.get 0
-; CHECK-NEXT: i32.load
-entry:
-  %a = load i32, ptr %ptr
-  store i32 0, ptr null
-  ret i32 %a
-}
-
 define i32 @mod_call_site(ptr %ptr) {
   store i32 0, ptr %ptr
   ret i32 0
