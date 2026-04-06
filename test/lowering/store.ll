@@ -173,7 +173,7 @@ define void @store_const_i40(ptr %p) {
 ; CHECK-LABEL: $store_const_i40
 ; CHECK-NEXT:    local.get 0
 ; CHECK-NEXT:    i32.const 1
-; CHECK-NEXT:    i32.store align=1
+; CHECK-NEXT:    i32.store
 ; CHECK-NEXT:    local.get 0
 ; CHECK-NEXT:    i32.const 0
 ; CHECK-NEXT:    i32.store8 offset=4

@@ -59,6 +59,10 @@ struct Opcode {
     return getInfo().ParamTypes[N - 1];
   }
 
+  [[nodiscard]] uint32_t getMemorySize() const {
+    return getInfo().MemorySize;
+  }
+
   // Write the opcode to OS
   void writeBytes(llvm::raw_ostream &OS) const;
 

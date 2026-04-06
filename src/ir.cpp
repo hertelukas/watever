@@ -876,10 +876,21 @@ void BlockLowering::doGreedyMemOp(llvm::Instruction &I, Opcode::Enum Op) {
     WATEVER_UNREACHABLE("could not get pointer from memory operation");
   }
 
+  uint32_t Alignment = 0;
+  if (auto *LI = llvm::dyn_cast<llvm::LoadInst>(&I)) {
+    Alignment = llvm::Log2_64(LI->getAlign().value());
+  } else if (auto *SI = llvm::dyn_cast<llvm::StoreInst>(&I)) {
+    Alignment = llvm::Log2_64(SI->getAlign().value());
+  }
+
+  // WebAssembly uses Alignment as optimization hint, and does not allow
+  // overalignment
+  Alignment = std::min(Alignment, llvm::Log2_32(Opcode(Op).getMemorySize()));
+
   // If we already have a local containing the pointer, we can just use our
   // pointer with offset instead of inlining offsets.
   if (Parent.LocalMapping.contains(Ptr)) {
-    Actions.Insts.emplace_back(Op, MemArg{});
+    Actions.Insts.emplace_back(Op, MemArg{.Alignment = Alignment});
     WorkList.push_back(Ptr);
     return;
   }
@@ -896,8 +907,9 @@ void BlockLowering::doGreedyMemOp(llvm::Instruction &I, Opcode::Enum Op) {
           // We cannot inline negative offsets
           if (Offset->getSExtValue() > 0) {
             WATEVER_LOG_TRACE("inlining offset");
-            Actions.Insts.emplace_back(
-                Op, MemArg{.Offset = Offset->getZExtValue()});
+            Actions.Insts.emplace_back(Op,
+                                       MemArg{.Offset = Offset->getZExtValue(),
+                                              .Alignment = Alignment});
             // We need the pointer (without the offset) on top of the stack
             WorkList.push_back(BinOp->getOperand(0));
             return;
@@ -911,14 +923,15 @@ void BlockLowering::doGreedyMemOp(llvm::Instruction &I, Opcode::Enum Op) {
   if (auto *AI = llvm::dyn_cast<llvm::AllocaInst>(Ptr)) {
     // Check if this is a static slot
     if (Parent.StackSlots.contains(AI)) {
-      Actions.Insts.emplace_back(Op, MemArg{.Offset = Parent.StackSlots[AI]});
+      Actions.Insts.emplace_back(
+          Op, MemArg{.Offset = Parent.StackSlots[AI], .Alignment = Alignment});
       AllocaSkipOffsetList.push_back(WorkList.size());
       WorkList.push_back(AI);
       return;
     }
   }
 
-  Actions.Insts.emplace_back(Op, MemArg{});
+  Actions.Insts.emplace_back(Op, MemArg{.Alignment = Alignment});
   WorkList.push_back(Ptr);
 }
 
