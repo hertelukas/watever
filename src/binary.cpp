@@ -4,6 +4,7 @@
 #include "watever/linking.hpp"
 #include "watever/opcode.hpp"
 #include "watever/symbol.hpp"
+#include "watever/type.hpp"
 #include <cstdint>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/Support/Casting.h>
@@ -96,8 +97,15 @@ void BinaryWriter::writeCode() {
   llvm::raw_svector_ostream CodeOS(Code);
   for (const auto &F : Mod.Functions) {
     size_t RelocationStart = CodeRelocation.Entries.size();
+    // Count of active local types
+    size_t ActiveLocalTypes = 0;
+    for (const auto &LocalList : F->Locals) {
+      if (!LocalList.empty()) {
+        ActiveLocalTypes++;
+      }
+    }
     // list(locals)
-    llvm::encodeULEB128(F->Locals.size(), CodeOS);
+    llvm::encodeULEB128(ActiveLocalTypes, CodeOS);
     uint32_t CurrentLocal = F->TotalArgs;
     // Locals
     llvm::DenseMap<uint32_t, uint32_t> LocalMapping;
@@ -105,14 +113,18 @@ void BinaryWriter::writeCode() {
     for (uint32_t I = 0; I < F->TotalArgs; ++I) {
       LocalMapping[I] = I;
     }
-    for (const auto &[Ty, LocalList] : F->Locals) {
+    for (size_t I = 0; I < NumLocalValTypes; ++I) {
+      auto &LocalList = F->Locals[I];
+      if (LocalList.empty()) {
+        continue;
+      }
       // Assign local indices, based on type
       for (auto &Local : LocalList) {
         assert(!LocalMapping.contains(Local) && "duplicate local");
         LocalMapping[Local] = CurrentLocal++;
       }
       llvm::encodeULEB128(LocalList.size(), CodeOS);
-      CodeOS << static_cast<uint8_t>(Ty);
+      CodeOS << static_cast<uint8_t>(fromLocalTypeIndex(I));
     }
     CodeWriter CW{CodeOS, CodeRelocation, LocalMapping};
     CW.visit(F->Body);

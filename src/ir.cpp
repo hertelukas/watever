@@ -2069,7 +2069,7 @@ void FunctionLowering::removeUnusedLocals() {
     }
   }
 
-  for (auto &[_, LocalList] : F.Locals) {
+  for (auto &LocalList : F.Locals) {
     llvm::erase_if(LocalList, [&](auto L) { return !UsedLocals.contains(L); });
   }
   F.TotalLocals = UsedLocals.size();

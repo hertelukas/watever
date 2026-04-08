@@ -508,13 +508,13 @@ void FunctionColorer::computeBlockSchedule(llvm::BasicBlock *BB) {
 uint32_t
 FunctionColorer::getFreeLocal(ValType Type,
                               const llvm::DenseSet<uint32_t> &Assigned) {
-  for (auto &L : Target->Arguments[Type]) {
+  for (auto &L : Target->Arguments[getLocalTypeIndex(Type)]) {
     if (!Assigned.contains(L)) {
       return L;
     }
   }
 
-  for (auto &L : Target->Locals[Type]) {
+  for (auto &L : Target->Locals[getLocalTypeIndex(Type)]) {
     if (!Assigned.contains(L)) {
       return L;
     }
@@ -807,7 +807,7 @@ bool FunctionColorer::avoidColor(llvm::Value *Node, uint32_t Local,
   auto Ty = fromLLVMType(Node->getType(), Source.getDataLayout());
 
   // Set all locals as possible targets
-  for (auto Local : Target->Locals.lookup(Ty)) {
+  for (auto Local : Target->Locals[getLocalTypeIndex(Ty)]) {
     FreeLocals.insert(Local);
   }
 

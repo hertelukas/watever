@@ -4,6 +4,7 @@
 #include "watever/instructions.hpp"
 #include "watever/linking.hpp"
 #include "watever/type.hpp"
+#include <array>
 #include <cstdint>
 #include <llvm/ADT/DenseMap.h>
 #include <llvm/ADT/SetVector.h>
@@ -147,8 +148,8 @@ public:
   uint32_t TotalLocals{};
   // When creating a new local, ensure that it is a new one
   uint32_t LastLocal{};
-  llvm::DenseMap<ValType, llvm::SmallVector<uint32_t>> Locals{};
-  llvm::DenseMap<ValType, llvm::SmallVector<uint32_t>> Arguments{};
+  std::array<llvm::SmallVector<uint32_t, 4>, NumLocalValTypes> Locals{};
+  std::array<llvm::SmallVector<uint32_t, 4>, NumLocalValTypes> Arguments{};
   llvm::DenseMap<llvm::Instruction *, uint32_t> StackSlots{};
 
   llvm::DenseSet<llvm::AllocaInst *> PromotedAllocas{};
@@ -164,7 +165,7 @@ public:
   uint32_t getNewLocal(ValType Ty) {
     TotalLocals++;
     auto NewLocal = LastLocal++;
-    Locals[Ty].push_back(NewLocal);
+    Locals[getLocalTypeIndex(Ty)].push_back(NewLocal);
     return NewLocal;
   }
 

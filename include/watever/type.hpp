@@ -40,6 +40,20 @@ enum class ValType : uint8_t {
   ___ = Void,
 };
 
+constexpr size_t getLocalTypeIndex(ValType T) {
+  assert(T >= ValType::Exn && T <= ValType::I32 && "invalid local type");
+  auto Val = static_cast<uint8_t>(T);
+  return static_cast<uint8_t>(ValType::I32) - Val;
+};
+
+constexpr size_t NumLocalValTypes =
+    static_cast<uint8_t>(ValType::I32) - static_cast<uint8_t>(ValType::Exn) + 1;
+
+constexpr ValType fromLocalTypeIndex(size_t I) {
+  assert(I < NumLocalValTypes && "invalid local type");
+  return static_cast<ValType>(static_cast<uint8_t>(ValType::I32) - I);
+}
+
 constexpr bool isRef(ValType T) {
   return T >= ValType::Exn && T <= ValType::NoExn;
 };

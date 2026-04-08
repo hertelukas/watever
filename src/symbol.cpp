@@ -26,7 +26,7 @@ DefinedFunc::DefinedFunc(uint32_t SymbolIdx, uint32_t TypeIdx, uint32_t FuncIdx,
   for (auto &Arg : F->args()) {
     auto ArgType = fromLLVMType(Arg.getType(), F->getDataLayout());
     auto NewLocal = LastLocal++;
-    Arguments[ArgType].push_back(NewLocal);
+    Arguments[getLocalTypeIndex(ArgType)].push_back(NewLocal);
     LocalMapping[&Arg] = NewLocal;
   }
 }
