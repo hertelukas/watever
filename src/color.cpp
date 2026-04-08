@@ -421,7 +421,7 @@ void FunctionColorer::computeBlockSchedule(llvm::BasicBlock *BB) {
             }
           }
 
-          if (Target->Roots[BB].contains(I)) {
+          if (Target->Roots[BB->getNumber()].contains(I)) {
             continue;
           }
 
@@ -434,7 +434,7 @@ void FunctionColorer::computeBlockSchedule(llvm::BasicBlock *BB) {
         }
       }
 
-      Target->Roots[BB].insert(&Inst);
+      Target->Roots[BB->getNumber()].insert(&Inst);
     }
   }
 
@@ -447,14 +447,14 @@ void FunctionColorer::computeBlockSchedule(llvm::BasicBlock *BB) {
     }
     // The potential root is no longer necessarily correct: if it was a load,
     // depending on this load, we want the load's new root
-    if (!Target->Roots[BB].contains(FirstRoot)) {
+    if (!Target->Roots[BB->getNumber()].contains(FirstRoot)) {
       FirstRoot = LoadsRoots[FirstRoot];
     }
     assert(FirstRoot);
     if (!mayWAR(Load, FirstRoot)) {
       // The load is no longer a root
       RootsChanged = true;
-      Target->Roots[BB].remove(Load);
+      Target->Roots[BB->getNumber()].remove(Load);
       // Earlier roots, depending on this load-root, can now find the actual
       // root
       LoadsRoots[Load] = FirstRoot;
@@ -466,7 +466,7 @@ void FunctionColorer::computeBlockSchedule(llvm::BasicBlock *BB) {
     DyingAt[BB->getNumber()].clear();
     for (auto &Inst : *BB) {
       // Skip non-roots
-      if (!Target->Roots[BB].contains(&Inst)) {
+      if (!Target->Roots[BB->getNumber()].contains(&Inst)) {
         continue;
       }
       VisitedInCurrentTree.clear();
@@ -484,7 +484,7 @@ void FunctionColorer::computeBlockSchedule(llvm::BasicBlock *BB) {
 
         if (auto *I = llvm::dyn_cast<llvm::Instruction>(Next)) {
           // Stop at other roots
-          if (I != &Inst && Target->Roots[BB].contains(I)) {
+          if (I != &Inst && Target->Roots[BB->getNumber()].contains(I)) {
             continue;
           }
 
@@ -550,10 +550,8 @@ bool FunctionColorer::needsColor(llvm::Instruction &I) {
   }
 
   // If a root is needed at least once, it needs a local
-  if (auto It = Target->Roots.find(I.getParent()); It != Target->Roots.end()) {
-    if (It->second.contains(&I)) {
-      return I.getNumUses() > 0;
-    }
+  if (Target->Roots[I.getParent()->getNumber()].contains(&I)) {
+    return I.getNumUses() > 0;
   }
 
   return false;

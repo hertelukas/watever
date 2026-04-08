@@ -321,12 +321,9 @@ void BlockLowering::updateDependencyTreeUserCount(llvm::Instruction *Root) {
       }
       // Stop at the AST leaf
       if (Root != Inst) {
-        if (auto It = Parent.Roots.find(Root->getParent());
-            It != Parent.Roots.end()) {
-          if (It->second.contains(Inst)) {
-            ASTNodes.erase(Inst);
-            continue;
-          }
+        if (Parent.Roots[Root->getParent()->getNumber()].contains(Inst)) {
+          ASTNodes.erase(Inst);
+          continue;
         }
       }
       for (llvm::Value *Op : Inst->operands()) {
@@ -1583,7 +1580,7 @@ void BlockLowering::visitCallInst(llvm::CallInst &CI) {
 void BlockLowering::lower() {
   WATEVER_LOG_TRACE("Lowering {}", getBlockName(BB));
 
-  const auto &Roots = Parent.Roots.lookup(BB);
+  const auto &Roots = Parent.Roots[BB->getNumber()];
 
   std::optional<uint32_t> LastSetRoot = std::nullopt;
   bool RootOnlyOneUse = false;

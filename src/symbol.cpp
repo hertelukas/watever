@@ -29,6 +29,8 @@ DefinedFunc::DefinedFunc(uint32_t SymbolIdx, uint32_t TypeIdx, uint32_t FuncIdx,
     Arguments[getLocalTypeIndex(ArgType)].push_back(NewLocal);
     LocalMapping[&Arg] = NewLocal;
   }
+
+  Roots.resize(F->getMaxBlockNumber() + 1);
 }
 
 bool DefinedFunc::hasExternalUser(llvm::Value *Val, llvm::BasicBlock *BB) {
