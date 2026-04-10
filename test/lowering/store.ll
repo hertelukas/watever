@@ -224,16 +224,16 @@ define void @store_i49(ptr %p, i49 %a) {
 ; CHECK-NEXT:    local.get 1
 ; CHECK-NEXT:    i64.const 562949953421311
 ; CHECK-NEXT:    i64.and
-; CHECK-NEXT:    local.tee 3
-; CHECK-NEXT:    i64.store32 
+; CHECK-NEXT:    local.tee [[TMP_I64:[0-9]+]]
+; CHECK-NEXT:    i64.store32
 ; CHECK-NEXT:    local.get 0
-; CHECK-NEXT:    local.tee 2
-; CHECK-NEXT:    local.get 3
+; CHECK-NEXT:    local.tee [[TMP_PTR:[0-9]+]]
+; CHECK-NEXT:    local.get [[TMP_I64]]
 ; CHECK-NEXT:    i64.const 32
 ; CHECK-NEXT:    i64.shr_u
-; CHECK-NEXT:    i64.store16 offset=4 
-; CHECK-NEXT:    local.get 2
-; CHECK-NEXT:    local.get 3
+; CHECK-NEXT:    i64.store16 offset=4
+; CHECK-NEXT:    local.get [[TMP_PTR]]
+; CHECK-NEXT:    local.get [[TMP_I64]]
 ; CHECK-NEXT:    i64.const 48
 ; CHECK-NEXT:    i64.shr_u
 ; CHECK-NEXT:    i64.store8 offset=6

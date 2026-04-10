@@ -1742,8 +1742,8 @@ void BlockLowering::lower() {
         // generated with inttoptr has only a single use
         if (llvm::User *User = llvm::dyn_cast<llvm::PtrToIntInst>(
                 Root->use_begin()->getUser())) {
-          // Only check the dependency tree 5 uses up
-          for (uint32_t I = 0; I < 10; ++I) {
+          // Only check the dependency tree 3 uses up
+          for (uint32_t I = 0; I < 3; ++I) {
             if (User->getNumUses() > 1) {
               // If there are multiple users, IntToPtr will not have a local, as
               // it is always inlined, so this root needs to be
@@ -1969,11 +1969,12 @@ void FunctionLowering::handleEdge(llvm::BasicBlock *Source,
                               LocalArg(Destinations.pop_back_val()));
   }
 
-  // Backward branch (continue) or forward branch (exit)
   if (Target == Fallthrough) {
     WATEVER_LOG_TRACE("Target {} is fallthrough for {}", getBlockName(Target),
                       getBlockName(Source));
-  } else if (DT.dominates(Target, Source) || isMergeNode(Target)) {
+  }
+  // Backward branch (continue) or forward branch (exit)
+  else if (DT.dominates(Target, Source) || isMergeNode(Target)) {
 #ifdef WATEVER_LOGGING
     if (DT.dominates(Target, Source)) {
       WATEVER_LOG_TRACE("backwards branch from {} to {}", getBlockName(Source),
@@ -2059,17 +2060,30 @@ void FunctionLowering::peephole() {
 }
 
 void FunctionLowering::removeUnusedLocals() {
-  llvm::DenseSet<uint32_t> UsedLocals;
+  llvm::SmallVector<uint32_t> Freqs;
+  Freqs.resize(F.LastLocal);
+
   for (const auto &Inst : F.Body.Insts) {
     if (const auto *Arg = std::get_if<LocalArg>(&Inst.Arg)) {
-      UsedLocals.insert(Arg->Index);
+      Freqs[Arg->Index]++;
     }
   }
 
-  for (auto &LocalList : F.Locals) {
-    llvm::erase_if(LocalList, [&](auto L) { return !UsedLocals.contains(L); });
+  for (size_t TypeIdx = 0; TypeIdx < NumLocalValTypes; ++TypeIdx) {
+    auto &LocalList = F.Locals[TypeIdx];
+
+    uint32_t GroupSum = 0;
+    for (auto Local : LocalList) {
+      GroupSum += Freqs[Local];
+    }
+    F.TypeFrequencies[TypeIdx] = GroupSum;
+
+    llvm::erase_if(LocalList, [&](auto L) { return Freqs[L] == 0; });
+
+    // Most frequent locals get the lowest indices to reduce encoding size
+    llvm::sort(LocalList,
+               [&](uint32_t A, uint32_t B) { return Freqs[A] > Freqs[B]; });
   }
-  F.TotalLocals = UsedLocals.size();
 }
 
 void FunctionLowering::lower(ValType RetTy) {

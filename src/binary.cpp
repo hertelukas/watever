@@ -11,6 +11,7 @@
 #include <llvm/Support/LEB128.h>
 #include <llvm/Support/raw_ostream.h>
 #include <memory>
+#include <numeric>
 
 namespace watever {
 
@@ -113,7 +114,16 @@ void BinaryWriter::writeCode() {
     for (uint32_t I = 0; I < F->TotalArgs; ++I) {
       LocalMapping[I] = I;
     }
-    for (size_t I = 0; I < NumLocalValTypes; ++I) {
+
+    // Create inter-type sorting (most used type should have the lowest indices)
+    std::array<size_t, NumLocalValTypes> TypeOrder{};
+    std::ranges::iota(TypeOrder, 0);
+
+    llvm::sort(TypeOrder, [&](size_t A, size_t B) {
+      return F->TypeFrequencies[A] > F->TypeFrequencies[B];
+    });
+
+    for (size_t I : TypeOrder) {
       auto &LocalList = F->Locals[I];
       if (LocalList.empty()) {
         continue;

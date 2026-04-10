@@ -143,13 +143,12 @@ public:
   Features FeatureSet;
   WasmActions Body;
   llvm::DenseMap<llvm::Value *, uint32_t> LocalMapping;
-  // All extra locals. This is needed in order to remove locals during
-  // optimization.
-  uint32_t TotalLocals{};
   // When creating a new local, ensure that it is a unique one
   uint32_t LastLocal{};
   std::array<llvm::SmallVector<uint32_t, 4>, NumLocalValTypes> Locals{};
   std::array<llvm::SmallVector<uint32_t, 4>, NumLocalValTypes> Arguments{};
+  // Maps for each type, how often it occurs
+  std::array<uint32_t, NumLocalValTypes> TypeFrequencies{};
   llvm::DenseMap<llvm::Instruction *, uint32_t> StackSlots{};
 
   llvm::DenseSet<llvm::AllocaInst *> PromotedAllocas{};
@@ -161,7 +160,6 @@ public:
                        llvm::Function *F, Features Feat);
 
   uint32_t getNewLocal(ValType Ty) {
-    TotalLocals++;
     auto NewLocal = LastLocal++;
     Locals[getLocalTypeIndex(Ty)].push_back(NewLocal);
     return NewLocal;
