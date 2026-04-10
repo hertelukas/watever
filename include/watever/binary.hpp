@@ -16,11 +16,11 @@ static constexpr uint32_t Version = 0x1;
 class CodeWriter {
   Relocation &Reloc;
   llvm::raw_ostream &OS;
-  llvm::DenseMap<uint32_t, uint32_t> &LocalMap;
+  llvm::ArrayRef<uint32_t> LocalMap;
 
 public:
   CodeWriter(llvm::raw_ostream &OS, Relocation &Reloc,
-             llvm::DenseMap<uint32_t, uint32_t> &LocalMap)
+             llvm::ArrayRef<uint32_t> LocalMap)
       : Reloc(Reloc), OS(OS), LocalMap(LocalMap) {}
   void visit(WasmActions &Actions);
 };

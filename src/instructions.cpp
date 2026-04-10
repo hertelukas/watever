@@ -1,5 +1,6 @@
 #include "watever/instructions.hpp"
 #include "watever/symbol.hpp"
+#include "watever/utils.hpp"
 #include <llvm/Support/LEB128.h>
 
 using namespace watever;
@@ -50,7 +51,7 @@ void WasmInst::dump(llvm::raw_ostream &OS,
 #endif
 
 void WasmInst::write(llvm::raw_ostream &OS, Relocation &Reloc,
-                     llvm::DenseMap<uint32_t, uint32_t> &LocalMap,
+                     llvm::ArrayRef<uint32_t> LocalMap,
                      const llvm::SmallVector<llvm::SmallVector<uint32_t>, 0>
                          &BranchTables) const {
   Opcode(Op).writeBytes(OS);
@@ -81,11 +82,10 @@ void WasmInst::write(llvm::raw_ostream &OS, Relocation &Reloc,
             llvm::encodeULEB128(A.Offset, OS);
           },
           [&](const LocalArg &A) {
-            if (auto It = LocalMap.find(A.Index); It != LocalMap.end()) {
-              llvm::encodeULEB128(It->second, OS);
-            } else {
-              WATEVER_LOG_WARN("Could not find mapping for local {}", A.Index);
+            if (A.Index >= LocalMap.size() || LocalMap[A.Index] == ~0U) {
+              WATEVER_UNREACHABLE("Could not find mapping for local {}", A.Index);
             }
+            llvm::encodeULEB128(LocalMap[A.Index], OS);
           },
           [&](const BranchTableArg &A) {
             auto &BranchTable = BranchTables[A.TableIdx];

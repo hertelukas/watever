@@ -109,7 +109,7 @@ void BinaryWriter::writeCode() {
     llvm::encodeULEB128(ActiveLocalTypes, CodeOS);
     uint32_t CurrentLocal = F->TotalArgs;
     // Locals
-    llvm::DenseMap<uint32_t, uint32_t> LocalMapping;
+    llvm::SmallVector<uint32_t> LocalMapping(F->LastLocal, ~0U);
     // Arguments are mapped onto themselves
     for (uint32_t I = 0; I < F->TotalArgs; ++I) {
       LocalMapping[I] = I;
@@ -130,7 +130,7 @@ void BinaryWriter::writeCode() {
       }
       // Assign local indices, based on type
       for (auto &Local : LocalList) {
-        assert(!LocalMapping.contains(Local) && "duplicate local");
+        assert(LocalMapping[Local] == ~0U && "duplicate local");
         LocalMapping[Local] = CurrentLocal++;
       }
       llvm::encodeULEB128(LocalList.size(), CodeOS);

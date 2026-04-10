@@ -102,7 +102,7 @@ public:
 #endif
 
   void write(llvm::raw_ostream &OS, Relocation &Reloc,
-             llvm::DenseMap<uint32_t, uint32_t> &LocalMap,
+             llvm::ArrayRef<uint32_t> LocalMap,
              const llvm::SmallVector<llvm::SmallVector<uint32_t>, 0>
                  &BranchTables) const;
 };
