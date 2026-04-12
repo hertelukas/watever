@@ -415,8 +415,9 @@ void FunctionColorer::computeBlockSchedule(llvm::BasicBlock *BB) {
         if (auto *I = llvm::dyn_cast<llvm::Instruction>(Next)) {
           // Setting the first root that uses the load as the loads' potential
           // root
-          if (I != &Inst && LoadsRoots.contains(I)) {
-            if (!LoadsRoots.lookup(I)) {
+          if (I != &Inst) {
+            auto *It = LoadsRoots.find(I);
+            if (It != LoadsRoots.end() && !It->second) {
               LoadsRoots[I] = &Inst;
             }
           }
