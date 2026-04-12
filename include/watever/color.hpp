@@ -57,6 +57,7 @@ class FunctionColorer {
 
   llvm::EquivalenceClasses<llvm::Value *> Chunks;
   llvm::SmallVector<AffinityEdge> Affinities;
+  llvm::DenseSet<llvm::Value *> MustDieSet;
 
   llvm::DenseSet<llvm::Value *> Fixed;
   llvm::DenseMap<llvm::Value *, uint32_t> OldColor;

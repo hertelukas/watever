@@ -366,8 +366,31 @@ FunctionColorer::getRootReason(llvm::Instruction &I) {
 //   in-place, but failed, as the roots influence each other. This way is easier
 //   to reason about.
 void FunctionColorer::computeBlockSchedule(llvm::BasicBlock *BB) {
+  auto &InVec = LiveIn[BB->getNumber()];
+  auto &OutVec = LiveOut[BB->getNumber()];
+
+  // If the live sets are too large, we prefer constructing the MustDie set
+  // before on not lazily, to get O(1) checks instead of O(n)
+  bool HugeBlock = InVec.size() > 256 || OutVec.size() > 256;
+  if (HugeBlock) {
+    MustDieSet.clear();
+    MustDieSet.insert(InVec.begin(), InVec.end());
+    for (auto &I : *BB) {
+      if (!I.getType()->isVoidTy()) {
+        MustDieSet.insert(&I);
+      }
+    }
+    for (auto *V : OutVec) {
+      MustDieSet.erase(V);
+    }
+  }
+
   // V must die, if LiveIn or CurrentDef but not live out
   auto MustDie = [&](llvm::Value *V) {
+    if (HugeBlock) {
+      return MustDieSet.contains(V);
+    }
+
     // void types don't have a lifetime
     if (V->getType()->isVoidTy()) {
       return false;
