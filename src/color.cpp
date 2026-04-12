@@ -380,7 +380,7 @@ void FunctionColorer::computeBlockSchedule(llvm::BasicBlock *BB) {
   llvm::SmallVector<llvm::Value *> WorkList;
   // If we have visited a value in the current tree, we have already updated
   // what must die
-  llvm::DenseSet<llvm::Value *> VisitedInCurrentTree;
+  llvm::SmallPtrSet<llvm::Value *, 32> VisitedInCurrentTree;
 
   // Maps loads to their roots, if reordering them would not introduce a hazard
   // violation
