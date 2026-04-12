@@ -6,6 +6,7 @@
 #include <llvm/ADT/DenseMap.h>
 #include <llvm/ADT/DenseSet.h>
 #include <llvm/ADT/MapVector.h>
+#include <llvm/ADT/STLExtras.h>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/Analysis/BlockFrequencyInfo.h>
 #include <llvm/Analysis/BranchProbabilityInfo.h>
@@ -365,16 +366,25 @@ FunctionColorer::getRootReason(llvm::Instruction &I) {
 //   in-place, but failed, as the roots influence each other. This way is easier
 //   to reason about.
 void FunctionColorer::computeBlockSchedule(llvm::BasicBlock *BB) {
-  // All these values' lifetime end during this BB
-  llvm::DenseSet<llvm::Value *> MustDie(LiveIn[BB->getNumber()].begin(),
-                                        LiveIn[BB->getNumber()].end());
-  for (auto &I : *BB) {
-    if (!I.getType()->isVoidTy()) {
-      MustDie.insert(&I);
+  // V must die, if LiveIn or CurrentDef but not live out
+  auto MustDie = [&](llvm::Value *V) {
+    // void types don't have a lifetime
+    if (V->getType()->isVoidTy()) {
+      return false;
     }
-  }
-  for (auto *V : LiveOut[BB->getNumber()])
-    MustDie.erase(V);
+
+    bool IsDefinedHere = false;
+    if (auto *I = llvm::dyn_cast<llvm::Instruction>(V)) {
+      IsDefinedHere = (I->getParent() == BB);
+    }
+
+    // V must either be defined in this block, or explicitly be a LiveIn
+    if (IsDefinedHere || llvm::is_contained(LiveIn[BB->getNumber()], V)) {
+      return !llvm::is_contained(LiveOut[BB->getNumber()], V);
+    }
+
+    return false;
+  };
 
   // Forward scan finding latest user
   llvm::SmallVector<llvm::Value *> WorkList;
@@ -389,7 +399,7 @@ void FunctionColorer::computeBlockSchedule(llvm::BasicBlock *BB) {
   for (auto &Inst : *BB) {
     auto ShouldBeRoot = getRootReason(Inst);
     if (ShouldBeRoot == RootReason::Load) {
-      assert(MustDie.contains(&Inst) &&
+      assert(MustDie(&Inst) &&
              "if the instruction must be a root due to a laod, it must die in "
              "this block. Otherwise, the root reason should have been "
              "ExternalUser");
@@ -404,13 +414,6 @@ void FunctionColorer::computeBlockSchedule(llvm::BasicBlock *BB) {
 
         if (!VisitedInCurrentTree.insert(Next).second)
           continue;
-
-        // If Next must die in this BB, and was used by this root, set it as
-        // dying here. If a later root uses Next as well, it will push the death
-        // back.
-        if (MustDie.contains(Next)) {
-          DyingAt[BB->getNumber()][Next] = &Inst;
-        }
 
         if (auto *I = llvm::dyn_cast<llvm::Instruction>(Next)) {
           // Setting the first root that uses the load as the loads' potential
@@ -440,7 +443,6 @@ void FunctionColorer::computeBlockSchedule(llvm::BasicBlock *BB) {
   }
 
   // Fix-up loads
-  bool RootsChanged = false;
   for (auto &[Load, FirstRoot] : llvm::reverse(LoadsRoots)) {
     if (!FirstRoot) {
       WATEVER_LOG_INFO("Load {} is not used", Load->getNameOrAsOperand());
@@ -454,7 +456,6 @@ void FunctionColorer::computeBlockSchedule(llvm::BasicBlock *BB) {
     assert(FirstRoot);
     if (!mayWAR(Load, FirstRoot)) {
       // The load is no longer a root
-      RootsChanged = true;
       Target->Roots[BB->getNumber()].remove(Load);
       // Earlier roots, depending on this load-root, can now find the actual
       // root
@@ -463,36 +464,32 @@ void FunctionColorer::computeBlockSchedule(llvm::BasicBlock *BB) {
   }
 
   // Recompute lifetimes with finalized roots
-  if (RootsChanged) {
-    DyingAt[BB->getNumber()].clear();
-    for (auto &Inst : *BB) {
-      // Skip non-roots
-      if (!Target->Roots[BB->getNumber()].contains(&Inst)) {
+  for (auto *Inst : Target->Roots[BB->getNumber()]) {
+    VisitedInCurrentTree.clear();
+    WorkList.push_back(Inst);
+    while (!WorkList.empty()) {
+      auto *Next = WorkList.pop_back_val();
+
+      if (!VisitedInCurrentTree.insert(Next).second)
         continue;
+
+      // If Next must die in this BB, and was used by this root, set it as
+      // dying here. If a later root uses Next as well, it will push the death
+      // back.
+
+      if (MustDie(Next)) {
+        DyingAt[BB->getNumber()][Next] = Inst;
       }
-      VisitedInCurrentTree.clear();
-      WorkList.push_back(&Inst);
-      while (!WorkList.empty()) {
-        auto *Next = WorkList.pop_back_val();
 
-        if (!VisitedInCurrentTree.insert(Next).second)
+      if (auto *I = llvm::dyn_cast<llvm::Instruction>(Next)) {
+        // Stop at other roots
+        if (I != Inst && Target->Roots[BB->getNumber()].contains(I)) {
           continue;
-
-        // Last root wins due to forward scan - and roots are emitted in order
-        if (MustDie.contains(Next)) {
-          DyingAt[BB->getNumber()][Next] = &Inst;
         }
 
-        if (auto *I = llvm::dyn_cast<llvm::Instruction>(Next)) {
-          // Stop at other roots
-          if (I != &Inst && Target->Roots[BB->getNumber()].contains(I)) {
-            continue;
-          }
-
-          if (I->getParent() == BB) {
-            for (llvm::Value *Op : I->operands()) {
-              WorkList.push_back(Op);
-            }
+        if (I->getParent() == BB) {
+          for (llvm::Value *Op : I->operands()) {
+            WorkList.push_back(Op);
           }
         }
       }
