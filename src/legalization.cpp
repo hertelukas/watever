@@ -669,7 +669,6 @@ void FunctionLegalizer::visitInvokeInst(llvm::InvokeInst &II) {
 }
 
 void FunctionLegalizer::visitCatchSwitchInst(llvm::CatchSwitchInst &CSI) {
-
   auto *ParentPad = getMappedValue(CSI.getParentPad())[0];
 
   llvm::BasicBlock *UnwindBB = nullptr;
@@ -688,6 +687,15 @@ void FunctionLegalizer::visitCatchSwitchInst(llvm::CatchSwitchInst &CSI) {
   }
 
   ValueMap[&CSI] = LegalValue{Switch};
+}
+
+void FunctionLegalizer::visitCatchReturnInst(llvm::CatchReturnInst &CRI) {
+  auto *Successor =
+      llvm::dyn_cast<llvm::BasicBlock>(getMappedValue(CRI.getSuccessor())[0]);
+  auto *CatchPad =
+      llvm::dyn_cast<llvm::CatchPadInst>(getMappedValue(CRI.getCatchPad())[0]);
+
+  ValueMap[&CRI] = Builder.CreateCatchRet(CatchPad, Successor);
 }
 
 //===----------------------------------------------------------------------===//
