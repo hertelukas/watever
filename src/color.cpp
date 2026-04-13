@@ -546,7 +546,7 @@ FunctionColorer::getFreeLocal(ValType Type,
 }
 
 bool FunctionColorer::needsColor(llvm::Instruction &I) {
-  if (I.getType()->isVoidTy()) {
+  if (I.getType()->isVoidTy() || I.getType()->isTokenTy()) {
     return false;
   }
 
