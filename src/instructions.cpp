@@ -1,4 +1,5 @@
 #include "watever/instructions.hpp"
+#include "watever/linking.hpp"
 #include "watever/symbol.hpp"
 #include "watever/utils.hpp"
 #include <llvm/Support/LEB128.h>
@@ -6,9 +7,10 @@
 using namespace watever;
 #ifdef WATEVER_LOGGING
 
-void WasmInst::dump(llvm::raw_ostream &OS,
-                    const llvm::SmallVector<llvm::SmallVector<uint32_t>, 0>
-                        &BranchTables) const {
+void WasmInst::dump(
+    llvm::raw_ostream &OS,
+    const llvm::SmallVector<llvm::SmallVector<uint32_t>, 0> &BranchTables,
+    const llvm::SmallVector<llvm::SmallVector<Catch>> &CatchTables) const {
   OS << Opcode(Op).getName();
 
   std::visit(
@@ -45,15 +47,41 @@ void WasmInst::dump(llvm::raw_ostream &OS,
             OS << " " << A.FromMemory << " " << A.ToMemory;
           },
           [&](const BlockTypeArg &A) { OS << " " << toString(A.Type); },
+          [&](const FuncBlockTypeArg &A) { OS << " " << A.Index; },
+          [&](const TryTableArg &A) {
+            auto &CatchTable = CatchTables[A.TableIdx];
+            for (auto &Catch : CatchTable) {
+              switch (Catch.CT) {
+              case CatchType::Catch: {
+                OS << " catch " << Catch.T->TagName << " "
+                   << Catch.BranchIndex;
+                break;
+              }
+              case CatchType::CatchRef: {
+                OS << " catch_ref " << Catch.T->TagName << " "
+                   << Catch.BranchIndex;
+                break;
+              }
+              case CatchType::CatchAll: {
+                OS << " catch_all " << Catch.BranchIndex;
+                break;
+              }
+              case CatchType::CatchAllRef: {
+                OS << " catch_all_ref " << Catch.BranchIndex;
+                break;
+              }
+              }
+            }
+          },
       },
       Arg);
 }
 #endif
 
-void WasmInst::write(llvm::raw_ostream &OS, Relocation &Reloc,
-                     llvm::ArrayRef<uint32_t> LocalMap,
-                     const llvm::SmallVector<llvm::SmallVector<uint32_t>, 0>
-                         &BranchTables) const {
+void WasmInst::write(
+    llvm::raw_ostream &OS, Relocation &Reloc, llvm::ArrayRef<uint32_t> LocalMap,
+    const llvm::SmallVector<llvm::SmallVector<uint32_t>, 0> &BranchTables,
+    const llvm::SmallVector<llvm::SmallVector<Catch>> &CatchTables) const {
   Opcode(Op).writeBytes(OS);
 
   std::visit(
@@ -83,7 +111,8 @@ void WasmInst::write(llvm::raw_ostream &OS, Relocation &Reloc,
           },
           [&](const LocalArg &A) {
             if (A.Index >= LocalMap.size() || LocalMap[A.Index] == ~0U) {
-              WATEVER_UNREACHABLE("Could not find mapping for local {}", A.Index);
+              WATEVER_UNREACHABLE("Could not find mapping for local {}",
+                                  A.Index);
             }
             llvm::encodeULEB128(LocalMap[A.Index], OS);
           },
@@ -129,6 +158,28 @@ void WasmInst::write(llvm::raw_ostream &OS, Relocation &Reloc,
             llvm::encodeULEB128(A.ToMemory, OS);
           },
           [&](const BlockTypeArg &A) { OS << static_cast<uint8_t>(A.Type); },
+          [&](const FuncBlockTypeArg &A) { llvm::encodeSLEB128(A.Index, OS); },
+          [&](const TryTableArg &A) {
+            auto &CatchTable = CatchTables[A.TableIdx];
+
+            // BlockType of the try_table
+            OS << static_cast<uint8_t>(A.Type);
+
+            // list(catch)
+            llvm::encodeULEB128(CatchTable.size(), OS);
+            for (auto &Catch : CatchTable) {
+              OS << static_cast<uint8_t>(Catch.CT);
+              // tagidx
+              if (Catch.CT == CatchType::Catch ||
+                  Catch.CT == CatchType::CatchRef) {
+                Reloc.Entries.emplace_back(RelocationType::R_WASM_TAG_INDEX_LEB,
+                                           OS.tell(), Catch.T->SymbolIndex);
+                llvm::encodeULEB128(0, OS, 5);
+              }
+              // labelidx
+              llvm::encodeULEB128(Catch.BranchIndex, OS);
+            }
+          },
       },
       Arg);
 }

@@ -17,7 +17,7 @@ namespace watever {
 
 void CodeWriter::visit(WasmActions &Actions) {
   for (auto &Inst : Actions.Insts) {
-    Inst.write(OS, Reloc, LocalMap, Actions.BranchTables);
+    Inst.write(OS, Reloc, LocalMap, Actions.BranchTables, Actions.CatchTables);
   }
 }
 

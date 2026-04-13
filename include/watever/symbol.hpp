@@ -15,6 +15,7 @@
 #include <llvm/IR/GlobalValue.h>
 #include <llvm/IR/Instruction.h>
 #include <llvm/IR/Instructions.h>
+#include <utility>
 
 namespace watever {
 struct Symbol {
@@ -28,6 +29,7 @@ struct Symbol {
     DefinedData,
     UndefinedTable,
     DefinedTable,
+    UndefinedTag,
   };
 
   const Kind ClassKind;
@@ -284,6 +286,30 @@ struct UndefinedTable final : public Table {
         ItemName(std::move(IN)) {}
   static bool classof(const Symbol *S) {
     return S->getClassKind() == Kind::UndefinedTable;
+  }
+};
+
+struct Tag : public Symbol {
+  uint32_t TypeIndex;
+  std::string TagName;
+
+  explicit Tag(Kind K, uint32_t SymbolIdx, uint32_t TypeIdx, std::string TN)
+      : Symbol(K, SymbolIdx), TypeIndex(TypeIdx), TagName(std::move(TN)) {}
+  [[nodiscard]] SymbolKind getKind() const override {
+    return SymbolKind::SYMTAB_EVENT;
+  }
+  static bool classof(const Symbol *S) {
+    return S->getClassKind() == Kind::UndefinedTag;
+  }
+};
+
+struct UndefinedTag final : public Tag {
+
+  explicit UndefinedTag(uint32_t SymbolIdx, uint32_t TypeIdx, std::string TN)
+      : Tag(Kind::UndefinedTag, SymbolIdx, TypeIdx, std::move(TN)) {}
+
+  static bool classoff(const Symbol *S) {
+    return S->getClassKind() == Kind::UndefinedTag;
   }
 };
 } // namespace watever

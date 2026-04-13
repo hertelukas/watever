@@ -16,6 +16,7 @@ struct ImportedGlobal;
 struct Function;
 struct Data;
 struct Table;
+struct Tag;
 
 struct MemArg {
   uint64_t Offset;
@@ -28,7 +29,7 @@ struct LocalArg {
 }; // 4 byte
 
 struct BranchTableArg {
-  uint64_t TableIdx; // Index into central branchTableTargets
+  uint64_t TableIdx; // Index into central BranchTables
   uint32_t DefaultTarget;
 }; // 12 byte
 
@@ -62,13 +63,35 @@ struct BlockTypeArg {
   ValType Type;
 }; // 1 byte
 
+struct FuncBlockTypeArg {
+  uint32_t Index; // Index into Module.Types
+}; // 4 byte
+
+struct TryTableArg {
+  uint64_t TableIdx; // Index into central CatchTables
+  ValType Type;
+}; // 9 byte
+
+enum class CatchType : uint8_t {
+  Catch = 0x00,
+  CatchRef = 0x01,
+  CatchAll = 0x02,
+  CatchAllRef = 0x03,
+};
+
+struct Catch {
+  Tag *T;
+  uint32_t BranchIndex;
+  CatchType CT;
+};
+
 class WasmInst {
   using Storage =
       std::variant<std::monostate, int64_t, uint64_t, float, double, MemArg,
                    LocalArg, BranchTableArg, RelocatableFuncArg,
                    RelocatableGlobalArg, RelocatablePointerArg,
                    RelocatableIndirectCallArg, RelocatableTableIndexArg,
-                   MemCpyArg, BlockTypeArg>;
+                   MemCpyArg, BlockTypeArg, FuncBlockTypeArg, TryTableArg>;
 
 public:
   Storage Arg;
@@ -96,21 +119,25 @@ public:
   }
 
 #ifdef WATEVER_LOGGING
-  void dump(llvm::raw_ostream &OS,
-            const llvm::SmallVector<llvm::SmallVector<uint32_t>, 0>
-                &BranchTables) const;
+  void
+  dump(llvm::raw_ostream &OS,
+       const llvm::SmallVector<llvm::SmallVector<uint32_t>, 0> &BranchTables,
+       const llvm::SmallVector<llvm::SmallVector<Catch>> &CatchTables) const;
+
 #endif
 
-  void write(llvm::raw_ostream &OS, Relocation &Reloc,
-             llvm::ArrayRef<uint32_t> LocalMap,
-             const llvm::SmallVector<llvm::SmallVector<uint32_t>, 0>
-                 &BranchTables) const;
+  void
+  write(llvm::raw_ostream &OS, Relocation &Reloc,
+        llvm::ArrayRef<uint32_t> LocalMap,
+        const llvm::SmallVector<llvm::SmallVector<uint32_t>, 0> &BranchTables,
+        const llvm::SmallVector<llvm::SmallVector<Catch>> &CatchTables) const;
 };
 
 class WasmActions {
 public:
   llvm::SmallVector<WasmInst, 8> Insts;
   llvm::SmallVector<llvm::SmallVector<uint32_t>, 0> BranchTables;
+  llvm::SmallVector<llvm::SmallVector<Catch>> CatchTables;
 
   void appendBranchTable(llvm::SmallVector<uint32_t> Targets,
                          uint32_t Default) {

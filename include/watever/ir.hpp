@@ -188,6 +188,9 @@ class BlockLowering : public llvm::InstVisitor<BlockLowering> {
     WorkList.push_back(SI.getCondition());
   }
 
+  void visitInvokeInst(llvm::InvokeInst &) {};
+  void visitCatchSwitchInst(llvm::CatchSwitchInst &) {};
+  void visitCatchReturnInst(llvm::CatchReturnInst &) {};
   void visitUnreachableInst(llvm::UnreachableInst &) {}
 
   // Unary Operations
