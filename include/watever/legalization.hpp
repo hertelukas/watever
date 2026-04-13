@@ -222,6 +222,14 @@ class FunctionLegalizer : public llvm::InstVisitor<FunctionLegalizer> {
     return Builder.CreateCall(Callee, Args);
   }
 
+  struct LegalizedCallSite {
+    llvm::FunctionType *NewFuncType;
+    llvm::Value *NewCallee;
+    llvm::SmallVector<llvm::Value *, 8> NewArgs;
+  };
+
+  LegalizedCallSite legalizeCallSite(llvm::CallBase &CB);
+
 public:
   llvm::Function *NewFunc;
   FunctionLegalizer(
@@ -251,6 +259,7 @@ public:
   void generateClusters(llvm::SwitchInst &SI, PartitionList &PL);
   void visitSwitchInst(llvm::SwitchInst &SI);
 
+  void visitInvokeInst(llvm::InvokeInst &II);
   void visitUnreachableInst(llvm::UnreachableInst &UI) {
     ValueMap[&UI] = Builder.CreateUnreachable();
   }

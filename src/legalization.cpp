@@ -295,6 +295,108 @@ void FunctionLegalizer::visitBasicBlock(llvm::BasicBlock &BB) {
   WATEVER_UNREACHABLE("Corresponding BB not found in new function");
 }
 
+FunctionLegalizer::LegalizedCallSite
+FunctionLegalizer::legalizeCallSite(llvm::CallBase &CB) {
+  auto *OldCalledFunc = CB.getCalledFunction();
+
+  // Resolve callee
+  llvm::Value *NewCallee = nullptr;
+  // TODO For variadic functions, the call site might have a different type
+  // then our call instructions
+  if (!OldCalledFunc) {
+    // Indirect call
+    auto CalledOp = getMappedValue(CB.getCalledOperand());
+    if (!CalledOp.isScalar()) {
+      WATEVER_UNREACHABLE("indirectly called function is not scalar");
+    }
+    NewCallee = CalledOp[0];
+  } else {
+    // Direct call
+    // Fallback to old function, in case of calling a declaration
+    NewCallee = OldCalledFunc;
+    if (auto It = FuncMap.find(OldCalledFunc); It != FuncMap.end()) {
+      NewCallee = It->second;
+    }
+  }
+
+  auto *NewFuncTy =
+      LegalizationPass::getLegalFunctionType(CB.getFunctionType());
+
+  llvm::SmallVector<llvm::Value *> NewArgs;
+  // Handle indirect return value
+  if (!LegalizationPass::getLegalType(CB.getType()).isScalar()) {
+    // TODO maybe allocate in entry block, so we can use a static allocation
+    NewArgs.push_back(Builder.CreateAlloca(CB.getType()));
+  }
+
+  // Fixed arguments
+  uint32_t NumFixed = CB.getFunctionType()->getNumParams();
+  uint32_t ArgIdx = 0;
+  for (; ArgIdx < NumFixed; ++ArgIdx) {
+    LegalValue LegalArgs = getMappedValue(CB.getArgOperand(ArgIdx));
+    for (auto *Val : LegalArgs) {
+      NewArgs.push_back(Val);
+    }
+  }
+
+  // Variadic arguments
+  if (CB.getFunctionType()->isVarArg()) {
+    llvm::SmallVector<llvm::Value *> VarArgValues;
+    llvm::SmallVector<llvm::Type *> VarArgTypes;
+
+    for (; ArgIdx < CB.arg_size(); ++ArgIdx) {
+      LegalValue LegalArgs = getMappedValue(CB.getArgOperand(ArgIdx));
+      for (auto *Val : LegalArgs) {
+        VarArgValues.push_back(Val);
+        VarArgTypes.push_back(Val->getType());
+      }
+    }
+
+    if (VarArgValues.empty()) {
+      WATEVER_LOG_TRACE("vararg target {} with 0 variadic arguments",
+                        CB.getFunction()->getName());
+      NewArgs.push_back(llvm::Constant::getNullValue(PtrTy));
+    } else {
+      WATEVER_LOG_TRACE("vararg target {} with {} variadic arguments",
+                        CB.getFunction()->getName(), VarArgTypes.size());
+      llvm::StructType *VarArgsStructTy =
+          llvm::StructType::get(Builder.getContext(), VarArgTypes);
+
+      // Create static allocation in entry block
+      llvm::Function *ParentFunc = Builder.GetInsertBlock()->getParent();
+      llvm::IRBuilder<> EntryBuilder(&ParentFunc->getEntryBlock(),
+                                     ParentFunc->getEntryBlock().begin());
+      auto *VarArgsAlloca = EntryBuilder.CreateAlloca(VarArgsStructTy);
+
+      // Store values
+      auto &DL = CB.getModule()->getDataLayout();
+      const llvm::StructLayout *Layout = DL.getStructLayout(VarArgsStructTy);
+      llvm::Value *BaseInt = Builder.CreatePtrToInt(VarArgsAlloca, IntPtrTy);
+
+      for (size_t I = 0; I < VarArgValues.size(); ++I) {
+        uint64_t Offset = Layout->getElementOffset(I);
+        auto *AddrInt = BaseInt;
+        if (Offset != 0) {
+          AddrInt = Builder.CreateAdd(BaseInt,
+                                      llvm::ConstantInt::get(IntPtrTy, Offset));
+        }
+        llvm::Value *FieldPtr = Builder.CreateIntToPtr(AddrInt, PtrTy);
+        Builder.CreateAlignedStore(VarArgValues[I], FieldPtr,
+                                   DL.getABITypeAlign(VarArgTypes[I]));
+      }
+
+      NewArgs.push_back(VarArgsAlloca);
+    }
+  }
+
+  assert(NewFuncTy->getNumParams() == NewArgs.size() &&
+         "Argument count mismatch!");
+
+  return {.NewFuncType = NewFuncTy,
+          .NewCallee = NewCallee,
+          .NewArgs = std::move(NewArgs)};
+}
+
 //===----------------------------------------------------------------------===//
 // Terminator Instructions
 //===----------------------------------------------------------------------===//
@@ -493,7 +595,7 @@ void FunctionLegalizer::visitSwitchInst(llvm::SwitchInst &SI) {
               SwitchCond, llvm::ConstantInt::get(SwitchCond->getType(), Range));
           auto *SwitchBB = llvm::BasicBlock::Create(NewFunc->getContext(),
                                                     "sw.cluster", NewFunc);
-	  NewToOldBB[SwitchBB] = SI.getParent();
+          NewToOldBB[SwitchBB] = SI.getParent();
           Builder.CreateCondBr(InBounds, SwitchBB, DefaultDest);
           Builder.SetInsertPoint(SwitchBB);
         }
@@ -536,6 +638,32 @@ void FunctionLegalizer::visitSwitchInst(llvm::SwitchInst &SI) {
 
   EmitTree(EmitTree, 0, PL.size() - 1, INT64_MIN, INT64_MAX);
 }
+
+void FunctionLegalizer::visitInvokeInst(llvm::InvokeInst &II) {
+  if (II.isInlineAsm()) {
+    WATEVER_UNIMPLEMENTED("inline assembly in invoke");
+  }
+
+  auto [NewFuncTy, NewCallee, NewArgs] = legalizeCallSite(II);
+
+  auto *NormalDest =
+      llvm::dyn_cast<llvm::BasicBlock>(getMappedValue(II.getNormalDest())[0]);
+  auto *UnwindDest =
+      llvm::dyn_cast<llvm::BasicBlock>(getMappedValue(II.getUnwindDest())[0]);
+
+  auto *NewInvoke = Builder.CreateInvoke(NewFuncTy, NewCallee, NormalDest,
+                                         UnwindDest, NewArgs, II.getName());
+  NewInvoke->setCallingConv(II.getCallingConv());
+
+  if (II.getAttributes().hasFnAttrs()) {
+    NewInvoke->setAttributes(llvm::AttributeList::get(
+        NewInvoke->getContext(), llvm::AttributeList::FunctionIndex,
+        II.getAttributes().getFnAttrs()));
+  }
+
+  ValueMap[&II] = LegalValue{NewInvoke};
+}
+
 //===----------------------------------------------------------------------===//
 // Unary Operations
 //===----------------------------------------------------------------------===//
@@ -1597,100 +1725,7 @@ void FunctionLegalizer::visitCallInst(llvm::CallInst &CI) {
     WATEVER_UNIMPLEMENTED("non-empty inline assembly");
   }
 
-  auto *OldCalledFunc = CI.getCalledFunction();
-
-  // Resolve callee
-  llvm::Value *NewCallee = nullptr;
-  // TODO For variadic functions, the call site might have a different type
-  // then our call instructions
-  if (!OldCalledFunc) {
-    // Indirect call
-    auto CalledOp = getMappedValue(CI.getCalledOperand());
-    if (!CalledOp.isScalar()) {
-      WATEVER_UNREACHABLE("indirectly called function is not scalar");
-    }
-    NewCallee = CalledOp[0];
-  } else {
-    // Direct call
-    // Fallback to old function, in case of calling a declaration
-    NewCallee = OldCalledFunc;
-    if (auto It = FuncMap.find(OldCalledFunc); It != FuncMap.end()) {
-      NewCallee = It->second;
-    }
-  }
-
-  auto *NewFuncTy =
-      LegalizationPass::getLegalFunctionType(CI.getFunctionType());
-
-  llvm::SmallVector<llvm::Value *> NewArgs;
-  // Handle indirect return value
-  if (!LegalizationPass::getLegalType(CI.getType()).isScalar()) {
-    // TODO maybe allocate in entry block, so we can use a static allocation
-    NewArgs.push_back(Builder.CreateAlloca(CI.getType()));
-  }
-
-  // Fixed arguments
-  uint32_t NumFixed = CI.getFunctionType()->getNumParams();
-  uint32_t ArgIdx = 0;
-  for (; ArgIdx < NumFixed; ++ArgIdx) {
-    LegalValue LegalArgs = getMappedValue(CI.getArgOperand(ArgIdx));
-    for (auto *Val : LegalArgs) {
-      NewArgs.push_back(Val);
-    }
-  }
-
-  // Variadic arguments
-  if (CI.getFunctionType()->isVarArg()) {
-    llvm::SmallVector<llvm::Value *> VarArgValues;
-    llvm::SmallVector<llvm::Type *> VarArgTypes;
-
-    for (; ArgIdx < CI.arg_size(); ++ArgIdx) {
-      LegalValue LegalArgs = getMappedValue(CI.getArgOperand(ArgIdx));
-      for (auto *Val : LegalArgs) {
-        VarArgValues.push_back(Val);
-        VarArgTypes.push_back(Val->getType());
-      }
-    }
-
-    if (VarArgValues.empty()) {
-      WATEVER_LOG_TRACE("vararg target {} with 0 variadic arguments",
-                        CI.getFunction()->getName());
-      NewArgs.push_back(llvm::Constant::getNullValue(PtrTy));
-    } else {
-      WATEVER_LOG_TRACE("vararg target {} with {} variadic arguments",
-                        CI.getFunction()->getName(), VarArgTypes.size());
-      llvm::StructType *VarArgsStructTy =
-          llvm::StructType::get(Builder.getContext(), VarArgTypes);
-
-      // Create static allocation in entry block
-      llvm::Function *ParentFunc = Builder.GetInsertBlock()->getParent();
-      llvm::IRBuilder<> EntryBuilder(&ParentFunc->getEntryBlock(),
-                                     ParentFunc->getEntryBlock().begin());
-      auto *VarArgsAlloca = EntryBuilder.CreateAlloca(VarArgsStructTy);
-
-      // Store values
-      auto &DL = CI.getModule()->getDataLayout();
-      const llvm::StructLayout *Layout = DL.getStructLayout(VarArgsStructTy);
-      llvm::Value *BaseInt = Builder.CreatePtrToInt(VarArgsAlloca, IntPtrTy);
-
-      for (size_t I = 0; I < VarArgValues.size(); ++I) {
-        uint64_t Offset = Layout->getElementOffset(I);
-        auto *AddrInt = BaseInt;
-        if (Offset != 0) {
-          AddrInt = Builder.CreateAdd(BaseInt,
-                                      llvm::ConstantInt::get(IntPtrTy, Offset));
-        }
-        llvm::Value *FieldPtr = Builder.CreateIntToPtr(AddrInt, PtrTy);
-        Builder.CreateAlignedStore(VarArgValues[I], FieldPtr,
-                                   DL.getABITypeAlign(VarArgTypes[I]));
-      }
-
-      NewArgs.push_back(VarArgsAlloca);
-    }
-  }
-
-  assert(NewFuncTy->getNumParams() == NewArgs.size() &&
-         "Argument count mismatch!");
+  auto [NewFuncTy, NewCallee, NewArgs] = legalizeCallSite(CI);
 
   auto *NewCall =
       Builder.CreateCall(NewFuncTy, NewCallee, NewArgs, CI.getName());
