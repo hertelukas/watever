@@ -317,7 +317,7 @@ public:
   void visitSelectInst(llvm::SelectInst &SI);
   void visitFreezeInst(llvm::FreezeInst &FI);
   void visitCallInst(llvm::CallInst &CI);
-
+  void visitCatchPadInst(llvm::CatchPadInst &CPI);
   // Intrinsics
   void visitIntrinsicInst(llvm::IntrinsicInst &II);
 

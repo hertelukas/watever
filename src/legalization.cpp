@@ -195,6 +195,10 @@ LegalValue FunctionLegalizer::legalizeConstant(llvm::Constant *C) {
     return LegalValue{Res};
   }
 
+  if (llvm::isa<llvm::ConstantTokenNone>(C)) {
+    return LegalValue{C};
+  }
+
   WATEVER_UNIMPLEMENTED("unsupported constant type {}", llvmToString(*C));
 }
 
@@ -1760,6 +1764,23 @@ void FunctionLegalizer::visitCallInst(llvm::CallInst &CI) {
   }
 
   ValueMap[&CI] = LegalValue{NewCall};
+}
+
+void FunctionLegalizer::visitCatchPadInst(llvm::CatchPadInst &CPI) {
+  auto *LegalCatchSwitch = getMappedValue(CPI.getCatchSwitch())[0];
+
+  llvm::SmallVector<llvm::Value *> Args;
+
+  for (auto &Arg : CPI.arg_operands()) {
+    auto LegalArg = getMappedValue(Arg.get());
+    assert(LegalArg.isScalar() && "catch pad arguments must be scalar");
+    Args.push_back(LegalArg[0]);
+  }
+
+  auto *CatchPad =
+      Builder.CreateCatchPad(LegalCatchSwitch, Args, CPI.getName());
+
+  ValueMap[&CPI] = LegalValue{CatchPad};
 }
 
 //===----------------------------------------------------------------------===//
