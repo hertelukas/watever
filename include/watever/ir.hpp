@@ -41,6 +41,7 @@ class Module {
   friend class ModuleLowering;
   uint32_t TotalGlobals{};
   uint32_t TotalTables{};
+  uint32_t TotalTags{};
   // Helper to append raw bytes of a primitive type
   template <typename T>
   void appendBytes(std::vector<uint8_t> &Buffer, T Value) {
@@ -78,6 +79,7 @@ public:
   std::vector<Function *> IndirectFunctionElements{nullptr};
   llvm::DenseMap<Function *, uint32_t> IndirectFunctionElementLookup;
   UndefinedTable *IndirectFunctionTable{};
+  UndefinedTag *CppExceptionTag{};
 
   uint32_t getOrAddType(const FuncType &Signature) {
     if (auto It = TypeLookup.find(Signature); It != TypeLookup.end()) {
@@ -124,6 +126,20 @@ public:
       Symbols.push_back(std::move(NewIndirectFunctionTable));
     }
     return IndirectFunctionTable;
+  }
+
+  UndefinedTag *getCppExceptionTag() {
+    if (!CppExceptionTag) {
+      auto CppExceptionType = FuncType{.Params = {ValType::I32}, .Results = {}};
+      auto CppExceptionTypeIndex = getOrAddType(CppExceptionType);
+      auto NewExceptionTag = std::make_unique<UndefinedTag>(
+          Symbols.size(), TotalTags++, CppExceptionTypeIndex,
+          "__cpp_exception");
+      NewExceptionTag->setFlag(SymbolFlag::WASM_SYM_UNDEFINED);
+      CppExceptionTag = NewExceptionTag.get();
+      Symbols.push_back(std::move(NewExceptionTag));
+    }
+    return CppExceptionTag;
   }
 };
 

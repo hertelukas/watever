@@ -290,11 +290,11 @@ struct UndefinedTable final : public Table {
 };
 
 struct Tag : public Symbol {
+  uint32_t TagIndex;
   uint32_t TypeIndex;
-  std::string TagName;
 
-  explicit Tag(Kind K, uint32_t SymbolIdx, uint32_t TypeIdx, std::string TN)
-      : Symbol(K, SymbolIdx), TypeIndex(TypeIdx), TagName(std::move(TN)) {}
+  explicit Tag(Kind K, uint32_t SymbolIdx, uint32_t TagIdx, uint32_t TypeIdx)
+      : Symbol(K, SymbolIdx), TagIndex(TagIdx), TypeIndex(TypeIdx) {}
   [[nodiscard]] SymbolKind getKind() const override {
     return SymbolKind::SYMTAB_EVENT;
   }
@@ -304,9 +304,12 @@ struct Tag : public Symbol {
 };
 
 struct UndefinedTag final : public Tag {
+  std::string TagName;
 
-  explicit UndefinedTag(uint32_t SymbolIdx, uint32_t TypeIdx, std::string TN)
-      : Tag(Kind::UndefinedTag, SymbolIdx, TypeIdx, std::move(TN)) {}
+  explicit UndefinedTag(uint32_t SymbolIdx, uint32_t TagIdx, uint32_t TypeIdx,
+                        std::string TN)
+      : Tag(Kind::UndefinedTag, SymbolIdx, TagIdx, TypeIdx),
+        TagName(std::move(TN)) {}
 
   static bool classoff(const Symbol *S) {
     return S->getClassKind() == Kind::UndefinedTag;

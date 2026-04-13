@@ -113,6 +113,20 @@ public:
   }
 };
 
+class TagType final : public ExternType {
+  uint32_t TypeIdx;
+
+public:
+  explicit TagType(uint32_t TypeIdx) : TypeIdx(TypeIdx) {}
+  void writePayload(llvm::raw_ostream &OS) const override {
+    OS << static_cast<uint8_t>(0);
+    llvm::encodeULEB128(TypeIdx, OS);
+  }
+  [[nodiscard]] ExternalType getExternalType() const override {
+    return ExternalType::TagType;
+  }
+};
+
 struct Import {
   std::string ModuleName;
   std::string ItemName;

@@ -1849,8 +1849,8 @@ void FunctionLowering::processTree(llvm::BasicBlock *Root, ValType FTy,
 
   auto *Term = Root->getTerminator();
 
+  auto RootTy = MergeChildren.empty() ? TreeTy : ValType::Void;
   if (auto *Br = llvm::dyn_cast<llvm::BranchInst>(Term)) {
-    auto RootTy = MergeChildren.empty() ? TreeTy : ValType::Void;
     if (Br->isConditional()) {
       WATEVER_LOG_TRACE("{} branches to {} and {}", getBlockName(Root),
                         getBlockName(Br->getSuccessor(0)),
@@ -1924,6 +1924,11 @@ void FunctionLowering::processTree(llvm::BasicBlock *Root, ValType FTy,
       Targets.push_back(BlockIdx);
     }
     F.Body.appendBranchTable(std::move(Targets), DefaultIdx);
+  } else if (auto *II = llvm::dyn_cast<llvm::InvokeInst>(Term)) {
+    // TODO correct branch target
+    F.Body.appendCppCatchTable(M.getCppExceptionTag(), 0);
+    WorkStack.push_back(
+        HandleEdge(Root, II->getNormalDest(), RootTy, NextFallthrough));
   } else {
     WATEVER_UNREACHABLE("unsupported terminator: {}", Term->getOpcodeName());
   }

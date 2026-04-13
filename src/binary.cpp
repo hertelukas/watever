@@ -276,6 +276,12 @@ void BinaryWriter::write() {
                                     Limit{uint32_t{1}}));
   }
 
+  if (Mod.CppExceptionTag) {
+    Imports.emplace_back(
+        "env", Mod.CppExceptionTag->TagName,
+        std::make_unique<TagType>(Mod.CppExceptionTag->TypeIndex));
+  }
+
   writeImports(Imports);
   writeFunctions();
   writeElements();
@@ -289,7 +295,7 @@ void BinaryWriter::write() {
   for (const auto &Symbol : Mod.Symbols) {
 
     if (llvm::isa<Function>(Symbol) || llvm::isa<Global>(Symbol) ||
-        llvm::isa<Table>(Symbol)) {
+        llvm::isa<Table>(Symbol) || llvm::isa<Tag>(Symbol)) {
       std::string Name{};
       uint32_t Index{};
       bool Import{};
@@ -315,6 +321,9 @@ void BinaryWriter::write() {
       } else if (const auto *UT =
                      llvm::dyn_cast<UndefinedTable>(Symbol.get())) {
         Index = UT->TableIndex;
+        Import = true;
+      } else if (const auto *UT = llvm::dyn_cast<UndefinedTag>(Symbol.get())) {
+        Index = UT->TagIndex;
         Import = true;
       }
 

@@ -147,6 +147,19 @@ public:
         Opcode::BrTable,
         BranchTableArg{.TableIdx = TableIdx, .DefaultTarget = Default});
   }
+
+  void appendCppCatchTable(Tag *T, uint32_t BranchIndex) {
+    appendCatchTable(
+        {Catch{.T = T, .BranchIndex = BranchIndex, .CT = CatchType::CatchRef}},
+        ValType::Void);
+  }
+
+  void appendCatchTable(llvm::SmallVector<Catch> CatchTable, ValType Ty) {
+    auto TableIdx = CatchTables.size();
+    CatchTables.push_back(std::move(CatchTable));
+    Insts.emplace_back(Opcode::TryTable,
+                       TryTableArg{.TableIdx = TableIdx, .Type = Ty});
+  }
 };
 
 } // namespace watever

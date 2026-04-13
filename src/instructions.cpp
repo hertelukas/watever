@@ -53,12 +53,12 @@ void WasmInst::dump(
             for (auto &Catch : CatchTable) {
               switch (Catch.CT) {
               case CatchType::Catch: {
-                OS << " catch " << Catch.T->TagName << " "
+                OS << " catch " << Catch.T->TagIndex << " "
                    << Catch.BranchIndex;
                 break;
               }
               case CatchType::CatchRef: {
-                OS << " catch_ref " << Catch.T->TagName << " "
+                OS << " catch_ref " << Catch.T->TagIndex << " "
                    << Catch.BranchIndex;
                 break;
               }
