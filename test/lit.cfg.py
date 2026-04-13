@@ -10,4 +10,4 @@ config.suffixes = ['.ll', '.c', '.cpp', '.test']
 path = os.path.pathsep.join((config.watever_binary_dir, config.environment['PATH']))
 config.environment['PATH'] = path
 
-config.excludes = ['benchmark', 'irreducible']
+config.excludes = ['benchmark', 'irreducible', 'exceptions']

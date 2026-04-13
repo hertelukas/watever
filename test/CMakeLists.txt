@@ -26,6 +26,11 @@ add_custom_target(check-irreducible
     DEPENDS ${PROJECT_NAME}
 )
 
+add_custom_target(check-exceptions
+    COMMAND ${LLVM_EXTERNAL_LIT} -sv ${CMAKE_CURRENT_BINARY_DIR}/exceptions
+    DEPENDS ${PROJECT_NAME}
+)
+
 add_custom_target(check-all
-    DEPENDS check-${PROJECT_NAME} check-benchmark check-irreducible
+    DEPENDS check-${PROJECT_NAME} check-benchmark check-irreducible check-exceptions
 )
