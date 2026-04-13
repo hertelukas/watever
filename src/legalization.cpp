@@ -2742,6 +2742,28 @@ llvm::PreservedAnalyses LegalizationPass::run(llvm::Module &Mod,
       continue;
     WATEVER_LOG_DBG("Legalizing {}", F->getName().str());
     auto *NewFunc = FuncMap[F];
+
+    if (F->hasPersonalityFn()) {
+      llvm::Constant *OldPers = F->getPersonalityFn();
+      llvm::Constant *NewPers = OldPers;
+
+      if (auto *OldFn =
+              llvm::dyn_cast<llvm::Function>(OldPers->stripPointerCasts())) {
+        if (auto It = FuncMap.find(OldFn); It != FuncMap.end()) {
+          llvm::Function *NewFn = It->second;
+
+          if (OldPers != OldFn) {
+	    // Rewrap in bitcast
+            NewPers = llvm::ConstantExpr::getBitCast(NewFn, OldPers->getType());
+          } else {
+            NewPers = NewFn;
+          }
+        }
+      }
+
+      NewFunc->setPersonalityFn(NewPers);
+    }
+
     FunctionLegalizer FL{F, NewFunc, Builder, Config, FuncMap};
     llvm::ReversePostOrderTraversal<llvm::Function *> RPOT(F);
     for (auto *BB : RPOT) {
