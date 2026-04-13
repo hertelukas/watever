@@ -664,6 +664,28 @@ void FunctionLegalizer::visitInvokeInst(llvm::InvokeInst &II) {
   ValueMap[&II] = LegalValue{NewInvoke};
 }
 
+void FunctionLegalizer::visitCatchSwitchInst(llvm::CatchSwitchInst &CSI) {
+
+  auto *ParentPad = getMappedValue(CSI.getParentPad())[0];
+
+  llvm::BasicBlock *UnwindBB = nullptr;
+  if (CSI.hasUnwindDest()) {
+    UnwindBB = llvm::dyn_cast<llvm::BasicBlock>(
+        getMappedValue(CSI.getUnwindDest())[0]);
+  }
+
+  auto *Switch =
+      Builder.CreateCatchSwitch(ParentPad, UnwindBB, CSI.getNumHandlers());
+
+  for (auto *Handler : CSI.handlers()) {
+    auto *LegalHandler =
+        llvm::dyn_cast<llvm::BasicBlock>(getMappedValue(Handler)[0]);
+    Switch->addHandler(LegalHandler);
+  }
+
+  ValueMap[&CSI] = LegalValue{Switch};
+}
+
 //===----------------------------------------------------------------------===//
 // Unary Operations
 //===----------------------------------------------------------------------===//

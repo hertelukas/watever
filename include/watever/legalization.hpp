@@ -260,6 +260,7 @@ public:
   void visitSwitchInst(llvm::SwitchInst &SI);
 
   void visitInvokeInst(llvm::InvokeInst &II);
+  void visitCatchSwitchInst(llvm::CatchSwitchInst &CSI);
   void visitUnreachableInst(llvm::UnreachableInst &UI) {
     ValueMap[&UI] = Builder.CreateUnreachable();
   }
