@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <llvm/ADT/APInt.h>
 #include <llvm/ADT/DenseMapInfo.h>
+#include <llvm/ADT/FloatingPointMode.h>
 #include <llvm/ADT/PostOrderIterator.h>
 #include <llvm/ADT/STLExtras.h>
 #include <llvm/ADT/SmallVector.h>
@@ -1900,7 +1901,6 @@ void FunctionLegalizer::visitIntrinsicInst(llvm::IntrinsicInst &II) {
   case llvm::Intrinsic::log: FPtoFPFuncName = "log"; break;
   case llvm::Intrinsic::log10: FPtoFPFuncName = "log10"; break;
   case llvm::Intrinsic::log2: FPtoFPFuncName = "log2"; break;
-  case llvm::Intrinsic::fabs: FPtoFPFuncName = "fabs"; break;
   case llvm::Intrinsic::round: FPtoFPFuncName = "round"; break;
     // clang-format on
   // Bit Manipulation Intrinsics

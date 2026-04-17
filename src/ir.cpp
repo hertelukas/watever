@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <llvm/ADT/DenseMap.h>
 #include <llvm/ADT/DenseSet.h>
+#include <llvm/ADT/FloatingPointMode.h>
 #include <llvm/ADT/STLExtras.h>
 #include <llvm/ADT/StringRef.h>
 #include <llvm/Analysis/AliasAnalysis.h>
@@ -405,6 +406,18 @@ void BlockLowering::handleIntrinsic(llvm::CallInst &CI) {
       WATEVER_UNIMPLEMENTED("sqrt with type {}", llvmToString(*Ty));
     }
     WorkList.push_back(CI.getArgOperand(0));
+    return;
+  }
+  case llvm::Intrinsic::fabs: {
+    auto *Ty = CI.getArgOperand(0)->getType();
+    if (Ty->isFloatTy()) {
+      Actions.Insts.emplace_back(Opcode::F32Abs);
+    } else if (Ty->isDoubleTy()) {
+      Actions.Insts.emplace_back(Opcode::F64Abs);
+    } else {
+      WATEVER_UNIMPLEMENTED("fabs with type {}", llvmToString(*Ty));
+    }
+    WorkList.push_back(CI.getOperand(0));
     return;
   }
   case llvm::Intrinsic::minimum: {
