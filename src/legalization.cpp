@@ -2753,7 +2753,7 @@ llvm::PreservedAnalyses LegalizationPass::run(llvm::Module &Mod,
           llvm::Function *NewFn = It->second;
 
           if (OldPers != OldFn) {
-	    // Rewrap in bitcast
+            // Rewrap in bitcast
             NewPers = llvm::ConstantExpr::getBitCast(NewFn, OldPers->getType());
           } else {
             NewPers = NewFn;

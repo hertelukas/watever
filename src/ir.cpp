@@ -1765,7 +1765,8 @@ void BlockLowering::lower() {
       Parent.Body.Insts.emplace_back(Opcode::LocalSet, LocalArg(It->second));
     } else {
       LastSetRoot = std::nullopt;
-      if (Root->getNumUses() > 0) {
+      // Tokens do not get a local, even if they have multiple uses
+      if (Root->getNumUses() > 0 && !Root->getType()->isTokenTy()) {
         WATEVER_UNREACHABLE(
             "Multi-use instruction {} did not have a local assigned to it",
             Root->getNameOrAsOperand());
@@ -1925,10 +1926,62 @@ void FunctionLowering::processTree(llvm::BasicBlock *Root, ValType FTy,
     }
     F.Body.appendBranchTable(std::move(Targets), DefaultIdx);
   } else if (auto *II = llvm::dyn_cast<llvm::InvokeInst>(Term)) {
+    // block
+    //   block () -> (i32, exnref)
+    //     try_table (catch_ref __cpp_exception 0)
+    //       call invoked
+    //       br 2 ;; to continue
+    //     end_try_table
+    //     unreachable ;; either jump to the catch block, or further outside
+    //   end
+    //   ;; Catch
+    // end
+
+    // () -> (i32, exnref)
+    auto InnerBlockTypeIndex = M.getOrAddType(
+        FuncType{.Params = {}, .Results = {ValType::I32, ValType::Exn}});
+
     // TODO correct branch target
+    F.Body.Insts.emplace_back(Opcode::Block,
+                              FuncBlockTypeArg{.Index = InnerBlockTypeIndex});
+    Ctx.Enclosing.push_back(II->getNormalDest());
+    Ctx.Enclosing.push_back(II->getUnwindDest());
+
     F.Body.appendCppCatchTable(M.getCppExceptionTag(), 0);
+
+    auto *Callee = II->getCalledFunction();
+    assert(!Callee->isIntrinsic() && "cannot invoke intrinsic");
+
+    if (!II->arg_empty()) {
+      WATEVER_UNIMPLEMENTED("invoke with arguments");
+    }
+
+    if (Callee) {
+      auto *Func = M.FunctionMap[Callee];
+      F.Body.Insts.emplace_back(Opcode::Call, RelocatableFuncArg(Func));
+    } else {
+      WATEVER_UNIMPLEMENTED("indirect invoke");
+    }
+
+    // TODO think about fallthrough here
+
+    WorkStack.push_back(PopContext{});
     WorkStack.push_back(
-        HandleEdge(Root, II->getNormalDest(), RootTy, NextFallthrough));
+        ProcessTree(II->getUnwindDest(), ValType::Void, II->getNormalDest()));
+
+    WorkStack.push_back(EmitOp{.Op = Opcode::End});
+
+    WorkStack.push_back(EmitOp{.Op = Opcode::Unreachable});
+    WorkStack.push_back(EmitOp{.Op = Opcode::End});
+    WorkStack.push_back(PopContext{});
+    WorkStack.push_back(HandleEdge(Root, II->getNormalDest(), RootTy, nullptr));
+  } else if (auto *CS = llvm::dyn_cast<llvm::CatchSwitchInst>(Term)) {
+    for (auto *Handler : CS->handlers()) {
+      WorkStack.push_back(ProcessTree(Handler, ValType::Void, nullptr));
+    }
+  } else if (auto *CR = llvm::dyn_cast<llvm::CatchReturnInst>(Term)) {
+    WorkStack.push_back(
+        HandleEdge(Root, CR->getSuccessor(), ValType::Void, nullptr));
   } else {
     WATEVER_UNREACHABLE("unsupported terminator: {}", Term->getOpcodeName());
   }
