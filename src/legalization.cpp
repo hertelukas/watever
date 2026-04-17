@@ -2426,7 +2426,27 @@ void FunctionLegalizer::visitIntrinsicInst(llvm::IntrinsicInst &II) {
     }
     // Singular masks
     if (Mask & llvm::fcSNan) {
-      WATEVER_UNIMPLEMENTED("signaling NaN check");
+      // Copied from what llc is doing
+      auto *TargetTy = Float->getType()->isDoubleTy() ? Int64Ty : Int32Ty;
+      auto *SignMask = llvm::ConstantInt::get(
+          TargetTy,
+          llvm::APInt::getLowBitsSet(TargetTy->getIntegerBitWidth(),
+                                     TargetTy->getIntegerBitWidth() - 1));
+      auto *Infinity = llvm::ConstantInt::get(
+          TargetTy,
+          Float->getType()->isDoubleTy() ? 0x7FF0000000000000 : 0x7F800000);
+
+      auto *QNaN = llvm::ConstantInt::get(
+          TargetTy,
+          Float->getType()->isDoubleTy() ? 0x7FF8000000000000 : 0x7FC00000);
+
+      auto *Reinterpreted = Builder.CreateBitCast(Float, TargetTy);
+
+      // Clear top bit
+      auto *Abs = Builder.CreateAnd(Reinterpreted, SignMask);
+      auto *Gt = Builder.CreateICmp(llvm::CmpInst::ICMP_SGT, Abs, Infinity);
+      auto *Lt = Builder.CreateICmp(llvm::CmpInst::ICMP_SLT, Abs, QNaN);
+      Conditions.push_back(Builder.CreateAnd(Gt, Lt));
     }
     if (Mask & llvm::fcQNan) {
       WATEVER_UNIMPLEMENTED("quiet NaN check");
