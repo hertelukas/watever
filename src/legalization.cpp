@@ -2449,7 +2449,20 @@ void FunctionLegalizer::visitIntrinsicInst(llvm::IntrinsicInst &II) {
       Conditions.push_back(Builder.CreateAnd(Gt, Lt));
     }
     if (Mask & llvm::fcQNan) {
-      WATEVER_UNIMPLEMENTED("quiet NaN check");
+      // Copied from what llc is doing
+      auto *TargetTy = Float->getType()->isDoubleTy() ? Int64Ty : Int32Ty;
+      auto *SignMask = llvm::ConstantInt::get(
+          TargetTy,
+          llvm::APInt::getLowBitsSet(TargetTy->getIntegerBitWidth(),
+                                     TargetTy->getIntegerBitWidth() - 1));
+      auto *Idk = llvm::ConstantInt::get(
+          TargetTy,
+          Float->getType()->isDoubleTy() ? 0x7FF7FFFFFFFFFFFF : 0x7FBFFFFF);
+
+      auto *Reinterpreted = Builder.CreateBitCast(Float, TargetTy);
+      auto *Abs = Builder.CreateAnd(Reinterpreted, SignMask);
+      auto *Gt = Builder.CreateICmp(llvm::CmpInst::ICMP_SGT, Abs, Idk);
+      Conditions.push_back(Gt);
     }
     if (Mask & llvm::fcNegInf) {
       Conditions.push_back(Builder.CreateFCmp(
