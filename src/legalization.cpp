@@ -494,7 +494,7 @@ void FunctionLegalizer::visitSwitchInst(llvm::SwitchInst &SI) {
               SwitchCond, llvm::ConstantInt::get(SwitchCond->getType(), Range));
           auto *SwitchBB = llvm::BasicBlock::Create(NewFunc->getContext(),
                                                     "sw.cluster", NewFunc);
-	  NewToOldBB[SwitchBB] = SI.getParent();
+          NewToOldBB[SwitchBB] = SI.getParent();
           Builder.CreateCondBr(InBounds, SwitchBB, DefaultDest);
           Builder.SetInsertPoint(SwitchBB);
         }
@@ -2394,6 +2394,86 @@ void FunctionLegalizer::visitIntrinsicInst(llvm::IntrinsicInst &II) {
   case llvm::Intrinsic::strip_invariant_group: {
     // Return a ptr, so just pass the argument through
     ValueMap[&II] = getMappedValue(II.getArgOperand(0));
+    return;
+  }
+  // Floating-Point Test Intrinsics
+  case llvm::Intrinsic::is_fpclass: {
+    auto *Float = getMappedValue(II.getOperand(0))[0];
+    auto *TestInt =
+        llvm::dyn_cast<llvm::ConstantInt>(getMappedValue(II.getOperand(1))[0]);
+    assert(TestInt &&
+           "expected second argument to is.fpclass to be integer constant");
+    if (!Float->getType()->isDoubleTy() && !Float->getType()->isFloatTy()) {
+      WATEVER_UNIMPLEMENTED("unsupported floating point type {} for is.fpclass",
+                            llvmToString(*Float->getType()));
+    }
+
+    auto Mask = TestInt->getZExtValue();
+    llvm::SmallVector<llvm::Value *, 2> Conditions;
+    // Special masks that can be handled more efficiently
+    if ((Mask & llvm::fcInf) == llvm::fcInf) {
+      Mask &= ~llvm::fcInf;
+      auto *Abs = Builder.CreateUnaryIntrinsic(llvm::Intrinsic::fabs, Float);
+      Conditions.push_back(
+          Builder.CreateFCmp(llvm::CmpInst::FCMP_OEQ, Abs,
+                             llvm::ConstantFP::getInfinity(Float->getType())));
+    }
+    if ((Mask & llvm::fcZero) == llvm::fcZero) {
+      Mask &= ~llvm::fcZero;
+      Conditions.push_back(
+          Builder.CreateFCmp(llvm::CmpInst::FCMP_OEQ, Float,
+                             llvm::ConstantFP::getZero(Float->getType())));
+    }
+    // Singular masks
+    if (Mask & llvm::fcSNan) {
+      WATEVER_UNIMPLEMENTED("signaling NaN check");
+    }
+    if (Mask & llvm::fcQNan) {
+      WATEVER_UNIMPLEMENTED("quiet NaN check");
+    }
+    if (Mask & llvm::fcNegInf) {
+      Conditions.push_back(Builder.CreateFCmp(
+          llvm::CmpInst::FCMP_OEQ, Float,
+          llvm::ConstantFP::getInfinity(Float->getType(), true)));
+    }
+    if (Mask & llvm::fcNegNormal) {
+      WATEVER_UNIMPLEMENTED("negative normal check");
+    }
+    if (Mask & llvm::fcNegSubnormal) {
+      WATEVER_UNIMPLEMENTED("negative subnormal check");
+    }
+    if (Mask & llvm::fcNegZero) {
+      WATEVER_UNIMPLEMENTED("negative zero check");
+    }
+    if (Mask & llvm::fcPosZero) {
+      WATEVER_UNIMPLEMENTED("positive zero check");
+    }
+    if (Mask & llvm::fcPosSubnormal) {
+      WATEVER_UNIMPLEMENTED("positive subnormal check");
+    }
+    if (Mask & llvm::fcPosNormal) {
+      WATEVER_UNIMPLEMENTED("positive normal check");
+    }
+    if (Mask & llvm::fcPosInf) {
+      Conditions.push_back(
+          Builder.CreateFCmp(llvm::CmpInst::FCMP_OEQ, Float,
+                             llvm::ConstantFP::getInfinity(Float->getType())));
+    }
+
+    if (Conditions.empty()) {
+      ValueMap[&II] = llvm::ConstantInt::get(Int32Ty, 0);
+      return;
+    }
+
+    llvm::Value *Res = Builder.CreateZExt(Conditions[0], Int32Ty);
+
+    if (Conditions.size() > 1) {
+      for (size_t I = 1; I < Conditions.size(); ++I) {
+        Res = Builder.CreateOr(Res, Builder.CreateZExt(Conditions[I], Int32Ty));
+      }
+    }
+
+    ValueMap[&II] = Res;
     return;
   }
   // General Intrinsics
