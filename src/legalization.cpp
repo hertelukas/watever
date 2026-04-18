@@ -1102,8 +1102,17 @@ void FunctionLegalizer::visitAtomicRMWInst(llvm::AtomicRMWInst &AI) {
   };
 
   switch (AI.getOperation()) {
-  case llvm::AtomicRMWInst::Xchg:
-    break;
+  case llvm::AtomicRMWInst::Xchg: {
+    auto LegalArg = getMappedValue(AI.getValOperand());
+    if (!LegalArg.isScalar()) {
+      WATEVER_UNIMPLEMENTED("non-scalar atomic rmw");
+    }
+    auto *Arg = LegalArg[0];
+    auto *Old = Builder.CreateLoad(Arg->getType(), PtrArg);
+    Builder.CreateStore(Arg, PtrArg);
+    ValueMap[&AI] = Old;
+    return;
+  }
   case llvm::AtomicRMWInst::Add: {
     return EmitBinOp(llvm::Instruction::BinaryOps::Add);
   }
