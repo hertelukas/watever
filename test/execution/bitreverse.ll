@@ -23,6 +23,11 @@ define i50 @test_bitreverse_i50(i50 %i) {
   ret i50 %res
 }
 
+define i51 @test_bitreverse_i51(i51 %i) {
+  %res = call i51 @llvm.bitreverse.i51(i51 %i)
+  ret i51 %res
+}
+
 define i64 @test_bitreverse_i64(i64 %i) {
   %res = call i64 @llvm.bitreverse.i64(i64 %i)
   ret i64 %res
@@ -35,9 +40,12 @@ entry:
 
   %i32 = call i32 @test_bitreverse_i32(i32 306150430)
   call i32 (ptr, ...) @printf(ptr @format, i32 %i32)
-  
+
   %i50 = call i50 @test_bitreverse_i50(i50 668572419319499)
   call i32 (ptr, ...) @printf(ptr @format, i50 %i50)
+
+  %i51 = call i51 @test_bitreverse_i51(i51 1938189557433765)
+  call i32 (ptr, ...) @printf(ptr @format, i51 %i51)
 
   %i64 = call i64 @test_bitreverse_i64(i64 1036033003542192604)
   call i32 (ptr, ...) @printf(ptr @format, i64 %i64)
@@ -47,4 +55,5 @@ entry:
 ; CHECK: 234731
 ; CHECK: 2017393736
 ; CHECK: 929756376735769
+; CHECK: 1456858304682555
 ; CHECK: 4288955101480814192
