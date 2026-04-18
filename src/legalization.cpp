@@ -1060,6 +1060,27 @@ void FunctionLegalizer::visitStoreInst(llvm::StoreInst &SI) {
   RecursiveStore(RecursiveStore, StoreType, 0, It);
 }
 
+void FunctionLegalizer::visitAtomicCmpXchgInst(llvm::AtomicCmpXchgInst &AI) {
+  if (Config.EnabledFeatures.atomics_enabled()) {
+    WATEVER_UNIMPLEMENTED("atomics support");
+  }
+
+  auto *PtrArg = getMappedValue(AI.getPointerOperand())[0];
+
+  auto LegalCmpArg = getMappedValue(AI.getCompareOperand());
+  auto LegalNewArg = getMappedValue(AI.getNewValOperand());
+  if (!LegalCmpArg.isScalar() || !LegalNewArg.isScalar()) {
+    WATEVER_UNIMPLEMENTED("non-atomic compare in cmpxchg");
+  }
+  auto *CmpArg = LegalCmpArg[0];
+  auto *NewArg = LegalNewArg[0];
+  auto *Current = Builder.CreateLoad(CmpArg->getType(), PtrArg);
+  auto *Cond = Builder.CreateICmp(llvm::CmpInst::ICMP_EQ, Current, CmpArg);
+  auto *Select = Builder.CreateSelect(Cond, NewArg, Current);
+  Builder.CreateStore(Select, PtrArg);
+  ValueMap[&AI] = LegalValue({Current, Cond});
+}
+
 void FunctionLegalizer::visitAtomicRMWInst(llvm::AtomicRMWInst &AI) {
   if (Config.EnabledFeatures.atomics_enabled()) {
     WATEVER_UNIMPLEMENTED("atomics support");
