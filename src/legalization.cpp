@@ -1904,6 +1904,76 @@ void FunctionLegalizer::visitIntrinsicInst(llvm::IntrinsicInst &II) {
   case llvm::Intrinsic::round: FPtoFPFuncName = "round"; break;
     // clang-format on
   // Bit Manipulation Intrinsics
+  case llvm::Intrinsic::bitreverse: {
+    auto LegalArg = getMappedValue(II.getArgOperand(0));
+    if (!LegalArg.isScalar()) {
+      WATEVER_UNIMPLEMENTED("non-scalar bitreverse");
+    }
+    auto *Arg = LegalArg[0];
+    auto *Ty = Arg->getType();
+    unsigned LegalWidth = Ty->getIntegerBitWidth();
+    unsigned OriginalWidth = II.getType()->getIntegerBitWidth();
+
+    if (LegalWidth > 64) {
+      WATEVER_UNIMPLEMENTED("bitreverse for > 64-bit integers");
+    }
+
+    llvm::Value *Result = Arg;
+    // bswap (see next intrinsic)
+    if (LegalWidth == 32) {
+      auto *Fshr = llvm::Intrinsic::getOrInsertDeclaration(
+          II.getModule(), llvm::Intrinsic::fshr, {Ty});
+      auto *Lower = Builder.CreateAnd(Result, 0xFF00FF);
+      auto *Upper = Builder.CreateCall(
+          Fshr, {Lower, Lower, llvm::ConstantInt::get(Ty, 8)});
+      auto *RotrHighToLow = Builder.CreateCall(
+          Fshr, {Result, Result, llvm::ConstantInt::get(Ty, 24)});
+      Lower = Builder.CreateAnd(RotrHighToLow, 0xFF00FF);
+      Result = Builder.CreateOr(Lower, Upper);
+    } else if (LegalWidth == 64) {
+      auto moveByte = [&](uint64_t Mask, int Shift) {
+        auto *Masked = Builder.CreateAnd(Result, Builder.getInt64(Mask));
+        if (Shift > 0)
+          return Builder.CreateShl(Masked, Shift);
+        return Builder.CreateLShr(Masked, -Shift);
+      };
+      llvm::Value *BswapRes = Builder.CreateShl(Result, 56);
+      for (uint32_t I = 1; I < 8; ++I) {
+        BswapRes = Builder.CreateOr(
+            BswapRes, moveByte(0xFFULL << (I * 8), 56 - (16 * I)));
+      }
+      Result = BswapRes;
+    }
+
+    // Bit level reverse
+    constexpr std::array<uint64_t, 3> Masks = {
+        0x0F0F0F0F0F0F0F0FULL, // 4-bit
+        0x3333333333333333ULL, // 2-bit
+        0x5555555555555555ULL  // 1-bit
+    };
+
+    constexpr std::array<unsigned, 3> Shifts = {4, 2, 1};
+
+    for (unsigned i = 0; i < 3; ++i) {
+      unsigned ShiftAmt = Shifts[i];
+      auto *Mask = llvm::ConstantInt::get(Ty, Masks[i]);
+
+      auto *ShiftedDown = Builder.CreateLShr(Result, ShiftAmt);
+      ShiftedDown = Builder.CreateAnd(ShiftedDown, Mask);
+
+      auto *Masked = Builder.CreateAnd(Result, Mask);
+      auto *ShiftedUp = Builder.CreateShl(Masked, ShiftAmt);
+
+      Result = Builder.CreateOr(ShiftedDown, ShiftedUp);
+    }
+
+    if (OriginalWidth < LegalWidth) {
+      Result = Builder.CreateLShr(Result, LegalWidth - OriginalWidth);
+    }
+
+    ValueMap[&II] = Result;
+    return;
+  }
   case llvm::Intrinsic::bswap: {
     auto *Arg = getMappedValue(II.getArgOperand(0))[0];
     if (Arg->getType()->isIntegerTy(32)) {
