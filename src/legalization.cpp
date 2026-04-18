@@ -200,10 +200,26 @@ LegalValue FunctionLegalizer::legalizeConstant(llvm::Constant *C) {
 }
 
 void FunctionLegalizer::fixupPHIs() {
+  // Maps the BB id to the index in the current PHI node
+  llvm::SmallVector<int, 0> BBToIndex;
+
   for (auto *OldPN : PHIsToFix) {
     LegalValue NewPNs = ValueMap[OldPN];
     auto *NewParentBB =
         llvm::cast<llvm::BasicBlock>(ValueMap[OldPN->getParent()][0]);
+
+    auto NumIncoming = OldPN->getNumIncomingValues();
+    bool UseMap = NumIncoming >= 32;
+
+    if (UseMap) {
+      if (BBToIndex.empty()) {
+        BBToIndex.resize(OldPN->getFunction()->getMaxBlockNumber() + 1, -1);
+      }
+
+      for (unsigned I = 0; I != NumIncoming; ++I) {
+        BBToIndex[OldPN->getIncomingBlock(I)->getNumber()] = I;
+      }
+    }
 
     // Iterate over predecessors
     for (auto *NewPred : llvm::predecessors(NewParentBB)) {
@@ -222,7 +238,9 @@ void FunctionLegalizer::fixupPHIs() {
           WATEVER_UNREACHABLE("PHI predecessor has no terminator");
         }
 
-        auto Idx = OldPN->getBasicBlockIndex(OldPred);
+        int Idx = UseMap ? BBToIndex[OldPred->getNumber()]
+                         : OldPN->getBasicBlockIndex(OldPred);
+
         if (Idx == -1) {
           WATEVER_UNREACHABLE("New incoming edge from unknown old predecessor");
         }
