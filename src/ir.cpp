@@ -1948,9 +1948,25 @@ void FunctionLowering::handleEdge(llvm::BasicBlock *Source,
   // Actions to be executed on the edge
   llvm::SmallVector<uint32_t> Destinations;
 
+  // In most cases, blocks are sorted in PHI nodes, so try to rely on that
+  int CacheIdx = -1;
+
   // Put all phi arguments on the stack
   for (auto &Phi : Target->phis()) {
-    auto *IncomingVal = Phi.getIncomingValueForBlock(Source);
+
+    // Recalculate the cached index of source, if needed
+    if (CacheIdx == -1 || (unsigned)CacheIdx >= Phi.getNumIncomingValues() ||
+        Phi.getIncomingBlock(CacheIdx) != Source) {
+      // This is linear and very expensive if we have a lot of predecessors
+      // (e.g., due to irreducible control flow)
+      CacheIdx = Phi.getBasicBlockIndex(Source);
+      if (CacheIdx == -1) {
+        WATEVER_UNREACHABLE("source edge not found in {}",
+                            Phi.getNameOrAsOperand());
+      }
+    }
+
+    auto *IncomingVal = Phi.getIncomingValue(CacheIdx);
     uint32_t DestLocal = F.getOrCreateLocal(&Phi, Source->getDataLayout());
     // Do not move anything into the target local - just keep it as is
     if (llvm::isa<llvm::PoisonValue>(IncomingVal) ||
