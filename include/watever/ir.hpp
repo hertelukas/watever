@@ -253,6 +253,7 @@ class FunctionLowering {
   llvm::DominatorTree &DT;
   llvm::LoopInfo &LI;
   Module &M;
+  llvm::SmallPtrSet<llvm::BasicBlock *, 32> MergeNodes;
 
   struct ProcessTree {
     llvm::BasicBlock *Root;
@@ -302,16 +303,7 @@ class FunctionLowering {
     if (llvm::pred_empty(BB) || BB->getSinglePredecessor()) {
       return false;
     }
-
-    unsigned ForwardEdges = 0;
-    for (auto *Pred : llvm::predecessors(BB)) {
-      // if BB dominates Pred, we are looking at a back edge; we are only
-      // interested in forward edges
-      if (!DT.dominates(BB, Pred)) {
-        ForwardEdges++;
-      }
-    }
-    return ForwardEdges >= 2;
+    return MergeNodes.contains(BB);
   }
 
   // reverse post order
@@ -334,6 +326,24 @@ public:
         DT.getRoot()->getParent());
     for (auto *BB : PROT) {
       RPOOrdering[BB] = Idx++;
+
+      // Calculate if this BB is a merge node
+      if (llvm::pred_empty(BB) || BB->getSinglePredecessor()) {
+        continue;
+      }
+
+      unsigned ForwardEdges = 0;
+      for (auto *Pred : llvm::predecessors(BB)) {
+        // if BB dominates Pred, we are looking at a back edge; we are only
+        // interested in forward edges
+        if (!DT.dominates(BB, Pred)) {
+          ForwardEdges++;
+          if (ForwardEdges > 1) {
+            MergeNodes.insert(BB);
+	    break;
+          }
+        }
+      }
     }
   }
 
