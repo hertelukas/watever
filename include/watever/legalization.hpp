@@ -269,10 +269,11 @@ public:
   // Memory Access and Addressing Operations
   void visitAllocaInst(llvm::AllocaInst &AI);
   llvm::Value *emitScalarLoad(llvm::Value *Ptr, llvm::Type *ResultType,
-                              llvm::Align Align);
+                              llvm::Align Align, bool isVolatile);
   void visitLoadInst(llvm::LoadInst &LI);
   void emitScalarStore(llvm::Value *Val, llvm::Value *Ptr,
-                       llvm::Type *StoreType, llvm::Align Align);
+                       llvm::Type *StoreType, llvm::Align Align,
+                       bool isVolatile);
   void visitStoreInst(llvm::StoreInst &SI);
   void visitAtomicCmpXchgInst(llvm::AtomicCmpXchgInst &AI);
   void visitAtomicRMWInst(llvm::AtomicRMWInst &AI);

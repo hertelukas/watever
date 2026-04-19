@@ -787,14 +787,15 @@ void FunctionLegalizer::visitAllocaInst(llvm::AllocaInst &AI) {
 
 llvm::Value *FunctionLegalizer::emitScalarLoad(llvm::Value *Ptr,
                                                llvm::Type *ResultType,
-                                               llvm::Align Align) {
+                                               llvm::Align Align,
+                                               bool isVolatile) {
 
   if (ResultType->isIntegerTy()) {
     const unsigned Width = ResultType->getIntegerBitWidth();
 
     // We can just load the int
     if (Width == 32 || Width == 64) {
-      return Builder.CreateAlignedLoad(ResultType, Ptr, Align);
+      return Builder.CreateAlignedLoad(ResultType, Ptr, Align, isVolatile);
     }
     if (Width > 64) {
       WATEVER_UNIMPLEMENTED("expanding load not supported");
@@ -818,7 +819,8 @@ llvm::Value *FunctionLegalizer::emitScalarLoad(llvm::Value *Ptr,
     }
 
     if (TypeToLoad) {
-      llvm::Value *Result = Builder.CreateAlignedLoad(TypeToLoad, Ptr, Align);
+      llvm::Value *Result =
+          Builder.CreateAlignedLoad(TypeToLoad, Ptr, Align, isVolatile);
 
       if (TypeToLoad != TargetType) {
         Result = Builder.CreateZExt(Result, TargetType);
@@ -831,7 +833,7 @@ llvm::Value *FunctionLegalizer::emitScalarLoad(llvm::Value *Ptr,
     llvm::Value *Result;
     // We want to build an i64 with the result
     if (Width > 32) {
-      Result = Builder.CreateLoad(Int32Ty, Ptr);
+      Result = Builder.CreateLoad(Int32Ty, Ptr, isVolatile);
       Result = Builder.CreateZExt(Result, Int64Ty);
       auto *PtrAsInt = Builder.CreatePtrToInt(Ptr, IntPtrTy);
       unsigned BytesLoaded = 4;
@@ -840,7 +842,8 @@ llvm::Value *FunctionLegalizer::emitScalarLoad(llvm::Value *Ptr,
         llvm::Value *NewPtrAsInt = Builder.CreateAdd(
             PtrAsInt, llvm::ConstantInt::get(IntPtrTy, BytesLoaded));
         llvm::Value *NewPtr = Builder.CreateIntToPtr(NewPtrAsInt, PtrTy);
-        llvm::Value *NextTwoBytes = Builder.CreateLoad(Int16Ty, NewPtr);
+        llvm::Value *NextTwoBytes =
+            Builder.CreateLoad(Int16Ty, NewPtr, isVolatile);
         NextTwoBytes = Builder.CreateZExt(NextTwoBytes, Int64Ty);
         llvm::Value *ShiftAmount =
             llvm::ConstantInt::get(Int64Ty, BytesLoaded * 8);
@@ -855,7 +858,7 @@ llvm::Value *FunctionLegalizer::emitScalarLoad(llvm::Value *Ptr,
         llvm::Value *NewPtrAsInt = Builder.CreateAdd(
             PtrAsInt, llvm::ConstantInt::get(IntPtrTy, BytesLoaded));
         llvm::Value *NewPtr = Builder.CreateIntToPtr(NewPtrAsInt, PtrTy);
-        llvm::Value *NextByte = Builder.CreateLoad(Int8Ty, NewPtr);
+        llvm::Value *NextByte = Builder.CreateLoad(Int8Ty, NewPtr, isVolatile);
         NextByte = Builder.CreateZExt(NextByte, Int64Ty);
         llvm::Value *ShiftAmount =
             llvm::ConstantInt::get(Int64Ty, BytesLoaded * 8);
@@ -865,7 +868,7 @@ llvm::Value *FunctionLegalizer::emitScalarLoad(llvm::Value *Ptr,
     } else {
       // Width is between 17 and 24
       // Load the lowest 16 bit
-      Result = Builder.CreateLoad(Int16Ty, Ptr);
+      Result = Builder.CreateLoad(Int16Ty, Ptr, isVolatile);
       Result = Builder.CreateZExt(Result, Int32Ty);
 
       // Load the next 8 bit; add two to the pointer
@@ -874,7 +877,7 @@ llvm::Value *FunctionLegalizer::emitScalarLoad(llvm::Value *Ptr,
       llvm::Value *NewPtrAsInt = Builder.CreateAdd(PtrAsInt, NextOffset);
       Ptr = Builder.CreateIntToPtr(NewPtrAsInt, PtrTy);
 
-      llvm::Value *NextByte = Builder.CreateLoad(Int8Ty, Ptr);
+      llvm::Value *NextByte = Builder.CreateLoad(Int8Ty, Ptr, isVolatile);
       NextByte = Builder.CreateZExt(NextByte, Int32Ty);
       NextByte = Builder.CreateShl(NextByte, 16);
       Result = Builder.CreateOr(Result, NextByte);
@@ -883,13 +886,13 @@ llvm::Value *FunctionLegalizer::emitScalarLoad(llvm::Value *Ptr,
   }
   if (ResultType->isFloatingPointTy()) {
     if (ResultType->isDoubleTy() || ResultType->isFloatTy()) {
-      return Builder.CreateAlignedLoad(ResultType, Ptr, Align);
+      return Builder.CreateAlignedLoad(ResultType, Ptr, Align, isVolatile);
     }
     WATEVER_UNIMPLEMENTED("handle load of unsupported floating point type {}",
                           llvmToString(*ResultType));
   }
   if (ResultType->isPointerTy()) {
-    return Builder.CreateAlignedLoad(PtrTy, Ptr, Align);
+    return Builder.CreateAlignedLoad(PtrTy, Ptr, Align, isVolatile);
   }
 
   WATEVER_UNIMPLEMENTED("scalar load of type {}", llvmToString(*ResultType));
@@ -920,7 +923,7 @@ void FunctionLegalizer::visitLoadInst(llvm::LoadInst &LI) {
         Ptr = llvm::CastInst::Create(llvm::Instruction::IntToPtr, Ptr, PtrTy);
         Builder.Insert(Ptr);
       }
-      Result.PushBack(emitScalarLoad(Ptr, Ty, CurrentAlign));
+      Result.PushBack(emitScalarLoad(Ptr, Ty, CurrentAlign, LI.isVolatile()));
       return;
     }
     if (auto *STy = llvm::dyn_cast<llvm::StructType>(Ty)) {
@@ -944,11 +947,11 @@ void FunctionLegalizer::visitLoadInst(llvm::LoadInst &LI) {
 
 void FunctionLegalizer::emitScalarStore(llvm::Value *Val, llvm::Value *Ptr,
                                         llvm::Type *StoreType,
-                                        llvm::Align Align) {
+                                        llvm::Align Align, bool isVolatile) {
   if (StoreType->isIntegerTy()) {
     const unsigned Width = StoreType->getIntegerBitWidth();
     if (Width == 32 || Width == 64) {
-      Builder.CreateAlignedStore(Val, Ptr, Align);
+      Builder.CreateAlignedStore(Val, Ptr, Align, isVolatile);
       return;
     }
 
@@ -971,13 +974,13 @@ void FunctionLegalizer::emitScalarStore(llvm::Value *Val, llvm::Value *Ptr,
 
     // Can't split
     if (Width > 32 + 16 + 8 || (Width < 32 && Width > 16 + 8)) {
-      Builder.CreateAlignedStore(ToStore, Ptr, Align);
+      Builder.CreateAlignedStore(ToStore, Ptr, Align, isVolatile);
       return;
     }
 
     if (Width > 32) {
       llvm::Value *LowestBytes = Builder.CreateTrunc(ToStore, Int32Ty);
-      Builder.CreateStore(LowestBytes, Ptr);
+      Builder.CreateStore(LowestBytes, Ptr, isVolatile);
 
       llvm::Value *PtrAsInt = Builder.CreatePtrToInt(Ptr, IntPtrTy);
 
@@ -989,7 +992,7 @@ void FunctionLegalizer::emitScalarStore(llvm::Value *Val, llvm::Value *Ptr,
         llvm::Value *NewPtr = Builder.CreateIntToPtr(NewPtrAsInt, PtrTy);
         llvm::Value *NextBytes = Builder.CreateLShr(ToStore, BytesStored * 8);
         NextBytes = Builder.CreateTrunc(NextBytes, Int16Ty);
-        Builder.CreateStore(NextBytes, NewPtr);
+        Builder.CreateStore(NextBytes, NewPtr, isVolatile);
         BytesStored += 2;
       }
       // If it wasn't wide enough (e.g., [33, 40]), we only need a 8-bit store
@@ -1000,13 +1003,13 @@ void FunctionLegalizer::emitScalarStore(llvm::Value *Val, llvm::Value *Ptr,
         llvm::Value *NewPtr = Builder.CreateIntToPtr(NewPtrAsInt, PtrTy);
         llvm::Value *NextByte = Builder.CreateLShr(ToStore, BytesStored * 8);
         NextByte = Builder.CreateTrunc(NextByte, Int8Ty);
-        Builder.CreateStore(NextByte, NewPtr);
+        Builder.CreateStore(NextByte, NewPtr, isVolatile);
       }
     } else {
       // We need to store at least a 16-bit
       if (Width > 8) {
         llvm::Value *LowestBytes = Builder.CreateTrunc(ToStore, Int16Ty);
-        Builder.CreateStore(LowestBytes, Ptr);
+        Builder.CreateStore(LowestBytes, Ptr, isVolatile);
       }
       if (Width <= 8 || Width > 16) {
         // We are storing higher bytes
@@ -1018,18 +1021,18 @@ void FunctionLegalizer::emitScalarStore(llvm::Value *Val, llvm::Value *Ptr,
           Ptr = Builder.CreateIntToPtr(IntPtr, PtrTy);
         }
         llvm::Value *LowestByte = Builder.CreateTrunc(ToStore, Int8Ty);
-        Builder.CreateStore(LowestByte, Ptr);
+        Builder.CreateStore(LowestByte, Ptr, isVolatile);
       }
     }
     return;
   }
   if (StoreType->isDoubleTy() || StoreType->isFloatTy()) {
-    Builder.CreateAlignedStore(Val, Ptr, Align);
+    Builder.CreateAlignedStore(Val, Ptr, Align, isVolatile);
     return;
   }
 
   if (StoreType->isPointerTy()) {
-    Builder.CreateAlignedStore(Val, Ptr, Align);
+    Builder.CreateAlignedStore(Val, Ptr, Align, isVolatile);
     return;
   }
 
@@ -1055,7 +1058,7 @@ void FunctionLegalizer::visitStoreInst(llvm::StoreInst &SI) {
             Ptr, llvm::ConstantInt::get(IntPtrTy, CurrentOffset));
         Ptr = Builder.CreateIntToPtr(Ptr, PtrTy);
       }
-      emitScalarStore(*ValIt, Ptr, Ty, CurrentAlign);
+      emitScalarStore(*ValIt, Ptr, Ty, CurrentAlign, SI.isVolatile());
       ++ValIt;
       return;
     }
