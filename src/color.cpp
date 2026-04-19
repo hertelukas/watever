@@ -301,6 +301,34 @@ bool FunctionColorer::mayWAR(llvm::Instruction *LI, llvm::Instruction *Root) {
 
 FunctionColorer::RootReason
 FunctionColorer::getRootReason(llvm::Instruction &I) {
+  // If I is used in another block, it needs to be materialized to a local
+  if (Target->hasExternalUser(&I, I.getParent())) {
+    return RootReason::ExternalUser;
+  }
+
+  // Loads are side-effect free. Nevertheless, they need to be executed in
+  // order.
+  if (auto *LI = llvm::dyn_cast<llvm::LoadInst>(&I)) {
+    // If the load is an expanding load, the sext/zext is the root
+    if (LI->getNumUses() == 1) {
+      auto *User = *LI->users().begin();
+      if (llvm::isa<llvm::ZExtInst>(User) || llvm::isa<llvm::SExtInst>(User)) {
+        // Safe to fold if non-volatile, or if the extension immediately follows
+        // the volatile load (as otherwise, there could be a side-effect
+        // instruction between the load and the extension: the load would have
+        // to be scheduled first. This should never happen for legalized
+        // extensions of packed types)
+        if (!LI->isVolatile() ||
+            LI->getNextNode() == llvm::cast<llvm::Instruction>(User)) {
+
+          return RootReason::None;
+        }
+      }
+    }
+    // This forces the load to be executed in order, without a WAR check.
+    return LI->isVolatile() ? RootReason::SideEffects : RootReason::Load;
+  }
+
   // Everything with side effects needs to be scheduled in order
   if (I.mayHaveSideEffects()) {
     return RootReason::SideEffects;
@@ -311,30 +339,14 @@ FunctionColorer::getRootReason(llvm::Instruction &I) {
     return RootReason::Terminator;
   }
 
-  // Also, if I is used in another block, it needs to be materialized to a local
-  if (Target->hasExternalUser(&I, I.getParent())) {
-    return RootReason::ExternalUser;
-  }
-
-  // Loads are side-effect free. Nevertheless, they need to be executed in
-  // order.
-  // TODO (A load would not need a to be a root, if we would know the first root
-  // scheduling it comes before any side-effect instruction.)
-  if (auto *LI = llvm::dyn_cast<llvm::LoadInst>(&I)) {
-    // If the load is an expanding load, the sext/zext is the root
-    if (LI->getNumUses() == 1) {
-      auto *User = *LI->users().begin();
-      if (llvm::isa<llvm::ZExtInst>(User) || llvm::isa<llvm::SExtInst>(User)) {
-        return RootReason::None;
-      }
-    }
-    return RootReason::Load;
-  }
-
   if (llvm::isa<llvm::ZExtInst>(I) || llvm::isa<llvm::SExtInst>(I)) {
     if (auto *LI = llvm::dyn_cast<llvm::LoadInst>(I.getOperand(0))) {
       if (LI->getNumUses() == 1) {
-        return RootReason::Load;
+        if (!LI->isVolatile() || LI->getNextNode() == &I) {
+          // If the load is volatile, the extension MUST be treated as a strict
+          // SideEffect so it bypasses the mayWAR un-rooting logic.
+          return LI->isVolatile() ? RootReason::SideEffects : RootReason::Load;
+        }
       }
     }
   }
