@@ -290,6 +290,11 @@ bool FunctionColorer::mayWAR(llvm::Instruction *LI, llvm::Instruction *Root) {
   auto LoadLoc = llvm::MemoryLocation::get(LI);
 
   for (auto *I = LI->getNextNode(); I != Root; I = I->getNextNode()) {
+    // WAR can only happen if an instruction writes from the location - other
+    // loads are fine
+    if (!I->mayWriteToMemory()) {
+      continue;
+    }
     auto MRI = AA.getModRefInfo(I, LoadLoc);
     if (llvm::isModSet(MRI)) {
       WATEVER_LOG_TRACE("{} might clobber {}", llvmToString(*I),
