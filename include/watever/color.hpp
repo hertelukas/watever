@@ -90,7 +90,6 @@ class FunctionColorer {
   RootReason getRootReason(llvm::Instruction &I);
   void computeBlockSchedule(llvm::BasicBlock *BB);
 
-  uint32_t getFreeLocal(ValType Type, const llvm::DenseSet<uint32_t> &Assigned);
   bool needsColor(llvm::Instruction &I);
   void color(llvm::BasicBlock *BB);
 

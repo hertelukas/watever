@@ -3,6 +3,7 @@
 #include "watever/type.hpp"
 #include "watever/utils.hpp"
 #include <algorithm>
+#include <llvm/ADT/BitVector.h>
 #include <llvm/ADT/DenseMap.h>
 #include <llvm/ADT/DenseSet.h>
 #include <llvm/ADT/MapVector.h>
@@ -538,25 +539,6 @@ void FunctionColorer::computeBlockSchedule(llvm::BasicBlock *BB) {
   }
 }
 
-uint32_t
-FunctionColorer::getFreeLocal(ValType Type,
-                              const llvm::DenseSet<uint32_t> &Assigned) {
-  for (auto &L : Target->Arguments[getLocalTypeIndex(Type)]) {
-    if (!Assigned.contains(L)) {
-      return L;
-    }
-  }
-
-  for (auto &L : Target->Locals[getLocalTypeIndex(Type)]) {
-    if (!Assigned.contains(L)) {
-      return L;
-    }
-  }
-
-  // Failed to find unused local
-  return Target->getNewLocal(Type);
-}
-
 bool FunctionColorer::needsColor(llvm::Instruction &I) {
   if (I.getType()->isVoidTy()) {
     return false;
@@ -595,12 +577,12 @@ void FunctionColorer::color(llvm::BasicBlock *Entry) {
   Worklist.push_back(Entry);
 
   while (!Worklist.empty()) {
+    llvm::BitVector Assigned(Target->LastLocal + 1);
     auto *BB = Worklist.pop_back_val();
     WATEVER_LOG_TRACE("Coloring block {}", getBlockName(BB));
     computeBlockSchedule(BB);
-    // TODO maybe it is cheaper to keep track of unassigned?
-    llvm::DenseSet<uint32_t> Assigned;
 
+    // Mark live-in as used
     for (auto *Val : LiveIn[BB->getNumber()]) {
       // Phi nodes are technically live-in but ignored by Hack
       if (auto *Phi = llvm::dyn_cast<llvm::PHINode>(Val)) {
@@ -609,8 +591,9 @@ void FunctionColorer::color(llvm::BasicBlock *Entry) {
       }
 
       // There might be values live-in which do not have a local
-      if (Target->LocalMapping.contains(Val)) {
-        Assigned.insert(Target->LocalMapping[Val]);
+      if (auto It = Target->LocalMapping.find(Val);
+          It != Target->LocalMapping.end()) {
+        Assigned.set(It->second);
       } else {
         // This is generally okay, however, it will force the lowering to use
         // a completely new local and should therefore not be the default. Can
@@ -620,16 +603,59 @@ void FunctionColorer::color(llvm::BasicBlock *Entry) {
       }
     }
 
+    // Locals freed in this block to be reused
+    std::array<llvm::SmallVector<uint32_t, 16>, NumLocalValTypes>
+        FreeLocalCache;
+
+    // All values below the cursor are either occupied, or in the cache (which
+    // we check first)
+    std::array<size_t, NumLocalValTypes> ArgCursor = {0};
+    std::array<size_t, NumLocalValTypes> LocalCursor = {0};
+
+    auto allocateLocal = [&](ValType Type) -> uint32_t {
+      auto TypeIdx = getLocalTypeIndex(Type);
+
+      if (!FreeLocalCache[TypeIdx].empty()) {
+        auto Local = FreeLocalCache[TypeIdx].pop_back_val();
+        // No resize needed, as we don't allocate anything
+        Assigned.set(Local);
+        return Local;
+      }
+
+      auto &Args = Target->Arguments[TypeIdx];
+      for (size_t &i = ArgCursor[TypeIdx]; i < Args.size(); ++i) {
+        if (!Assigned.test(Args[i])) {
+          Assigned.set(Args[i]);
+          return Args[i];
+        }
+      }
+
+      auto &Locals = Target->Locals[TypeIdx];
+      for (size_t &i = LocalCursor[TypeIdx]; i < Locals.size(); ++i) {
+        if (!Assigned.test(Locals[i])) {
+          Assigned.set(Locals[i]);
+          return Locals[i];
+        }
+      }
+
+      // Failed to find unused local
+      auto NewLocal = Target->getNewLocal(Type);
+      if (NewLocal >= Assigned.size()) {
+        Assigned.resize(NewLocal + 1);
+      }
+      Assigned.set(NewLocal);
+      return NewLocal;
+    };
+
     auto colorPromotedAlloca = [&](llvm::AllocaInst *AI) {
       if (Target->LocalMapping.contains(AI)) {
         return;
       }
       auto LocalType =
           fromLLVMType(AI->getAllocatedType(), BB->getDataLayout());
-      auto Local = getFreeLocal(LocalType, Assigned);
+      auto Local = allocateLocal(LocalType);
 
       Target->LocalMapping[AI] = Local;
-      Assigned.insert(Local);
 
       WATEVER_LOG_TRACE("Mapping promoted {} to local {}",
                         AI->getNameOrAsOperand(), Local);
@@ -640,9 +666,15 @@ void FunctionColorer::color(llvm::BasicBlock *Entry) {
       for (auto *Val : LastUses.lookup(&Inst)) {
         if (auto It = Target->LocalMapping.find(Val);
             It != Target->LocalMapping.end()) {
-          if (Assigned.erase(It->second)) {
-            WATEVER_LOG_TRACE("Unmapping {}", Val->getNameOrAsOperand());
+
+          if (It->second < Assigned.size()) {
+            Assigned.reset(It->second);
           }
+
+          auto LocalType = fromLLVMType(Val->getType(), BB->getDataLayout());
+          FreeLocalCache[getLocalTypeIndex(LocalType)].push_back(It->second);
+
+          WATEVER_LOG_TRACE("Unmapping {}", Val->getNameOrAsOperand());
         }
       }
       // This might be a load/store with a promoted alloca pointer, which has
@@ -667,9 +699,8 @@ void FunctionColorer::color(llvm::BasicBlock *Entry) {
       if (needsColor(Inst)) {
         auto LocalType = fromLLVMType(Inst.getType(), BB->getDataLayout());
 
-        auto Local = getFreeLocal(LocalType, Assigned);
+        auto Local = allocateLocal(LocalType);
         Target->LocalMapping[&Inst] = Local;
-        Assigned.insert(Local);
 
         WATEVER_LOG_TRACE("Mapping {} to local {}", Inst.getNameOrAsOperand(),
                           Target->LocalMapping[&Inst]);
