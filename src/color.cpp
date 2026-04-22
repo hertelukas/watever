@@ -681,10 +681,20 @@ void FunctionColorer::color(llvm::BasicBlock *Entry) {
             It != Target->LocalMapping.end()) {
 
           if (It->second < Assigned.size()) {
+            if (!Assigned.test(It->second)) {
+              WATEVER_UNREACHABLE("double free of local");
+            }
             Assigned.reset(It->second);
           }
 
-          auto LocalType = fromLLVMType(Val->getType(), BB->getDataLayout());
+          llvm::Type *Ty = Val->getType();
+          if (auto *AI = llvm::dyn_cast<llvm::AllocaInst>(Val)) {
+            if (PromotedAIStartBlocks.contains(AI)) {
+              Ty = AI->getAllocatedType();
+            }
+          }
+
+          auto LocalType = fromLLVMType(Ty, BB->getDataLayout());
           FreeLocalCache[getLocalTypeIndex(LocalType)].push_back(It->second);
 
           WATEVER_LOG_TRACE("Unmapping {}", Val->getNameOrAsOperand());
