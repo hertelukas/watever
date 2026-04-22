@@ -288,8 +288,16 @@ bool FunctionColorer::mayWAR(llvm::Instruction *LI, llvm::Instruction *Root) {
   }
 
   auto LoadLoc = llvm::MemoryLocation::get(LI);
+  const unsigned Threshold = 512;
+  unsigned Checks = 0;
 
   for (auto *I = LI->getNextNode(); I != Root; I = I->getNextNode()) {
+    // To ensure O(n), we cap the number of instructions we compare against at
+    // 512
+    if (Checks > Threshold) {
+      return true;
+    }
+    Checks++;
     // WAR can only happen if an instruction writes from the location - other
     // loads are fine
     if (!I->mayWriteToMemory()) {
