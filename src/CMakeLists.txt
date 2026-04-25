@@ -9,7 +9,8 @@ set(APP_SOURCES
   opcode-code-table.c
   printer.cpp
   symbol.cpp
-  FixFunctionBitcasts.cpp)
+  FixFunctionBitcasts.cpp
+  AddMissingPrototypes.cpp)
   
 add_library(${PROJECT_NAME}lib ${APP_SOURCES})
 

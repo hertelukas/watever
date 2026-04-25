@@ -1,3 +1,4 @@
+#include "watever/AddMissingPrototypes.hpp"
 #include "watever/FixFunctionBitcasts.hpp"
 #include <llvm/Analysis/CGSCCPassManager.h>
 #include <llvm/Analysis/LoopAnalysisManager.h>
@@ -215,6 +216,7 @@ int main(int argc, char *argv[]) {
 
     LegalizeMPM.addPass(
         llvm::createModuleToFunctionPassAdaptor(std::move(LegalizeFPM)));
+    LegalizeMPM.addPass(watever::AddMissingPrototypes());
     LegalizeMPM.addPass(watever::FixFunctionBitcastsPass());
     LegalizeMPM.addPass(watever::LegalizationPass(Config));
 
