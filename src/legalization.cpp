@@ -1653,8 +1653,6 @@ void FunctionLegalizer::visitCallInst(llvm::CallInst &CI) {
 
   // Resolve callee
   llvm::Value *NewCallee = nullptr;
-  // TODO For variadic functions, the call site might have a different type
-  // then our call instructions
   if (!OldCalledFunc) {
     // Indirect call
     auto CalledOp = getMappedValue(CI.getCalledOperand());

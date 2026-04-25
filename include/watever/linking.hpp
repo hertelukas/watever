@@ -454,7 +454,6 @@ struct ComdatInfo final : Subsection {
 struct Linking {
   // the version of linking metadata contained in this section (varuint32)
   const uint32_t Version = LinkingVersion;
-  // TODO ensure that symbol tables are in front of init func
   std::vector<std::unique_ptr<Subsection>> Subsections;
 };
 } // namespace watever

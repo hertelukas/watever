@@ -44,7 +44,6 @@ void BinaryWriter::writeFunctions() {
   llvm::raw_svector_ostream ContentOS(Content);
 
   // list(typeidx)
-  // TODO handle imports
   llvm::encodeULEB128(Mod.Functions.size(), ContentOS);
   for (auto &Func : Mod.Functions) {
     llvm::encodeULEB128(Func->TypeIndex, ContentOS);

@@ -1,7 +1,6 @@
 #pragma once
 
 #include "symbol.hpp"
-#include "watever/type.hpp"
 #include <llvm/ADT/DenseMap.h>
 #include <llvm/ADT/DenseSet.h>
 #include <llvm/ADT/EquivalenceClasses.h>
@@ -52,7 +51,6 @@ class FunctionColorer {
   llvm::DenseMap<llvm::Instruction *, llvm::SmallPtrSet<llvm::Value *, 8>>
       LastUses;
 
-  // TODO maybe use a better data structure for cache locality
   llvm::SmallVector<llvm::DenseMap<llvm::Value *, llvm::Instruction *>> DyingAt;
 
   llvm::EquivalenceClasses<llvm::Value *> Chunks;
