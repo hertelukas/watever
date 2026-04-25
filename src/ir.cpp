@@ -35,6 +35,7 @@
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/Support/Casting.h>
 #include <llvm/Support/MathExtras.h>
+#include <llvm/Support/TimeProfiler.h>
 #include <memory>
 #include <optional>
 #include <ranges>
@@ -2304,9 +2305,12 @@ Module ModuleLowering::convert(llvm::Module &Mod,
     auto &LI = FAM.getResult<llvm::LoopAnalysis>(F);
 
     if (C.DoColoring) {
-      FunctionColorer FC{F, WasmFunc, DT, AA, LI, FAM};
-      WATEVER_LOG_DBG("Coloring function {}", F.getName().str());
-      FC.run();
+      {
+	llvm::TimeTraceScope TimeScope("Color");
+        FunctionColorer FC{F, WasmFunc, DT, AA, LI, FAM};
+        WATEVER_LOG_DBG("Coloring function {}", F.getName().str());
+        FC.run();
+      }
     }
 
     WasmFunc->setupStackFrame(&F.front());

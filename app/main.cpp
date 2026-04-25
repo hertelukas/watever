@@ -235,14 +235,17 @@ int main(int argc, char *argv[]) {
       return 0;
     }
 
-    llvm::ModulePassManager OptimizePM;
-    llvm::FunctionPassManager FPM;
-    FPM.addPass(llvm::ADCEPass());
-    FPM.addPass(llvm::BreakCriticalEdgesPass());
+    {
+      llvm::TimeTraceScope TimeScope("Cleanup");
+      llvm::ModulePassManager OptimizePM;
+      llvm::FunctionPassManager FPM;
+      FPM.addPass(llvm::ADCEPass());
+      FPM.addPass(llvm::BreakCriticalEdgesPass());
 
-    OptimizePM.addPass(llvm::createModuleToFunctionPassAdaptor(std::move(FPM)));
-    OptimizePM.run(*Mod, MAM);
-
+      OptimizePM.addPass(
+          llvm::createModuleToFunctionPassAdaptor(std::move(FPM)));
+      OptimizePM.run(*Mod, MAM);
+    }
     if (LegalAndOpt) {
       Mod->print(*OS, nullptr);
       return 0;
