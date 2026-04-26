@@ -28,6 +28,7 @@ int main(void) {
   printf("exp(%.2f) = %.2f\n", 1.2, expf(1.2f));
   printf("exp2(%.2f) = %.2f\n", 3.0, exp2(3.0));
   printf("exp10(%.2f) = %.2f\n", 2.0, exp10f(2.0f));
+  printf("ldexp(%.2f, %d) = %.2f\n", 1.5, 3, ldexp(1.5, 3));
   printf("log(%.2f) = %.2f\n", 10.0, log(10.0));
   printf("log10(%.2f) = %.2f\n", 100.0, log10f(100.0f));
   printf("log2(%.2f) = %.2f\n", 8.0, log2(8.0));
@@ -50,6 +51,7 @@ int main(void) {
 // CHECK-NEXT: exp(1.20) = 3.32
 // CHECK-NEXT: exp2(3.00) = 8.00
 // CHECK-NEXT: exp10(2.00) = 100.00
+// CHECK-NEXT: ldexp(1.50, 3) = 12.00
 // CHECK-NEXT: log(10.00) = 2.30
 // CHECK-NEXT: log10(100.00) = 2.00
 // CHECK-NEXT: log2(8.00) = 3.00
