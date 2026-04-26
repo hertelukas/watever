@@ -131,7 +131,8 @@ LegalValue FunctionLegalizer::legalizeConstant(llvm::Constant *C) {
           "constant inttoptr does not have a constant as int operand");
     }
     if (CE->getOpcode() == llvm::Instruction::Sub ||
-        CE->getOpcode() == llvm::Instruction::Add) {
+        CE->getOpcode() == llvm::Instruction::Add ||
+        CE->getOpcode() == llvm::Instruction::Xor) {
       auto LHS = legalizeConstant(CE->getOperand(0));
       auto RHS = legalizeConstant(CE->getOperand(1));
       assert(LHS.isScalar() && RHS.isScalar() && "operands must be scalar");
