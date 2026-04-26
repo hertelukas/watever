@@ -1016,37 +1016,40 @@ void BlockLowering::visitStoreInst(llvm::StoreInst &SI) {
 
   if (StoreType->isIntegerTy()) {
     if (auto *TruncInst = llvm::dyn_cast<llvm::TruncInst>(SI.getOperand(0))) {
-      auto FromWidth =
-          TruncInst->getOperand(0)->getType()->getIntegerBitWidth();
-      auto ToWidth = TruncInst->getType()->getIntegerBitWidth();
+      // If the truncation is already in a local, do not try to inline
+      if (!Parent.LocalMapping.count(TruncInst)) {
+        auto FromWidth =
+            TruncInst->getOperand(0)->getType()->getIntegerBitWidth();
+        auto ToWidth = TruncInst->getType()->getIntegerBitWidth();
 
-      if (FromWidth == 64) {
-        if (ToWidth == 8) {
-          doGreedyMemOp(SI, Opcode::I64Store8);
-          WorkList.push_back(TruncInst->getOperand(0));
-          return;
+        if (FromWidth == 64) {
+          if (ToWidth == 8) {
+            doGreedyMemOp(SI, Opcode::I64Store8);
+            WorkList.push_back(TruncInst->getOperand(0));
+            return;
+          }
+          if (ToWidth == 16) {
+            doGreedyMemOp(SI, Opcode::I64Store16);
+            WorkList.push_back(TruncInst->getOperand(0));
+            return;
+          }
+          if (ToWidth == 32) {
+            doGreedyMemOp(SI, Opcode::I64Store32);
+            WorkList.push_back(TruncInst->getOperand(0));
+            return;
+          }
         }
-        if (ToWidth == 16) {
-          doGreedyMemOp(SI, Opcode::I64Store16);
-          WorkList.push_back(TruncInst->getOperand(0));
-          return;
-        }
-        if (ToWidth == 32) {
-          doGreedyMemOp(SI, Opcode::I64Store32);
-          WorkList.push_back(TruncInst->getOperand(0));
-          return;
-        }
-      }
-      if (FromWidth == 32) {
-        if (ToWidth == 8) {
-          doGreedyMemOp(SI, Opcode::I32Store8);
-          WorkList.push_back(TruncInst->getOperand(0));
-          return;
-        }
-        if (ToWidth == 16) {
-          doGreedyMemOp(SI, Opcode::I32Store16);
-          WorkList.push_back(TruncInst->getOperand(0));
-          return;
+        if (FromWidth == 32) {
+          if (ToWidth == 8) {
+            doGreedyMemOp(SI, Opcode::I32Store8);
+            WorkList.push_back(TruncInst->getOperand(0));
+            return;
+          }
+          if (ToWidth == 16) {
+            doGreedyMemOp(SI, Opcode::I32Store16);
+            WorkList.push_back(TruncInst->getOperand(0));
+            return;
+          }
         }
       }
     }
@@ -2306,7 +2309,7 @@ Module ModuleLowering::convert(llvm::Module &Mod,
 
     if (C.DoColoring) {
       {
-	llvm::TimeTraceScope TimeScope("Color");
+        llvm::TimeTraceScope TimeScope("Color");
         FunctionColorer FC{F, WasmFunc, DT, AA, LI, FAM};
         WATEVER_LOG_DBG("Coloring function {}", F.getName().str());
         FC.run();
