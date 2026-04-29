@@ -125,6 +125,43 @@ inline ValType fromLLVMType(llvm::Type *T, const llvm::DataLayout &DL) {
   default:
     break;
   }
+
+  // Otherwise, check for vectors
+  if (auto *VTy = llvm::dyn_cast<llvm::FixedVectorType>(T)) {
+    auto Count = VTy->getNumElements();
+    auto *ScalarTy = VTy->getScalarType();
+
+    if (Count == 16) {
+      // Support i8x16
+      if (ScalarTy == llvm::Type::getInt8Ty(T->getContext())) {
+        return ValType::V128;
+      }
+    }
+
+    if (Count == 8) {
+      // Support i16x8
+      if (ScalarTy == llvm::Type::getInt16Ty(T->getContext())) {
+        return ValType::V128;
+      }
+    }
+
+    if (Count == 4) {
+      // Support i32x4 and f32x4
+      if (ScalarTy == llvm::Type::getInt32Ty(T->getContext()) ||
+          ScalarTy == llvm::Type::getFloatTy(T->getContext())) {
+        return ValType::V128;
+      }
+    }
+
+    if (Count == 2) {
+      // Support i64x2 and f64x2
+      if (ScalarTy == llvm::Type::getInt64Ty(T->getContext()) ||
+          ScalarTy == llvm::Type::getDoubleTy(T->getContext())) {
+        return ValType::V128;
+      }
+    }
+  }
+
   WATEVER_UNREACHABLE("unsupported type {}", llvmToString(*T));
 }
 

@@ -83,7 +83,8 @@ void WasmInst::write(llvm::raw_ostream &OS, Relocation &Reloc,
           },
           [&](const LocalArg &A) {
             if (A.Index >= LocalMap.size() || LocalMap[A.Index] == ~0U) {
-              WATEVER_UNREACHABLE("Could not find mapping for local {}", A.Index);
+              WATEVER_UNREACHABLE("Could not find mapping for local {}",
+                                  A.Index);
             }
             llvm::encodeULEB128(LocalMap[A.Index], OS);
           },

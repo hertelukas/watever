@@ -418,8 +418,10 @@ uint32_t Opcode::getSimdLaneCount() const {
 void Opcode::writeBytes(llvm::raw_ostream &OS) const {
   if (hasPrefix()) {
     OS << getPrefix();
+    llvm::encodeULEB128(getCode(), OS);
+  } else {
+    OS << getCode();
   }
-  OS << getCode();
 }
 
 } // namespace watever

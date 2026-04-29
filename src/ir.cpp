@@ -671,64 +671,109 @@ void BlockLowering::visitUnaryOperator(llvm::UnaryOperator &UO) {
 //===----------------------------------------------------------------------===//
 void BlockLowering::visitBinaryOperator(llvm::BinaryOperator &BO) {
   const auto *Ty = BO.getType();
-  // TODO handle vectors
   const unsigned Width = Ty->getPrimitiveSizeInBits();
   bool Handled = true;
 
+  struct OpMapping {
+    std::optional<Opcode::Enum> S32, S64, V16, V8, V4, V2;
+  };
+
   addOperandsToWorklist(BO.operands());
 
-  auto Dispatch = [&](Opcode::Enum Op32, Opcode::Enum Op64) {
-    if (Width == 32 || Width == 1)
-      Actions.Insts.emplace_back(Op32);
-    else if (Width == 64)
-      Actions.Insts.emplace_back(Op64);
-    else
-      Handled = false;
+  auto Dispatch = [&](const OpMapping &Map) {
+    if (Ty->isVectorTy()) {
+      assert(M.Config.EnabledFeatures.simd128_enabled());
+      unsigned Elements =
+          llvm::cast<llvm::FixedVectorType>(Ty)->getNumElements();
+      if (Elements == 16 && Map.V16)
+        Actions.Insts.emplace_back(*Map.V16);
+      else if (Elements == 8 && Map.V8)
+        Actions.Insts.emplace_back(*Map.V8);
+      else if (Elements == 4 && Map.V4)
+        Actions.Insts.emplace_back(*Map.V4);
+      else if (Elements == 2 && Map.V2)
+        Actions.Insts.emplace_back(*Map.V2);
+      else
+        Handled = false;
+    } else {
+      if (Width <= 32 && Map.S32)
+        Actions.Insts.emplace_back(*Map.S32);
+      else if (Width == 64 && Map.S64)
+        Actions.Insts.emplace_back(*Map.S64);
+      else
+        Handled = false;
+    }
   };
 
   switch (BO.getOpcode()) {
   case llvm::Instruction::Add: {
-    Dispatch(Opcode::I32Add, Opcode::I64Add);
+    Dispatch({.S32 = Opcode::I32Add,
+              .S64 = Opcode::I64Add,
+              .V16 = Opcode::I8X16Add,
+              .V8 = Opcode::I16X8Add,
+              .V4 = Opcode::I32X4Add,
+              .V2 = Opcode::I64X2Add});
     break;
   }
   case llvm::Instruction::FAdd: {
-    Dispatch(Opcode::F32Add, Opcode::F64Add);
+    Dispatch({.S32 = Opcode::F32Add,
+              .S64 = Opcode::F64Add,
+              .V4 = Opcode::F32X4Add,
+              .V2 = Opcode::F64X2Add});
     break;
   }
   case llvm::Instruction::Sub: {
-    Dispatch(Opcode::I32Sub, Opcode::I64Sub);
+    Dispatch({.S32 = Opcode::I32Sub,
+              .S64 = Opcode::I64Sub,
+              .V16 = Opcode::I8X16Sub,
+              .V8 = Opcode::I16X8Sub,
+              .V4 = Opcode::I32X4Sub,
+              .V2 = Opcode::I64X2Sub});
     break;
   }
   case llvm::Instruction::FSub: {
-    Dispatch(Opcode::F32Sub, Opcode::F64Sub);
+    Dispatch({.S32 = Opcode::F32Sub,
+              .S64 = Opcode::F64Sub,
+              .V4 = Opcode::F32X4Sub,
+              .V2 = Opcode::F64X2Sub});
     break;
   }
   case llvm::Instruction::Mul: {
-    Dispatch(Opcode::I32Mul, Opcode::I64Mul);
+    Dispatch({.S32 = Opcode::I32Mul,
+              .S64 = Opcode::I64Mul,
+              .V8 = Opcode::I16X8Mul,
+              .V4 = Opcode::I32X4Mul,
+              .V2 = Opcode::I64X2Mul});
     break;
   }
   case llvm::Instruction::FMul: {
-    Dispatch(Opcode::F32Mul, Opcode::F64Mul);
+    Dispatch({.S32 = Opcode::F32Mul,
+              .S64 = Opcode::F64Mul,
+              .V4 = Opcode::F32X4Mul,
+              .V2 = Opcode::F64X2Mul});
     break;
   }
   case llvm::Instruction::UDiv: {
-    Dispatch(Opcode::I32DivU, Opcode::I64DivU);
+    Dispatch({.S32 = Opcode::I32DivU, .S64 = Opcode::I64DivU});
     break;
   }
   case llvm::Instruction::SDiv: {
-    Dispatch(Opcode::I32DivS, Opcode::I64DivS);
+    Dispatch({.S32 = Opcode::I32DivS, .S64 = Opcode::I64DivS});
     break;
   }
   case llvm::Instruction::FDiv: {
-    Dispatch(Opcode::F32Div, Opcode::F64Div);
+    Dispatch({.S32 = Opcode::F32Div,
+              .S64 = Opcode::F64Div,
+              .V4 = Opcode::F32X4Div,
+              .V2 = Opcode::F64X2Div});
     break;
   }
   case llvm::Instruction::URem: {
-    Dispatch(Opcode::I32RemU, Opcode::I64RemU);
+    Dispatch({.S32 = Opcode::I32RemU, .S64 = Opcode::I64RemU});
     break;
   }
   case llvm::Instruction::SRem: {
-    Dispatch(Opcode::I32RemS, Opcode::I64RemS);
+    Dispatch({.S32 = Opcode::I32RemS, .S64 = Opcode::I64RemS});
     break;
   }
   case llvm::Instruction::FRem: {
@@ -736,27 +781,57 @@ void BlockLowering::visitBinaryOperator(llvm::BinaryOperator &BO) {
     break;
   }
   case llvm::Instruction::Shl: {
-    Dispatch(Opcode::I32Shl, Opcode::I64Shl);
+    Dispatch({.S32 = Opcode::I32Shl,
+              .S64 = Opcode::I64Shl,
+              .V16 = Opcode::I8X16Shl,
+              .V8 = Opcode::I16X8Shl,
+              .V4 = Opcode::I32X4Shl,
+              .V2 = Opcode::I64X2Shl});
     break;
   }
   case llvm::Instruction::LShr: {
-    Dispatch(Opcode::I32ShrU, Opcode::I64ShrU);
+    Dispatch({.S32 = Opcode::I32ShrU,
+              .S64 = Opcode::I64ShrU,
+              .V16 = Opcode::I8X16ShrU,
+              .V8 = Opcode::I16X8ShrU,
+              .V4 = Opcode::I32X4ShrU,
+              .V2 = Opcode::I64X2ShrU});
     break;
   }
   case llvm::Instruction::AShr: {
-    Dispatch(Opcode::I32ShrS, Opcode::I64ShrS);
+    Dispatch({.S32 = Opcode::I32ShrS,
+              .S64 = Opcode::I64ShrS,
+              .V16 = Opcode::I8X16ShrS,
+              .V8 = Opcode::I16X8ShrS,
+              .V4 = Opcode::I32X4ShrS,
+              .V2 = Opcode::I64X2ShrS});
     break;
   }
   case llvm::Instruction::And: {
-    Dispatch(Opcode::I32And, Opcode::I64And);
+    Dispatch({.S32 = Opcode::I32And,
+              .S64 = Opcode::I64And,
+              .V16 = Opcode::V128And,
+              .V8 = Opcode::V128And,
+              .V4 = Opcode::V128And,
+              .V2 = Opcode::V128And});
     break;
   }
   case llvm::Instruction::Or: {
-    Dispatch(Opcode::I32Or, Opcode::I64Or);
+    Dispatch({.S32 = Opcode::I32Or,
+              .S64 = Opcode::I64Or,
+              .V16 = Opcode::V128Or,
+              .V8 = Opcode::V128Or,
+              .V4 = Opcode::V128Or,
+              .V2 = Opcode::V128Or});
     break;
   }
   case llvm::Instruction::Xor: {
-    Dispatch(Opcode::I32Xor, Opcode::I64Xor);
+    Dispatch({.S32 = Opcode::I32Xor,
+              .S64 = Opcode::I64Xor,
+              .V16 = Opcode::V128Xor,
+              .V8 = Opcode::V128Xor,
+              .V4 = Opcode::V128Xor,
+              .V2 = Opcode::V128Xor});
     break;
   }
   default:
