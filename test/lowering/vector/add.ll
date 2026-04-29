@@ -1,4 +1,6 @@
 ; RUN: watever -l 0 %s | wasm2wat - | FileCheck %s
+; TODO write tests which legalizes this
+; RUN: not --crash watever --disable-simd128 %s
 
 define <4 x i32> @foo(<4 x i32> %a, <4 x i32> %b) {
 ; CHECK-LABEL: foo

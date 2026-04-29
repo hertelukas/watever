@@ -1,4 +1,5 @@
 #include "watever/legalization.hpp"
+#include "watever/feature.hpp"
 #include "watever/utils.hpp"
 #include <algorithm>
 #include <cassert>
@@ -156,7 +157,8 @@ LegalValue FunctionLegalizer::legalizeConstant(llvm::Constant *C) {
 
   if (llvm::isa<llvm::PoisonValue>(C) || llvm::isa<llvm::UndefValue>(C)) {
     // Promote poison and undef to legal type, if needed
-    auto LegalTys = LegalizationPass::getLegalType(C->getType());
+    auto LegalTys =
+        LegalizationPass::getLegalType(C->getType(), Config.EnabledFeatures);
     llvm::SmallVector<llvm::Value *> Res;
 
     bool IsPoison = llvm::isa<llvm::PoisonValue>(C);
@@ -268,12 +270,14 @@ FunctionLegalizer::FunctionLegalizer(
     const llvm::DenseMap<llvm::Function *, llvm::Function *> &FuncMap)
     : Builder(B), Config(Config), FuncMap(FuncMap), NewFunc(NewFunc) {
 
-  bool IndirectReturn =
-      LegalizationPass::getLegalType(OldFunc->getReturnType()).size() > 1;
+  bool IndirectReturn = LegalizationPass::getLegalType(OldFunc->getReturnType(),
+                                                       Config.EnabledFeatures)
+                            .size() > 1;
 
   size_t I = IndirectReturn ? 1 : 0;
   for (auto &OldArg : OldFunc->args()) {
-    auto LegalArgType = LegalizationPass::getLegalType(OldArg.getType());
+    auto LegalArgType = LegalizationPass::getLegalType(OldArg.getType(),
+                                                       Config.EnabledFeatures);
 
     if (LegalArgType.size() == 1) {
       ValueMap[&OldArg] = LegalValue{NewFunc->getArg(I)};
@@ -738,7 +742,8 @@ void FunctionLegalizer::visitExtractValueInst(llvm::ExtractValueInst &EI) {
                               const unsigned int *IdxIt) {
     if (IdxIt == EI.idx_end()) {
       // Collect all scalar parts of the type
-      auto NumParts = LegalizationPass::getLegalType(Ty).size();
+      auto NumParts =
+          LegalizationPass::getLegalType(Ty, Config.EnabledFeatures).size();
       for (size_t I = 0; I < NumParts; ++I) {
         Result.PushBack(*OpIt++);
       }
@@ -750,14 +755,16 @@ void FunctionLegalizer::visitExtractValueInst(llvm::ExtractValueInst &EI) {
     if (auto *STy = llvm::dyn_cast<llvm::StructType>(Ty)) {
       for (unsigned I = 0; I < TargetIdx; ++I) {
         // Skip the type's value in the input operand
-        auto NumParts =
-            LegalizationPass::getLegalType(STy->getElementType(I)).size();
+        auto NumParts = LegalizationPass::getLegalType(STy->getElementType(I),
+                                                       Config.EnabledFeatures)
+                            .size();
         OpIt += NumParts;
       }
       Self(Self, STy->getElementType(TargetIdx), IdxIt + 1);
     } else if (auto *ATy = llvm::dyn_cast<llvm::ArrayType>(Ty)) {
       auto *ElemTy = ATy->getElementType();
-      auto ElementSize = LegalizationPass::getLegalType(ElemTy).size();
+      auto ElementSize =
+          LegalizationPass::getLegalType(ElemTy, Config.EnabledFeatures).size();
       OpIt += (ElementSize * TargetIdx);
       Self(Self, ElemTy, IdxIt + 1);
     } else {
@@ -1596,7 +1603,8 @@ void FunctionLegalizer::visitFCmpInst(llvm::FCmpInst &FCI) {
 }
 
 void FunctionLegalizer::visitPHINode(llvm::PHINode &PN) {
-  auto LegalTy = LegalizationPass::getLegalType(PN.getType());
+  auto LegalTy =
+      LegalizationPass::getLegalType(PN.getType(), Config.EnabledFeatures);
   unsigned NumIncoming = PN.getNumIncomingValues();
   llvm::SmallVector<llvm::Value *, 2> NewPHIs;
   for (llvm::Type *PartTy : LegalTy) {
@@ -1670,12 +1678,13 @@ void FunctionLegalizer::visitCallInst(llvm::CallInst &CI) {
     }
   }
 
-  auto *NewFuncTy =
-      LegalizationPass::getLegalFunctionType(CI.getFunctionType());
+  auto *NewFuncTy = LegalizationPass::getLegalFunctionType(
+      CI.getFunctionType(), Config.EnabledFeatures);
 
   llvm::SmallVector<llvm::Value *> NewArgs;
   // Handle indirect return value
-  if (!LegalizationPass::getLegalType(CI.getType()).isScalar()) {
+  if (!LegalizationPass::getLegalType(CI.getType(), Config.EnabledFeatures)
+           .isScalar()) {
     // TODO maybe allocate in entry block, so we can use a static allocation
     NewArgs.push_back(Builder.CreateAlloca(CI.getType()));
   }
@@ -2762,10 +2771,11 @@ void FunctionLegalizer::visitIntrinsicInst(llvm::IntrinsicInst &II) {
 }
 
 llvm::Function *LegalizationPass::createLegalFunction(llvm::Module &Mod,
-                                                      llvm::Function *OldFunc) {
-  llvm::Function *Fn =
-      llvm::Function::Create(getLegalFunctionType(OldFunc->getFunctionType()),
-                             OldFunc->getLinkage(), OldFunc->getName(), Mod);
+                                                      llvm::Function *OldFunc,
+                                                      const Features &F) {
+  llvm::Function *Fn = llvm::Function::Create(
+      getLegalFunctionType(OldFunc->getFunctionType(), F),
+      OldFunc->getLinkage(), OldFunc->getName(), Mod);
 
   // Copy all attributes of the function
   // TODO maybe handle parametere attributes too - however, they cannot just
@@ -2775,7 +2785,7 @@ llvm::Function *LegalizationPass::createLegalFunction(llvm::Module &Mod,
       Fn->getContext(), llvm::AttributeList::FunctionIndex, FnAttrs));
   Fn->setVisibility(OldFunc->getVisibility());
 
-  bool IndirectReturn = getLegalType(OldFunc->getReturnType()).size() > 1;
+  bool IndirectReturn = getLegalType(OldFunc->getReturnType(), F).size() > 1;
 
   size_t I = 0;
   if (IndirectReturn) {
@@ -2783,7 +2793,7 @@ llvm::Function *LegalizationPass::createLegalFunction(llvm::Module &Mod,
     ++I;
   }
   for (auto &OldArg : OldFunc->args()) {
-    auto LegalArgType = LegalizationPass::getLegalType(OldArg.getType());
+    auto LegalArgType = LegalizationPass::getLegalType(OldArg.getType(), F);
 
     if (LegalArgType.size() == 1) {
       Fn->getArg(I)->setName(OldArg.getName());
@@ -2803,8 +2813,9 @@ llvm::Function *LegalizationPass::createLegalFunction(llvm::Module &Mod,
 }
 
 llvm::FunctionType *
-LegalizationPass::getLegalFunctionType(llvm::FunctionType *OldFuncTy) {
-  auto LegalResultTy = getLegalType(OldFuncTy->getReturnType());
+LegalizationPass::getLegalFunctionType(llvm::FunctionType *OldFuncTy,
+                                       const Features &F) {
+  auto LegalResultTy = getLegalType(OldFuncTy->getReturnType(), F);
 
   llvm::Type *ResultTy = nullptr;
   llvm::SmallVector<llvm::Type *> Params;
@@ -2819,7 +2830,7 @@ LegalizationPass::getLegalFunctionType(llvm::FunctionType *OldFuncTy) {
   }
 
   for (auto *OldParamType : OldFuncTy->params()) {
-    auto LegalParamType = getLegalType(OldParamType);
+    auto LegalParamType = getLegalType(OldParamType, F);
     for (auto &Ty : LegalParamType) {
       Params.push_back(Ty);
     }
@@ -2833,7 +2844,7 @@ LegalizationPass::getLegalFunctionType(llvm::FunctionType *OldFuncTy) {
   return llvm::FunctionType::get(ResultTy, Params, false);
 }
 
-LegalType LegalizationPass::getLegalType(llvm::Type *Ty) {
+LegalType LegalizationPass::getLegalType(llvm::Type *Ty, const Features &F) {
   if (Ty->isVoidTy()) {
     return Ty;
   }
@@ -2864,7 +2875,7 @@ LegalType LegalizationPass::getLegalType(llvm::Type *Ty) {
 
   if (auto *ATy = llvm::dyn_cast<llvm::ArrayType>(Ty)) {
     llvm::SmallVector<llvm::Type *> Ts;
-    auto LegalElementType = getLegalType(ATy->getElementType());
+    auto LegalElementType = getLegalType(ATy->getElementType(), F);
     for (unsigned I = 0; I < ATy->getNumElements(); ++I) {
       for (auto *ElementTyPart : LegalElementType) {
         Ts.push_back(ElementTyPart);
@@ -2876,7 +2887,7 @@ LegalType LegalizationPass::getLegalType(llvm::Type *Ty) {
   if (auto *STy = llvm::dyn_cast<llvm::StructType>(Ty)) {
     llvm::SmallVector<llvm::Type *> Ts;
     for (auto *ElementTy : STy->elements()) {
-      auto LegalElementType = getLegalType(ElementTy);
+      auto LegalElementType = getLegalType(ElementTy, F);
       for (auto *ElementTyPart : LegalElementType) {
         Ts.push_back(ElementTyPart);
       }
@@ -2885,36 +2896,38 @@ LegalType LegalizationPass::getLegalType(llvm::Type *Ty) {
   }
 
   if (auto *VTy = llvm::dyn_cast<llvm::FixedVectorType>(Ty)) {
-    auto Count = VTy->getNumElements();
-    auto *ScalarTy = VTy->getScalarType();
+    if (F.simd128_enabled()) {
+      auto Count = VTy->getNumElements();
+      auto *ScalarTy = VTy->getScalarType();
 
-    if (Count == 16) {
-      // Support i8x16
-      if (ScalarTy == llvm::Type::getInt8Ty(Ty->getContext())) {
-        return Ty;
+      if (Count == 16) {
+        // Support i8x16
+        if (ScalarTy == llvm::Type::getInt8Ty(Ty->getContext())) {
+          return Ty;
+        }
       }
-    }
 
-    if (Count == 8) {
-      // Support i16x8
-      if (ScalarTy == llvm::Type::getInt16Ty(Ty->getContext())) {
-        return Ty;
+      if (Count == 8) {
+        // Support i16x8
+        if (ScalarTy == llvm::Type::getInt16Ty(Ty->getContext())) {
+          return Ty;
+        }
       }
-    }
 
-    if (Count == 4) {
-      // Support i32x4 and f32x4
-      if (ScalarTy == llvm::Type::getInt32Ty(Ty->getContext()) ||
-          ScalarTy == llvm::Type::getFloatTy(Ty->getContext())) {
-        return Ty;
+      if (Count == 4) {
+        // Support i32x4 and f32x4
+        if (ScalarTy == llvm::Type::getInt32Ty(Ty->getContext()) ||
+            ScalarTy == llvm::Type::getFloatTy(Ty->getContext())) {
+          return Ty;
+        }
       }
-    }
 
-    if (Count == 2) {
-      // Support i64x2 and f64x2
-      if (ScalarTy == llvm::Type::getInt64Ty(Ty->getContext()) ||
-          ScalarTy == llvm::Type::getDoubleTy(Ty->getContext())) {
-        return Ty;
+      if (Count == 2) {
+        // Support i64x2 and f64x2
+        if (ScalarTy == llvm::Type::getInt64Ty(Ty->getContext()) ||
+            ScalarTy == llvm::Type::getDoubleTy(Ty->getContext())) {
+          return Ty;
+        }
       }
     }
 
@@ -2940,7 +2953,8 @@ llvm::PreservedAnalyses LegalizationPass::run(llvm::Module &Mod,
 
   // Generate mapping, without bodies
   for (auto *F : FuncsToLegalize) {
-    auto *NewFunc = LegalizationPass::createLegalFunction(Mod, F);
+    auto *NewFunc =
+        LegalizationPass::createLegalFunction(Mod, F, Config.EnabledFeatures);
     NewFunc->takeName(F);
     FuncMap[F] = NewFunc;
   }
