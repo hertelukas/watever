@@ -2884,6 +2884,44 @@ LegalType LegalizationPass::getLegalType(llvm::Type *Ty) {
     return LegalType{Ts};
   }
 
+  if (auto *VTy = llvm::dyn_cast<llvm::FixedVectorType>(Ty)) {
+    auto Count = VTy->getNumElements();
+    auto *ScalarTy = VTy->getScalarType();
+
+    if (Count == 16) {
+      // Support i8x16
+      if (ScalarTy == llvm::Type::getInt8Ty(Ty->getContext())) {
+        return Ty;
+      }
+    }
+
+    if (Count == 8) {
+      // Support i16x8
+      if (ScalarTy == llvm::Type::getInt16Ty(Ty->getContext())) {
+        return Ty;
+      }
+    }
+
+    if (Count == 4) {
+      // Support i32x4 and f32x4
+      if (ScalarTy == llvm::Type::getInt32Ty(Ty->getContext()) ||
+          ScalarTy == llvm::Type::getFloatTy(Ty->getContext())) {
+        return Ty;
+      }
+    }
+
+    if (Count == 2) {
+      // Support i64x2 and f64x2
+      if (ScalarTy == llvm::Type::getInt64Ty(Ty->getContext()) ||
+          ScalarTy == llvm::Type::getDoubleTy(Ty->getContext())) {
+        return Ty;
+      }
+    }
+
+    WATEVER_UNIMPLEMENTED("Unsupported fixed vector type {}",
+                          llvmToString(*Ty));
+  }
+
   WATEVER_UNIMPLEMENTED("Unsupported type {}", llvmToString(*Ty));
 }
 
